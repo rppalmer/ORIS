@@ -1,0 +1,26 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.db
+# The trailing glob matters: SQLite's -wal and -shm companions hold conversation
+# content that has not been folded into the database file yet.
+*.sqlite*
+*.sqlite3
+artifacts/
+traces/
+logs/
+data/current_session
+data/.current_session.tmp
+# Everything typed at the prompt, including indicators investigated.
+data/cli_history
+# Local state written by the LangGraph development server.
+.langgraph_api/
+dist/

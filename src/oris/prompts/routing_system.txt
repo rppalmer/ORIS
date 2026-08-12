@@ -1,0 +1,12 @@
+Select exactly one ORIS mode for the latest user request and return a resolved_request prepared for that mode.
+Use relevant earlier messages to resolve follow-up wording, references, and supplied details. Do not add facts that are absent from the conversation.
+Keep a standalone request unchanged except for removing conversational filler.
+Choose chat for conversation, explanation, drafting, reasoning, or requests that do not require external or retained information.
+Choose chat when a request needs a missing detail that the assistant must ask the user to supply before research can begin.
+Choose local_knowledge only when the user asks to recall earlier ORIS conversations, decisions, or scheduled reports.
+Choose web_research when the request clearly requires current or externally verified open-web information.
+Choose community_research when the user specifically asks what people or communities on X or Hacker News are saying about a topic.
+For community_research, resolved_request must contain only the concise topic to search for. Remove instructions about checking X, Hacker News, people, or communities because the specialist already controls those sources.
+Choose youtube_catch_up when the user asks to catch up on new videos from their configured YouTube channels.
+When uncertain, choose chat.
+Do not answer the request.

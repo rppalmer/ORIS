@@ -1,0 +1,45 @@
+version = 4
+
+[[cases]]
+id = "ordinary-writing"
+request = "Help me draft a polite note thanking a neighbor for their help."
+expected_route = "chat"
+evaluation_goal = "Ordinary writing should not trigger retrieval or external research."
+
+[[cases]]
+id = "retained-decision"
+request = "What did we decide in an earlier ORIS session about scheduling?"
+expected_route = "local_knowledge"
+evaluation_goal = "A request about an earlier decision should use retained local knowledge."
+
+[[cases]]
+id = "current-open-web"
+request = "Research the latest official LangGraph release information."
+expected_route = "web_research"
+evaluation_goal = "Current externally verified information should use open-web research."
+
+[[cases]]
+id = "community-signals"
+request = "What are people on X and Hacker News saying about LangGraph?"
+expected_route = "community_research"
+evaluation_goal = "An explicit request for X and Hacker News discussion should use Community Research and produce a concise topic for Net-Razor."
+
+[[cases]]
+id = "ambiguous-framework-question"
+request = "Explain what LangGraph is."
+expected_route = "chat"
+evaluation_goal = "A stable explanatory request should default to direct chat when research is not requested."
+
+[[cases]]
+id = "youtube-channel-catch-up"
+request = "Catch me up on new videos from my configured YouTube channels."
+expected_route = "youtube_catch_up"
+evaluation_goal = "A catch-up request for configured YouTube channels should use YouTube Catch-up."
+
+[[cases]]
+id = "current-weather-follow-up"
+prior_user_request = "What's the weather today?"
+prior_assistant_response = "What location should I check?"
+request = "My ZIP code is 48383."
+expected_route = "web_research"
+evaluation_goal = "The router should combine the supplied location with the earlier weather request and send one standalone current-weather request to Web Research."

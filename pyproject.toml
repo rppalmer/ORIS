@@ -1,0 +1,49 @@
+[project]
+name = "oris"
+version = "0.1.0"
+description = "Orchestration, Research, and AnalysIS (ORIS): a local-first assistant."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "apscheduler>=3.11.3,<4.0",
+    "arize-phoenix-otel>=0.16.1",
+    "langchain-core>=1.5.0",
+    "langchain-mcp-adapters>=0.3.2,<0.4",
+    "langchain-openai>=1.4.0",
+    "langchain-tavily>=0.2.18",
+    "langgraph>=1.2,<2.0",
+    "langgraph-checkpoint-sqlite>=3.0,<4.0",
+    "openinference-instrumentation-langchain>=0.1.67",
+    "pydantic>=2.10,<3.0",
+    "pydantic-settings>=2.10,<3.0",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+oris = "oris.cli:main"
+oris-run-scheduled = "oris.scheduled_runs:main"
+oris-scheduler = "oris.scheduler:main"
+orisctl = "oris.launch_agent:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.29,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: tests that contact explicitly configured services",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM"]

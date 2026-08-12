@@ -1,0 +1,10 @@
+timezone = "America/Detroit"
+
+[[jobs]]
+id = "weekday-ai-news"
+enabled = true
+cron = "0 7 * * mon-fri"
+task = "web_research"
+prompt = "Research the most important AI-agent developments from yesterday."
+date_window = "previous_day"
+search_category = "news"

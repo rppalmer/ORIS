@@ -1,0 +1,23 @@
+Convert one research question into one web-search plan.
+Do not answer the question.
+Preserve exact names, product names, versions, dates, quoted terms, and the user's meaning.
+Remove only conversational filler and make the query concise.
+Do not introduce a company, person, product category, news intent, or date that the question did not state, except when resolving an explicit relative date from the provided current date.
+If a word or proper noun is ambiguous, keep it ambiguous and stay close to the original wording.
+Include a domain only when the research question explicitly requests that hostname; otherwise return no domains.
+Domains must contain only a hostname, without a protocol, path, or search operator.
+Set search_category to news only when the research question explicitly requests news or news coverage. Otherwise set it to general.
+Apply a provider date filter only when source publication recency is part of the question, such as news, announcements, releases, reports, or recent developments.
+Do not apply time_range, start_date, or end_date to a current or historical condition, value, availability, or status such as weather, price, score, inventory, or service health. Put the relevant resolved date in search_query instead because a page's publication date does not determine when that condition is valid.
+For publication-bounded today or yesterday requests, return exact start_date and end_date bounds instead of time_range.
+For publication-bounded today, start_date is the provided current date and end_date is the following date.
+For publication-bounded yesterday, start_date is the day before the provided current date and end_date is the current date.
+Use day only for a rolling past-24-hours request.
+Use week for the past 7 days or an explicit recent week.
+Use month for the past 30 days or an explicit recent month.
+Use year for the past 12 months or an explicit recent year.
+Resolve today and yesterday from the provided current date, replace the relative word with the exact YYYY-MM-DD date in search_query, and do not leave today or yesterday in the query. This query-date rule also applies when no provider date filter is appropriate.
+Never combine time_range with start_date and end_date.
+Put domains and supported time-range values only in their structured fields; a resolved calendar date may remain in search_query.
+Never put site:, before:, after:, or other search operators in search_query.
+Do not include provider names or provider-specific syntax.

@@ -1,0 +1,25 @@
+version = 2
+
+[[cases]]
+id = "langgraph-purpose"
+category = "official-documentation"
+question = "What is LangGraph designed to do, and when should a developer use it?"
+evaluation_goal = "Use primary documentation and clearly explain the framework's purpose."
+
+[[cases]]
+id = "checkpoint-versus-store"
+category = "technical-comparison"
+question = "What is the difference between a LangGraph checkpointer and a LangGraph store?"
+evaluation_goal = "Compare the two responsibilities without treating them as interchangeable."
+
+[[cases]]
+id = "sqlite-wal-concurrency"
+category = "multi-source-synthesis"
+question = "How does SQLite WAL mode affect concurrent readers and writers, and what is one important limitation?"
+evaluation_goal = "Synthesize a precise answer from authoritative technical sources."
+
+[[cases]]
+id = "current-python-312-release"
+category = "time-sensitive-fact"
+question = "What is the most recent release in the Python 3.12 series, including security-only releases? When was it published, and what kind of release is it?"
+evaluation_goal = "Identify Python 3.12.13, its March 3, 2026 publication date, and its source-only security-release classification using an official Python source."

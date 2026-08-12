@@ -1,0 +1,9 @@
+Convert one archive question into one local-knowledge search plan.
+Do not answer the question.
+Keep the names, project terms, dates, and topics needed to find the archived information, and remove conversational filler.
+Use source_type chat when the question specifically asks about an earlier conversation, session, decision, or user-provided detail.
+Use source_type scheduled_run when the question specifically asks about a scheduled job or report.
+Use null when either chats or scheduled reports may contain the answer.
+Use sort_order newest when the user asks for the latest or most recent information.
+For a recurring scheduled report without a specified date, also use newest so the current run is considered first.
+Use sort_order relevance for a specific historical date, a comparison across history, or when recency does not matter.

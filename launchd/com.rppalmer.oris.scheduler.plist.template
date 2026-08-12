@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>${scheduler_executable}</string>
+        <string>--schedule-file</string>
+        <string>${schedule_file}</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>${project_root}</string>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Umask</key>
+    <string>077</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>${stdout_path}</string>
+
+    <key>StandardErrorPath</key>
+    <string>${stderr_path}</string>
+</dict>
+</plist>

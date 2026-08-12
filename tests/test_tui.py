@@ -49,3 +49,38 @@ def test_tui_imports_nothing_from_the_rest_of_oris() -> None:
     ]
 
     assert offending == []
+
+
+def test_span_pane_follows_the_selected_turn() -> None:
+    """A static detail pane beside a list of turns is a lie about what it shows."""
+
+    async def drive() -> tuple[str, str]:
+        app = OrisTui()
+        async with app.run_test(size=(110, 26)) as pilot:
+            await pilot.press("2")
+            await pilot.pause()
+            table = app.query_one("#turns")
+            first = app.query_one("#span-detail").lines[0].text
+            table.move_cursor(row=3)
+            await pilot.pause()
+            return first, app.query_one("#span-detail").lines[0].text
+
+    opening, after = asyncio.run(drive())
+
+    assert "/threat enrich" in opening
+    assert "/community" in after
+
+
+def test_evidence_opens_from_the_selected_turn_without_typing_an_id() -> None:
+    """Typing a six-character ID is a CLI limitation, not a thing to reproduce."""
+
+    async def drive() -> str:
+        app = OrisTui()
+        async with app.run_test(size=(110, 26)) as pilot:
+            await pilot.press("2")
+            await pilot.pause()
+            await pilot.press("e")
+            await pilot.pause()
+            return app.screen.__class__.__name__
+
+    assert asyncio.run(drive()) == "EvidenceScreen"

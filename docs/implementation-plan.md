@@ -129,7 +129,19 @@ treated as accepted precedent.
   mini. If it is needed, give Phoenix its own LaunchAgent and expose its
   lifecycle through `orisctl phoenix <action>`. Do not make scheduler health
   depend on Phoenix health.
+- The terminal interface, paused deliberately on 2026-08-12. `uv run oris-tui`
+  is an unwired mock: the layout and interactions were accepted, and the
+  decision to build it for real waits on a few days of ordinary CLI use. Build
+  it only if the cost-beside-the-conversation view turns out to be something
+  worth having; if the instinct in the moment is to open Phoenix instead, the
+  answer is no and the mock should be deleted rather than left to rot.
+  Watch for, while using the CLI: whether the per-turn cost line gets read,
+  whether sessions need switching rather than just resuming, and whether the
+  twenty-second wait wants streaming and a cancel key.
 - Session listing, naming, and switching if the interface demonstrates a need.
+  The mock demonstrated it; the data is already in `checkpoints.sqlite` and only
+  needs querying. Deletion is the part that needs a decision rather than code:
+  what happens to `knowledge.sqlite` rows whose `source_ref` is that thread.
 - Selected session deletion with an explicit decision about associated
   searchable knowledge.
 - A confirmed administrative backup-and-reset operation for all local state.

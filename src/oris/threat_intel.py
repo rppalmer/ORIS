@@ -465,24 +465,33 @@ def create_threat_intel_graph(
                 },
             )
 
-        return {
+        updates: dict[str, object] = {
             "evidence": evidence,
             "indicators": enriched,
             "source_status": _source_status(evidence),
         }
+        # Stored on every path, not just the report one. The evidence was
+        # collected either way, and a summary always prompts the question the
+        # summary cannot answer: what exactly did that source say. Without this
+        # the answer is "re-run it and pay again".
+        if report_store is not None:
+            stored = report_store.save(state["request"], evidence)
+            updates["report_id"] = stored.report_id
+            updates["report_path"] = str(stored.path)
+        return updates
 
     def compile_report(state: ThreatIntelState) -> dict[str, object]:
         """Return the evidence itself, pivoted, with no model call at all.
 
         Nothing is summarised, so nothing is lost to summarising, and the answer
         cannot be wrong about the data because no model wrote it. The complete
-        provider responses are written to the store rather than returned: they
-        are several times larger than the pivot and would cost context on every
-        later turn if they entered the conversation.
+        provider responses were already written to the store by the collection
+        step; they are several times larger than the pivot and would cost
+        context on every later turn if they entered the conversation.
         """
         report = build_report(state["evidence"])
         answered = len(state["source_status"]) - len(report.get("no_answer", {}))
-        updates: dict[str, object] = {
+        return {
             "report": report,
             "answer": (
                 f"Evidence report for {state['request']}: "
@@ -490,11 +499,6 @@ def create_threat_intel_graph(
             ),
             "sources_used": sorted(state["source_status"]),
         }
-        if report_store is not None:
-            stored = report_store.save(state["request"], state["evidence"])
-            updates["report_id"] = stored.report_id
-            updates["report_path"] = str(stored.path)
-        return updates
 
     def route_after_evidence(state: ThreatIntelState) -> str:
         return "compile_report" if state.get("report_only") else "synthesize_answer"

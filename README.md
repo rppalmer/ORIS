@@ -94,9 +94,10 @@ you want an explicit path:
   indicator to third-party providers and consumes API credits.
 - `/threat ref <term>` — force defensive reference lookup only across ATT&CK,
   KEV, LOLBAS, and NVD. Stays local; nothing egresses. `mitre` is an alias.
-- `/threat show <id> [source]` — print a stored evidence report in the
-  terminal, optionally one provider only. Never sent to the model, so a
-  large report costs nothing in context.
+- `/threat show [id] [source]` — print stored evidence in the terminal, newest
+  report by default, optionally one provider only. Every `/threat` run stores
+  its evidence, so this always works. Never sent to the model, so a large
+  report costs nothing in context.
 - `/help` — show the command list.
 - `/session` — show the active conversation ID.
 - `/new` — start a blank conversation without deleting older sessions.

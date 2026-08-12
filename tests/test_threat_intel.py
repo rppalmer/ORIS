@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -347,6 +349,37 @@ def test_threat_intel_rejects_an_answer_that_cites_nothing() -> None:
 
     with pytest.raises(ValueError, match="must cite at least one evidence key"):
         asyncio.run(graph.ainvoke({"request": "enrich 45.83.192.4"}))
+
+
+def test_evidence_is_stored_even_when_a_summary_was_asked_for() -> None:
+    """A summary always prompts "what exactly did that source say".
+
+    Storing only on the report path meant the answer was "re-run it and pay
+    again", so collection stores on every path.
+    """
+    extract, enrich, lookup, search, model = make_dependencies(
+        iocs(ips=["8.8.8.8"]),
+        ThreatIntelAnswer(answer="Clean.", sources_used=("8.8.8.8",)),
+    )
+    saved: dict[str, object] = {}
+
+    class Store:
+        retention_days = 30
+
+        def save(self, request, evidence, **_kwargs):
+            saved["request"] = request
+            saved["evidence"] = evidence
+            return SimpleNamespace(report_id="abc123", path=Path("/tmp/r.json"))
+
+    graph = create_threat_intel_graph(
+        extract, enrich, lookup, search, model, report_store=Store()
+    )
+
+    result = asyncio.run(graph.ainvoke({"request": "enrich 8.8.8.8"}))
+
+    assert result["report_id"] == "abc123"
+    assert saved["request"] == "8.8.8.8"
+    assert "8.8.8.8" in saved["evidence"]
 
 
 def test_report_keyword_returns_evidence_without_calling_the_model() -> None:

@@ -70,7 +70,7 @@ def test_command_help_shows_bracketed_usage_verbatim(capsys) -> None:
 
     printed = capsys.readouterr().out
     assert "[report] [enrich|ref] <target>" in printed
-    assert "/threat show <id> [source]" in printed
+    assert "/threat show [id] [source]" in printed
 
 
 def test_banner_falls_back_to_plain_text_when_not_a_terminal(capsys) -> None:

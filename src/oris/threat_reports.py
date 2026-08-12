@@ -113,6 +113,31 @@ class ThreatReportStore:
             removed += 1
         return removed
 
+    def latest(self) -> dict[str, Any] | None:
+        """Return the most recent stored report.
+
+        `/threat show` with no ID means "the one I just ran", which is what a
+        reader asking for detail almost always wants.
+        """
+        newest = self._newest_path()
+        if newest is None:
+            return None
+        try:
+            document = json.loads(newest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return document if isinstance(document, dict) else None
+
+    def _newest_path(self) -> Path | None:
+        if not self.directory.is_dir():
+            return None
+        dated = [
+            (created_at, path)
+            for path in self.directory.glob("*.json")
+            if (created_at := _created_at(path)) is not None
+        ]
+        return max(dated)[1] if dated else None
+
     def _path_for(self, report_id: str) -> Path | None:
         wanted = report_id.strip().casefold()
         if not wanted or not self.directory.is_dir():

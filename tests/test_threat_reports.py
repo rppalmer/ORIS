@@ -106,3 +106,17 @@ def test_unrelated_files_in_the_directory_are_left_alone(tmp_path) -> None:
 def test_retention_must_be_at_least_one_day(tmp_path) -> None:
     with pytest.raises(ValueError, match="at least one day"):
         ThreatReportStore(tmp_path, retention_days=0)
+
+
+def test_latest_returns_the_most_recent_report(tmp_path) -> None:
+    """`/threat show` with no ID means the one just run."""
+    store = ThreatReportStore(tmp_path, retention_days=36500)
+    now = datetime(2026, 8, 11, tzinfo=UTC)
+    store.save("enrich 1.1.1.1", EVIDENCE, now=now - timedelta(days=2))
+    store.save("enrich 2.2.2.2", EVIDENCE, now=now)
+
+    assert store.latest()["request"] == "enrich 2.2.2.2"
+
+
+def test_latest_is_none_before_anything_is_stored(tmp_path) -> None:
+    assert ThreatReportStore(tmp_path, retention_days=30).latest() is None

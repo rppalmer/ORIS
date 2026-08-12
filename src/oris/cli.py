@@ -70,7 +70,10 @@ SLASH_COMMANDS = {
     ),
 }
 SIMPLE_COMMANDS = (
-    ("/threat show <id> [source]", "Print a stored evidence report, not sent to chat."),
+    (
+        "/threat show [id] [source]",
+        "Print stored evidence, newest by default. Not sent to chat.",
+    ),
     ("/session", "Show the active session ID."),
     ("/new", "Start a new conversation session."),
     ("/help", "Show these commands."),
@@ -173,12 +176,14 @@ def show_threat_report(
     conversation, the checkpoint database, or any later prompt.
     """
     report_id, _, wanted_source = arguments.partition(" ")
-    document = store.load(report_id.strip())
+    report_id = report_id.strip()
+    # No ID means the one just run, which is what asking for detail usually is.
+    document = store.latest() if not report_id else store.load(report_id)
     if document is None:
+        missing = f"No stored report {report_id!r}." if report_id else "No reports yet."
         console.print(
             Text(
-                f"No stored report {report_id.strip()!r}. "
-                f"Reports are kept for {store.retention_days} days.",
+                f"{missing} Reports are kept for {store.retention_days} days.",
                 style="yellow",
             )
         )
@@ -269,8 +274,6 @@ async def run_chat(
                 console.print(
                     Text("Stored evidence reports are not configured.", style="yellow")
                 )
-            elif not arguments:
-                console.print(Text("Usage: /threat show <id> [source]", style="yellow"))
             else:
                 show_threat_report(console, threat_report_store, arguments)
             continue

@@ -21,9 +21,16 @@ dependencies = [
 
 [project.scripts]
 oris = "oris.cli:main"
+oris-tui = "oris.tui:main"
 oris-run-scheduled = "oris.scheduled_runs:main"
 oris-scheduler = "oris.scheduler:main"
 orisctl = "oris.launch_agent:main"
+
+# Optional on purpose. The terminal interface is an unproven spike: it has its
+# own entry point, touches nothing the `oris` command uses, and is removed by
+# deleting src/oris/tui.py, this extra, and the oris-tui script.
+[project.optional-dependencies]
+tui = ["textual>=0.80"]
 
 [dependency-groups]
 dev = [

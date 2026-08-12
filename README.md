@@ -192,6 +192,21 @@ and retains its results for review. Task-specific system prompts are
 version-controlled in `src/oris/prompts/` and are loaded when the
 application starts.
 
+## Terminal interface spike
+
+An unwired placeholder of a tabbed terminal interface exists so the layout can
+be judged before any of it is built. Every value it shows is invented.
+
+```shell
+uv sync --extra tui
+uv run oris-tui
+```
+
+It is deliberately disposable: `src/oris/tui.py` imports nothing from the rest
+of ORIS, `textual` is an optional extra rather than a dependency, and the `oris`
+command is untouched. Removing it is deleting that file, the `tui` extra in
+`pyproject.toml`, the `oris-tui` script, and `tests/test_tui.py`.
+
 `langgraph.json` exposes `oris`, `web_research`, and
 `community_research` for local LangGraph development-server or Studio use. The
 normal CLI and scheduler do not depend on that server.

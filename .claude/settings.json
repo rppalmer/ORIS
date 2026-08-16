@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run ruff check .)",
+      "Bash(uv run ruff format --check .)",
+      "Bash(uv run pytest -q)",
+      "mcp__langchain-docs__search_docs_by_lang_chain",
+      "mcp__langchain-docs__query_docs_filesystem_docs_by_lang_chain"
+    ]
+  }
+}

@@ -14,8 +14,10 @@ from langchain_core.tools import BaseTool
 from oris.threat_intel import (
     MAX_ENRICHED_INDICATORS,
     REFERENCE_SEARCH_KEY,
+    WHOLE_REQUEST,
     ThreatIntelAnswer,
     ThreatIntelPlan,
+    build_report,
     create_threat_intel_graph,
 )
 from oris.threatsyft import THREAT_INTEL_TOOL_NAMES
@@ -504,6 +506,32 @@ def test_report_keywords_compose_with_a_capability_keyword() -> None:
     assert result["capability"] == "enrich"
     assert result["report"] is not None
     search.ainvoke.assert_not_awaited()
+
+
+def test_a_failed_call_is_attributed_to_the_request_not_to_a_source() -> None:
+    """A whole call that fails has no source to blame, and must not invent one.
+
+    Falling back to the subject's own name produced entries reading
+    `{"not-an-ip": {"not-an-ip": "invalid_indicator"}}`, which a reader takes as
+    a provider of that name having failed. A per-source failure still carries
+    the provider that reported it, and a successful direct lookup is still
+    attributed to the subject, because there the subject genuinely is the
+    source.
+    """
+    report = build_report(
+        {
+            "8.8.8.8": {
+                "ok": True,
+                "data": {"sources": {"shodan": {"ok": False, "code": "not_found"}}},
+            },
+            "not-an-ip!!": {"ok": False, "error": {"code": "invalid_indicator"}},
+            "T1059": {"ok": True, "data": {"name": "Command and Scripting"}},
+        }
+    )
+
+    assert report["no_answer"]["not-an-ip!!"] == {WHOLE_REQUEST: "invalid_indicator"}
+    assert report["no_answer"]["8.8.8.8"] == {"shodan": "not_found"}
+    assert report["findings"]["T1059"]["name"] == {"T1059": "Command and Scripting"}
 
 
 def test_report_records_which_sources_had_no_answer() -> None:

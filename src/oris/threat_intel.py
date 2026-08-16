@@ -42,6 +42,9 @@ REPORT_KEYWORDS = frozenset({"report", "raw", "json"})
 MAX_ENRICHED_INDICATORS = 5
 REFERENCE_SEARCH_LIMIT = 5
 REFERENCE_SEARCH_KEY = "reference_search"
+# Stands in for the provider name when a whole call failed and there is no
+# per-source result to attribute the failure to.
+WHOLE_REQUEST = "request"
 
 # The same budget in wall-clock terms. ThreatSyft's session read timeout bounds
 # each call, but this node makes one per indicator plus the reference lookups,
@@ -211,11 +214,8 @@ def build_report(evidence: dict[str, Any]) -> dict[str, Any]:
             continue
         sources = (envelope.get("data") or {}).get("sources")
         # A lookup answers directly; an enrich answers through a sources map.
-        entries = (
-            sources
-            if isinstance(sources, dict)
-            else {key: envelope.get("data") or envelope}
-        )
+        per_source = isinstance(sources, dict)
+        entries = sources if per_source else {key: envelope.get("data") or envelope}
         for name, entry in entries.items():
             if not isinstance(entry, dict):
                 continue
@@ -224,7 +224,15 @@ def build_report(evidence: dict[str, Any]) -> dict[str, Any]:
                 code = entry.get("code")
                 if code is None and isinstance(error, dict):
                     code = error.get("code")
-                errors.setdefault(key, {})[name] = str(code or "failed")
+                # Without a source map nothing answered but the call itself, so
+                # the failure is labelled as the request rather than borrowing
+                # the subject's name. Keying it by the subject produced entries
+                # reading `{"not-an-ip": {"not-an-ip": "invalid_indicator"}}`,
+                # which looks like a provider called "not-an-ip" failed instead
+                # of the request for that subject failing. Findings keep the
+                # subject, because there a direct lookup genuinely is the source.
+                label = name if per_source else WHOLE_REQUEST
+                errors.setdefault(key, {})[label] = str(code or "failed")
                 continue
             data = entry.get("data") if isinstance(entry.get("data"), dict) else entry
             for field, item in _flatten_source(data).items():

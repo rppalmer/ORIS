@@ -423,6 +423,44 @@ def test_without_traces_the_activity_tab_explains_itself(tmp_path: Path) -> None
     assert "Censys reports" in conversation
 
 
+def test_the_activity_summary_counts_turns_beside_traced_runs(
+    tmp_path: Path,
+) -> None:
+    """Runs and turns are different sets, and a reader assumes they are one.
+
+    A failed run is removed from the conversation but keeps its trace; a turn
+    taken while the collector was down stays in the conversation with no trace.
+    A real session was found showing two hackback turns in the chat and one
+    unrelated failed run in the activity pane, sharing nothing — each pane
+    correct, and together looking like the wrong session was displayed.
+    """
+
+    checkpoint_database_path = tmp_path / "checkpoints.sqlite"
+    # Two turns kept in the conversation against one traced run: the mismatch
+    # this exists to surface.
+    write_session(
+        checkpoint_database_path,
+        THREAD_ID,
+        [("enrich 8.8.8.8", "…"), ("and the other one", "…")],
+    )
+
+    async def drive() -> str:
+        app, _, _ = _build(tmp_path, traces=True)
+        app.checkpoint_database_path = checkpoint_database_path
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            return str(app.query_one("#summary").render())
+
+    summary = _run(drive())
+
+    assert "2 turns" in summary
+    assert "1 traced run" in summary
+    # Counting one of anything must not read as a defect in the interface.
+    assert "1 turns" not in summary
+    assert "1 traced runs" not in summary
+
+
 def test_a_narrow_session_says_how_much_it_is_hiding(tmp_path: Path) -> None:
     """One run out of many looks exactly like a store holding one run.
 

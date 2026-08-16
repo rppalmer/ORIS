@@ -113,6 +113,11 @@ def _age(moment: datetime) -> str:
     return "moments ago"
 
 
+def _count(number: int, noun: str) -> str:
+    """Count something in readable English, because "1 turns" reads as a bug."""
+    return f"{number} {noun}" if number == 1 else f"{number} {noun}s"
+
+
 def _local(moment: datetime) -> datetime:
     """Show times in the reader's timezone; everything is stored in UTC."""
     return moment.astimezone()
@@ -620,10 +625,22 @@ class OrisTui(App):
             else trace_count(self.trace_database_path) - len(self._traces)
         )
         others = f" · {elsewhere} more in other sessions (a)" if elsewhere > 0 else ""
+        # Runs and turns are not the same set, and a reader reasonably assumes
+        # they are. A failed run is removed from the conversation but keeps its
+        # trace, and a turn taken while the collector was down is in the
+        # conversation with no trace at all — so a chat and its activity can
+        # legitimately share nothing. Showing both counts is what makes that
+        # visible instead of looking like the wrong session is displayed.
+        summary = self._summaries.get(self.thread_id)
+        turns = (
+            f"{_count(summary.turns, 'turn')} · "
+            if summary is not None and not self._every_session
+            else ""
+        )
         self.query_one("#summary", Static).update(
             Text(
-                f"{scope} · {len(self._traces)} runs · {elapsed:.1f}s · "
-                f"{tokens:,} prompt tokens · {failed} failed{others}"
+                f"{scope} · {turns}{_count(len(self._traces), 'traced run')} · "
+                f"{elapsed:.1f}s · {tokens:,} prompt tokens · {failed} failed{others}"
             )
         )
 

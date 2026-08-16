@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
-from oris.prompts import load_system_prompt
+from oris.prompts import load_system_prompt, with_current_date
 from oris.search import (
     DomainName,
     NonEmptyText,
@@ -157,7 +157,7 @@ def create_web_research_graph(
             [
                 (
                     "system",
-                    WEB_RESEARCH_SYSTEM_PROMPT,
+                    with_current_date(WEB_RESEARCH_SYSTEM_PROMPT),
                 ),
                 (
                     "human",

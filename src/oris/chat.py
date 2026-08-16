@@ -21,7 +21,7 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
 from oris.config import DEFAULT_MAX_HISTORY_TOKENS
-from oris.prompts import load_system_prompt
+from oris.prompts import load_system_prompt, with_current_date
 
 ROUTING_SYSTEM_PROMPT = load_system_prompt("routing_system.txt")
 DIRECT_CHAT_SYSTEM_PROMPT = load_system_prompt("direct_chat_system.txt")
@@ -287,7 +287,9 @@ def create_oris_graph(
             "messages": [
                 model.invoke(
                     [
-                        SystemMessage(content=DIRECT_CHAT_SYSTEM_PROMPT),
+                        SystemMessage(
+                            content=with_current_date(DIRECT_CHAT_SYSTEM_PROMPT)
+                        ),
                         *history_for_model(state["messages"], max_history_tokens),
                     ]
                 )

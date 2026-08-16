@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -110,6 +111,10 @@ def test_threat_intel_enriches_indicators_and_looks_up_references() -> None:
     assert lookup.ainvoke.await_args.args[0]["args"] == {"reference": "CVE-2024-1234"}
     # The planner supplies concise reference terms rather than the raw sentence.
     assert search.ainvoke.await_args.args[0]["args"]["query"] == "CVE-2024-1234"
+    # Provider evidence is full of dates; "last seen 2026-07-14" means nothing
+    # to a model that does not know what today is.
+    system_message = model.answer_model.ainvoke.await_args.args[0][0][1]
+    assert date.today().isoformat() in system_message
     evidence = json.loads(structured_input(model))
     assert set(evidence) == {"45.83.192.4", "CVE-2024-1234", REFERENCE_SEARCH_KEY}
 

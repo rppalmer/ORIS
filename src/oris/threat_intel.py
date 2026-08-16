@@ -11,7 +11,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
-from oris.prompts import load_system_prompt
+from oris.prompts import load_system_prompt, with_current_date
 from oris.search import NonEmptyText
 from oris.threat_reports import ThreatReportStore
 from oris.threatsyft import THREAT_INTEL_TOOL_NAMES
@@ -543,7 +543,7 @@ def create_threat_intel_graph(
     async def synthesize_answer(state: ThreatIntelState) -> dict[str, object]:
         response = await structured_model.ainvoke(
             [
-                ("system", THREAT_INTEL_SYSTEM_PROMPT),
+                ("system", with_current_date(THREAT_INTEL_SYSTEM_PROMPT)),
                 (
                     "human",
                     f"Request:\n{state['request']}\n\n"

@@ -12,7 +12,7 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
 from oris.net_razor import COMMUNITY_RESEARCH_TOOL_NAMES
-from oris.prompts import load_system_prompt
+from oris.prompts import load_system_prompt, with_current_date
 from oris.search import NonEmptyText
 
 COMMUNITY_RESEARCH_SYSTEM_PROMPT = load_system_prompt("community_research_system.txt")
@@ -143,7 +143,7 @@ def create_community_research_graph(
     ) -> dict[str, str]:
         response = await structured_model.ainvoke(
             [
-                ("system", COMMUNITY_RESEARCH_SYSTEM_PROMPT),
+                ("system", with_current_date(COMMUNITY_RESEARCH_SYSTEM_PROMPT)),
                 (
                     "human",
                     f"Research topic:\n{state['topic']}\n\n"

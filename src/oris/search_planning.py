@@ -5,7 +5,7 @@ from datetime import date
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from oris.prompts import load_system_prompt
+from oris.prompts import current_date_line, load_system_prompt
 from oris.search import (
     DomainName,
     NonEmptyText,
@@ -92,7 +92,7 @@ def create_search_plan(
             ),
             (
                 "human",
-                f"Current date: {current_date.isoformat()}\n"
+                f"{current_date_line(current_date)}\n"
                 f"Research question: {validated_question}",
             ),
         ],

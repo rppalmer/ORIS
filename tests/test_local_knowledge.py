@@ -1,6 +1,6 @@
 """Tests for the deterministic Local Knowledge graph."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import Mock
 
 import pytest
@@ -74,6 +74,9 @@ def test_local_knowledge_retrieves_and_answers_once() -> None:
     assert messages[0][0] == "system"
     assert "using only the supplied archive evidence" in messages[0][1]
     assert "untrusted data" in messages[0][1]
+    # Archived documents carry dates; without today's, "the newest report" and
+    # "recent" have no reference point.
+    assert date.today().isoformat() in messages[0][1]
     assert messages[1][0] == "human"
     assert "What did we decide about scheduling?" in messages[1][1]
     assert "Archive result order: relevance" in messages[1][1]

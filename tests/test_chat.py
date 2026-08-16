@@ -1,7 +1,7 @@
 """Tests for the chat-shaped ORIS graph."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, Mock
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -493,6 +493,9 @@ def test_oris_closes_a_failed_turn_before_the_next_request(
     assert failed_result["messages"] == []
     messages = direct_chat_model.invoke.call_args.args[0]
     assert isinstance(messages[0], SystemMessage)
+    # Without today's date, direct chat answers as of its training cutoff and
+    # has no way to know that it is doing so.
+    assert date.today().isoformat() in messages[0].content
     assert [message.content for message in messages[1:]] == [
         "Latest Pistons information"
     ]

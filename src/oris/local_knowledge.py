@@ -17,7 +17,7 @@ from oris.knowledge import (
     NonEmptyString,
     knowledge_search_terms,
 )
-from oris.prompts import load_system_prompt
+from oris.prompts import load_system_prompt, with_current_date
 
 NO_KNOWLEDGE_MESSAGE = "I couldn't find relevant information in the local archive."
 LOCAL_KNOWLEDGE_SYSTEM_PROMPT = load_system_prompt("local_knowledge_system.txt")
@@ -152,7 +152,7 @@ def create_local_knowledge_graph(
             [
                 (
                     "system",
-                    LOCAL_KNOWLEDGE_SYSTEM_PROMPT,
+                    with_current_date(LOCAL_KNOWLEDGE_SYSTEM_PROMPT),
                 ),
                 (
                     "human",

@@ -99,6 +99,10 @@ def test_web_research_validates_searches_and_synthesizes_once() -> None:
 
     messages = answer_model.invoke.call_args.args[0]
     assert messages[0][0] == "system"
+    # A model has no clock, and this specialist is asked to judge whether its
+    # evidence is current. Left unsaid, its most recent idea of "now" is its
+    # training cutoff.
+    assert date.today().isoformat() in messages[0][1]
     assert messages[1][0] == "human"
     assert "Question:\nWhat is LangGraph's architecture?" in messages[1][1]
     assert "Executed search request:" in messages[1][1]

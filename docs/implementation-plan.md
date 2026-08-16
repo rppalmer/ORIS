@@ -128,6 +128,19 @@ Nothing else on this roadmap moves that number.
   002, and an interface that writes it becomes a second source of truth. Start
   read-only plus a manual trigger, which is what the missed-run diagnosis
   actually needed.
+- [ ] Show Phoenix's state in the terminal interface and let it be started,
+  stopped, and restarted from there. Phoenix was down for two days without
+  anyone noticing, because the only signal was an empty activity pane and the
+  only way to start it was remembering a script in another terminal. Give
+  Phoenix its own LaunchAgent and an `orisctl phoenix <action>` command first,
+  matching the scheduler exactly, then have the interface call that. A child
+  process of the interface is the wrong shape: traces come from the command
+  line and the scheduler too, so Phoenix has to outlive whichever front end
+  happened to start it. One wrinkle to expect — the scheduler's plist runs an
+  absolute `.venv/bin/oris-scheduler`, but `start-phoenix.sh` shells out to
+  `uvx`, which a LaunchAgent's minimal PATH will not find. This settles the
+  "always-on Phoenix service" question already listed under open questions;
+  scheduler health must still not depend on Phoenix health.
 - [ ] Decide whether a long turn needs a cancel key. Per-step status now names
   the running graph node, which was the larger half of the complaint; whether
   the remaining wait is worth interrupting is a question for real use.

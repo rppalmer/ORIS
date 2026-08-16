@@ -6,6 +6,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal
+from uuid import uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, StringConstraints
 
@@ -43,25 +44,39 @@ class KnowledgeRepository:
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(self.database_path)) as connection:
-            connection.execute(
-                """
-                CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_documents USING fts5(
-                    document_id UNINDEXED,
-                    source_type UNINDEXED,
-                    source_ref UNINDEXED,
-                    created_at UNINDEXED,
-                    title,
-                    content,
-                    tokenize = 'unicode61'
+        self._schema_ready = False
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open the archive, creating it the first time it is actually used.
+
+        Constructing a repository does not touch the disk. The composition root
+        builds one at import, so doing this work in `__init__` meant that
+        importing it — to read a setting, to run a test, to list the graphs for
+        the development server — created a directory and a database as a side
+        effect, in whatever location that process happened to resolve.
+        """
+        if not self._schema_ready:
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
+            with closing(sqlite3.connect(self.database_path)) as connection:
+                connection.execute(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_documents USING fts5(
+                        document_id UNINDEXED,
+                        source_type UNINDEXED,
+                        source_ref UNINDEXED,
+                        created_at UNINDEXED,
+                        title,
+                        content,
+                        tokenize = 'unicode61'
+                    )
+                    """
                 )
-                """
-            )
+            self._schema_ready = True
+        return sqlite3.connect(self.database_path)
 
     def add(self, document: KnowledgeDocument) -> None:
         """Add a document, replacing an existing document with the same ID."""
-        with closing(sqlite3.connect(self.database_path)) as connection:
+        with closing(self._connect()) as connection:
             connection.execute(
                 "DELETE FROM knowledge_documents WHERE document_id = ?",
                 (document.document_id,),
@@ -87,6 +102,64 @@ class KnowledgeRepository:
                 ),
             )
             connection.commit()
+
+    def add_exchange(
+        self,
+        *,
+        thread_id: str,
+        request: str,
+        answer: str,
+        selected_mode: str,
+    ) -> bool:
+        """Archive one completed interactive turn, and say whether it did.
+
+        Both interfaces have to make the same two decisions here — whether the
+        turn belongs in the archive at all, and what shape it takes once it is
+        there — and they made them in identical code written twice. A recall
+        answer is skipped because it is a derived copy of documents the archive
+        already holds; archiving it would let `/recall` find its own output.
+        """
+        if selected_mode == "local_knowledge":
+            return False
+        self.add(
+            KnowledgeDocument(
+                document_id=str(uuid4()),
+                source_type="chat",
+                source_ref=thread_id,
+                created_at=datetime.now(UTC),
+                title=request,
+                content=f"User:\n{request}\n\nORIS:\n{answer}",
+            )
+        )
+        return True
+
+    def count_by_source_ref(self, source_ref: str) -> int:
+        """Count what one conversation or job contributed to the archive.
+
+        Deleting is not recoverable, so the confirmation has to be able to say
+        how much is about to go, not just that something will.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM knowledge_documents WHERE source_ref = ?",
+                (source_ref,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def delete_by_source_ref(self, source_ref: str) -> int:
+        """Remove everything one conversation or job contributed, returning the count.
+
+        Deleting a conversation has to reach its answers too. Left behind, they
+        stay searchable through `/recall` under a thread that no longer exists,
+        which is not what deleting a conversation means.
+        """
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                "DELETE FROM knowledge_documents WHERE source_ref = ?",
+                (source_ref,),
+            )
+            connection.commit()
+            return cursor.rowcount
 
     def search(
         self,
@@ -128,7 +201,7 @@ class KnowledgeRepository:
             sql += " ORDER BY bm25(knowledge_documents), created_at DESC LIMIT ?"
         parameters.append(limit)
 
-        with closing(sqlite3.connect(self.database_path)) as connection:
+        with closing(self._connect()) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(sql, parameters).fetchall()
 

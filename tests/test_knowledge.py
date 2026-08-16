@@ -96,3 +96,94 @@ def test_knowledge_repository_rejects_empty_search_terms(tmp_path, query) -> Non
 
     with pytest.raises(ValueError, match="searchable text"):
         repository.search(query)
+
+
+def test_deleting_by_source_ref_removes_only_that_source(tmp_path) -> None:
+    """Deleting a conversation has to reach its answers, and stop there."""
+    repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
+    for index, thread in enumerate(["doomed", "doomed", "kept"]):
+        repository.add(
+            KnowledgeDocument(
+                document_id=f"document-{index}",
+                source_type="chat",
+                source_ref=thread,
+                created_at=datetime(2026, 8, 12, tzinfo=UTC),
+                title=f"question {index}",
+                content=f"an answer about canary tokens {index}",
+            )
+        )
+
+    assert repository.count_by_source_ref("doomed") == 2
+    assert repository.delete_by_source_ref("doomed") == 2
+    assert repository.count_by_source_ref("doomed") == 0
+    assert [document.source_ref for document in repository.search("canary")] == ["kept"]
+
+
+def test_deleting_an_unknown_source_ref_removes_nothing(tmp_path) -> None:
+    repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
+
+    assert repository.delete_by_source_ref("never-existed") == 0
+
+
+def test_constructing_a_repository_touches_no_disk(tmp_path) -> None:
+    """The composition root builds one at import time.
+
+    So creating a database here meant that merely importing that module — to
+    read a setting, to collect a test, to list the graphs for the development
+    server — wrote a directory and a file, wherever the process resolved the
+    path to. Nothing should exist until something actually stores or searches.
+    """
+    database_path = tmp_path / "archive" / "knowledge.sqlite"
+
+    repository = KnowledgeRepository(database_path)
+
+    assert not database_path.parent.exists()
+    assert repository.count_by_source_ref("session-1") == 0
+    assert database_path.is_file()
+
+
+def test_an_archived_exchange_keeps_both_halves_of_the_turn(tmp_path) -> None:
+    """A recall answer has to be findable by what was asked as well as answered.
+
+    Both interfaces archive through this, so the shape is fixed in one place.
+    The request is the title because that is what a later search is phrased
+    like, and both halves are in the content because a question is often the
+    only searchable text in an exchange whose answer is a table or JSON.
+    """
+    repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
+
+    archived = repository.add_exchange(
+        thread_id="session-1",
+        request="What scheduler did we choose?",
+        answer="APScheduler, configured by schedules.toml.",
+        selected_mode="chat",
+    )
+
+    assert archived is True
+    document = repository.search("scheduler")[0]
+    assert document.source_type == "chat"
+    assert document.source_ref == "session-1"
+    assert document.title == "What scheduler did we choose?"
+    assert document.content == (
+        "User:\nWhat scheduler did we choose?\n\n"
+        "ORIS:\nAPScheduler, configured by schedules.toml."
+    )
+
+
+def test_a_recall_answer_is_not_archived_back_into_the_archive(tmp_path) -> None:
+    """It is a derived copy of documents the archive already holds.
+
+    Archiving it would let `/recall` find its own earlier output and cite that
+    instead of the original, compounding every time the question is asked.
+    """
+    repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
+
+    archived = repository.add_exchange(
+        thread_id="session-1",
+        request="What scheduler did we choose?",
+        answer="We chose APScheduler [1].",
+        selected_mode="local_knowledge",
+    )
+
+    assert archived is False
+    assert repository.count_by_source_ref("session-1") == 0

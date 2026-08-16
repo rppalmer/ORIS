@@ -1,5 +1,6 @@
 """Opt-in contract test for the configured Tavily search integration."""
 
+import asyncio
 import os
 
 import pytest
@@ -24,10 +25,12 @@ def test_tavily_search_returns_bounded_source_results() -> None:
         create_tavily_search(settings, topic="news"),
     )
 
-    response = search.search(
-        WebSearchRequest(
-            query="What is the LangGraph Python framework?",
-            include_domains=("docs.langchain.com",),
+    response = asyncio.run(
+        search.search(
+            WebSearchRequest(
+                query="What is the LangGraph Python framework?",
+                include_domains=("docs.langchain.com",),
+            )
         )
     )
 

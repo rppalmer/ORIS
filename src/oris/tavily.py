@@ -56,8 +56,17 @@ class TavilyWebSearch:
         self._general_search = general_search
         self._news_search = news_search
 
-    def search(self, request: WebSearchRequest) -> WebSearchResponse:
-        """Search Tavily once and return application-owned evidence."""
+    async def search(self, request: WebSearchRequest) -> WebSearchResponse:
+        """Search Tavily once and return application-owned evidence.
+
+        The asynchronous tool, not the synchronous one, because they differ in
+        more than colour: `langchain-tavily` posts synchronously through
+        `requests` with no timeout argument, which waits forever, and
+        asynchronously through `aiohttp`, which applies its own default
+        ceiling of 300 seconds overall and 30 to connect. The tool exposes no
+        timeout setting, so choosing the async path is how this call gets a
+        deadline at all.
+        """
         arguments: dict[str, object] = {"query": request.query}
         if request.include_domains:
             arguments["include_domains"] = list(request.include_domains)
@@ -73,7 +82,7 @@ class TavilyWebSearch:
             else self._general_search
         )
         try:
-            raw_response = tool.invoke(arguments)
+            raw_response = await tool.ainvoke(arguments)
         except ToolException as error:
             raise SearchProviderError(str(error)) from error
         if not isinstance(raw_response, dict):
@@ -109,7 +118,6 @@ class TavilyWebSearch:
                 results=results,
                 provider="tavily",
                 provider_request_id=raw_response.get("request_id"),
-                provider_response_time_seconds=raw_response.get("response_time"),
             )
         except (KeyError, TypeError, ValueError, ValidationError) as error:
             request_id = raw_response.get("request_id")

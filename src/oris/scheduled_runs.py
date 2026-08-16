@@ -181,13 +181,18 @@ def _run_scheduled_web_research_job(
     _write_run_record(record_path, record)
 
     try:
-        result = web_research_graph.invoke(
-            {
-                "query": job.prompt,
-                "search_category": job.search_category,
-                "start_date": start_date,
-                "end_date": end_date,
-            }
+        # The search this reaches is asynchronous so that it has a deadline at
+        # all; an unbounded one here holds the job's only slot and every later
+        # firing is skipped without a word.
+        result = asyncio.run(
+            web_research_graph.ainvoke(
+                {
+                    "query": job.prompt,
+                    "search_category": job.search_category,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                }
+            )
         )
         report = _format_web_research_report(
             job,

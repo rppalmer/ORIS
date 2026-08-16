@@ -7,6 +7,9 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "apscheduler>=3.11.3,<4.0",
     "arize-phoenix-otel>=0.16.1",
+    # The root certificates aiohttp needs. Already present through `requests`,
+    # named here because `oris.tavily` now imports it directly.
+    "certifi>=2024.2.2",
     "langchain-core>=1.5.0",
     "langchain-mcp-adapters>=0.3.2,<0.4",
     "langchain-openai>=1.4.0",
@@ -26,9 +29,9 @@ oris-run-scheduled = "oris.scheduled_runs:main"
 oris-scheduler = "oris.scheduler:main"
 orisctl = "oris.launch_agent:main"
 
-# Optional on purpose. The terminal interface is an unproven spike: it has its
-# own entry point, touches nothing the `oris` command uses, and is removed by
-# deleting src/oris/tui.py, this extra, and the oris-tui script.
+# Optional on purpose. The terminal interface is an alternative front end over
+# the same graph, so an install that only wants the `oris` command should not
+# have to carry Textual.
 [project.optional-dependencies]
 tui = ["textual>=0.80"]
 

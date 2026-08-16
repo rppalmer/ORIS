@@ -29,7 +29,7 @@ class SuccessfulWebResearchGraph:
     def __init__(self) -> None:
         self.inputs: list[dict[str, object]] = []
 
-    def invoke(self, graph_input: dict[str, object]) -> dict:
+    async def ainvoke(self, graph_input: dict[str, object]) -> dict:
         self.inputs.append(graph_input)
         return {
             "answer": CitedAnswer(answer="LangGraph supports workflows [1]."),
@@ -46,7 +46,7 @@ class SuccessfulWebResearchGraph:
 class FailingWebResearchGraph:
     """Raise one deterministic provider-style failure."""
 
-    def invoke(self, graph_input: dict[str, object]) -> dict:
+    async def ainvoke(self, graph_input: dict[str, object]) -> dict:
         raise RuntimeError(f"Search unavailable for {graph_input['query']}")
 
 

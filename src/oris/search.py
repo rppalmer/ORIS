@@ -85,13 +85,18 @@ class WebSearchResponse(BaseModel):
     results: tuple[WebSearchResult, ...] = Field(min_length=1)
     provider: NonEmptyText
     provider_request_id: NonEmptyText | None = None
-    provider_response_time_seconds: float | None = Field(default=None, ge=0)
 
 
 class WebSearch(Protocol):
-    """Provider-independent search capability used by application workflows."""
+    """Provider-independent search capability used by application workflows.
 
-    def search(self, request: WebSearchRequest) -> WebSearchResponse:
+    Asynchronous because a search crosses the network, and a synchronous
+    implementation has nowhere to put a deadline: Python cannot cancel a
+    blocking call in place, so neither the workflow nor the caller can bound
+    it. Awaiting one leaves the request interruptible by whatever is above it.
+    """
+
+    async def search(self, request: WebSearchRequest) -> WebSearchResponse:
         """Return normalized web evidence for one validated request."""
         ...
 

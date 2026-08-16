@@ -120,8 +120,8 @@ def create_web_research_graph(
         method="json_schema",
     )
 
-    def search_web(state: WebResearchState) -> dict[str, WebSearchResponse]:
-        return {"search_response": search.search(state["search_request"])}
+    async def search_web(state: WebResearchState) -> dict[str, WebSearchResponse]:
+        return {"search_response": await search.search(state["search_request"])}
 
     def plan_search(state: WebResearchState) -> dict[str, WebSearchRequest]:
         plan = create_search_plan(model, state["query"], current_date=date.today())

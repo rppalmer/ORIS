@@ -1,5 +1,6 @@
 """Tests for the deterministic Web Research graph."""
 
+import asyncio
 from datetime import date
 from unittest.mock import Mock, call
 
@@ -22,7 +23,7 @@ class FakeWebSearch:
     def __init__(self) -> None:
         self.requests: list[WebSearchRequest] = []
 
-    def search(self, request: WebSearchRequest) -> WebSearchResponse:
+    async def search(self, request: WebSearchRequest) -> WebSearchResponse:
         self.requests.append(request)
         return WebSearchResponse(
             query=request.query,
@@ -36,7 +37,6 @@ class FakeWebSearch:
             ),
             provider="fake-search",
             provider_request_id="fake-request-1",
-            provider_response_time_seconds=0.01,
         )
 
 
@@ -74,7 +74,9 @@ def test_web_research_validates_searches_and_synthesizes_once() -> None:
     model, planning_model, answer_model = create_fake_model(expected_answer)
     graph = create_web_research_graph(search, model)
 
-    result = graph.invoke({"query": "  What is LangGraph's architecture?  "})
+    result = asyncio.run(
+        graph.ainvoke({"query": "  What is LangGraph's architecture?  "})
+    )
 
     assert search.requests == [WebSearchRequest(query="LangGraph architecture")]
     assert result == {
@@ -115,7 +117,7 @@ def test_web_research_rejects_blank_input_before_searching() -> None:
     graph = create_web_research_graph(search, model)
 
     with pytest.raises(ValidationError):
-        graph.invoke({"query": "   "})
+        asyncio.run(graph.ainvoke({"query": "   "}))
 
     assert search.requests == []
     planning_model.invoke.assert_not_called()
@@ -135,14 +137,16 @@ def test_web_research_forwards_explicit_search_controls() -> None:
     )
     graph = create_web_research_graph(search, model)
 
-    graph.invoke(
-        {
-            "query": "AI-agent developments from yesterday",
-            "include_domains": ["example.com"],
-            "search_category": "news",
-            "start_date": date(2026, 8, 7),
-            "end_date": date(2026, 8, 8),
-        }
+    asyncio.run(
+        graph.ainvoke(
+            {
+                "query": "AI-agent developments from yesterday",
+                "include_domains": ["example.com"],
+                "search_category": "news",
+                "start_date": date(2026, 8, 7),
+                "end_date": date(2026, 8, 8),
+            }
+        )
     )
 
     assert search.requests == [
@@ -171,7 +175,7 @@ def test_web_research_uses_the_planned_search_category() -> None:
     )
     graph = create_web_research_graph(search, model)
 
-    graph.invoke({"query": "What AI-agent news was published yesterday?"})
+    asyncio.run(graph.ainvoke({"query": "What AI-agent news was published yesterday?"}))
 
     assert search.requests == [
         WebSearchRequest(
@@ -189,7 +193,7 @@ def test_web_research_rejects_an_answer_without_citations() -> None:
     graph = create_web_research_graph(FakeWebSearch(), model)
 
     with pytest.raises(ValueError, match="at least one citation"):
-        graph.invoke({"query": "LangGraph architecture"})
+        asyncio.run(graph.ainvoke({"query": "LangGraph architecture"}))
 
 
 def test_web_research_rejects_a_citation_without_a_source() -> None:
@@ -198,7 +202,7 @@ def test_web_research_rejects_a_citation_without_a_source() -> None:
     graph = create_web_research_graph(FakeWebSearch(), model)
 
     with pytest.raises(ValueError, match=r"unavailable sources: \[2\]"):
-        graph.invoke({"query": "LangGraph architecture"})
+        asyncio.run(graph.ainvoke({"query": "LangGraph architecture"}))
 
 
 def test_web_research_has_only_the_approved_path() -> None:

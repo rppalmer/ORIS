@@ -1,5 +1,6 @@
 """Opt-in end-to-end contract for the Web Research graph."""
 
+import asyncio
 import os
 
 import pytest
@@ -30,7 +31,9 @@ def test_web_research_returns_a_cited_answer() -> None:
     model = create_chat_model(settings)
     graph = create_web_research_graph(search, model)
 
-    result = graph.invoke({"query": "What is the LangGraph Python framework?"})
+    result = asyncio.run(
+        graph.ainvoke({"query": "What is the LangGraph Python framework?"})
+    )
 
     assert set(result) == {"answer", "sources"}
     assert isinstance(result["answer"], CitedAnswer)

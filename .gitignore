@@ -14,13 +14,11 @@ htmlcov/
 # content that has not been folded into the database file yet.
 *.sqlite*
 *.sqlite3
+# Only scheduled run records, evaluation results, and the rendered plist remain
+# here; conversation content, threat reports, exports, and traces moved to
+# ~/.oris, which no checkout can accidentally commit.
 artifacts/
-traces/
 logs/
-data/current_session
-data/.current_session.tmp
-# Everything typed at the prompt, including indicators investigated.
-data/cli_history
 # Local state written by the LangGraph development server.
 .langgraph_api/
 dist/

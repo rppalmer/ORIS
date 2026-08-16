@@ -9,7 +9,9 @@ from langchain_core.messages import AIMessage
 
 from oris.knowledge import KnowledgeDocument, KnowledgeRepository
 from oris.local_knowledge import (
+    MAX_DOCUMENT_CHARACTERS,
     NO_KNOWLEDGE_MESSAGE,
+    TRUNCATION_NOTICE,
     LocalKnowledgePlan,
     create_local_knowledge_graph,
 )
@@ -141,6 +143,84 @@ def test_local_knowledge_rejects_a_query_without_searchable_text(tmp_path) -> No
     planning_model.invoke.assert_not_called()
 
 
+def _graph_answering(answer: str, sources: tuple[KnowledgeDocument, ...]) -> object:
+    """Compile the graph around one fixed retrieval and one fixed answer."""
+    repository = Mock(spec=KnowledgeRepository)
+    repository.search.return_value = sources
+    model = Mock(spec=BaseChatModel)
+    planning_model = Mock()
+    planning_model.invoke.return_value = LocalKnowledgePlan(
+        search_query="scheduling decision",
+        source_type="chat",
+        sort_order="relevance",
+    )
+    model.with_structured_output.return_value = planning_model
+    model.invoke.return_value = AIMessage(content=answer)
+    return create_local_knowledge_graph(repository, model), model
+
+
+def test_an_answer_citing_a_source_that_was_not_retrieved_is_rejected() -> None:
+    """A citation the reader cannot follow is worse than no answer at all.
+
+    The archive is the user's own history, so a number pointing at nothing
+    reads as corroboration that does not exist. Every other specialist that
+    cites its evidence checks this; this one silently did not.
+    """
+    graph, _ = _graph_answering(
+        "We chose schedules.toml [1], and rejected cron [4].", (make_document(),)
+    )
+
+    with pytest.raises(ValueError, match=r"cited unavailable sources: \[4\]"):
+        graph.invoke({"query": "What did we decide about scheduling?"})
+
+
+def test_an_answer_that_cites_nothing_is_allowed_through() -> None:
+    """This specialist is told to say when the archive cannot answer.
+
+    That answer is honest precisely because it cites nothing, so requiring a
+    citation the way Web Research does would fail the one response the prompt
+    explicitly asks for. The asymmetry between the two is deliberate.
+    """
+    graph, _ = _graph_answering(
+        "The archive has nothing about scheduling.", (make_document(),)
+    )
+
+    result = graph.invoke({"query": "What did we decide about scheduling?"})
+
+    assert result["answer"] == "The archive has nothing about scheduling."
+
+
+def test_one_oversized_archived_document_cannot_fill_the_prompt() -> None:
+    """Retrieval returns whole prior exchanges, and nothing bounds their size.
+
+    A `/threat report` turn archives its entire evidence pivot — one real
+    single-indicator report is over 5,000 characters — and five retrieved
+    together would crowd out the question and the instructions. The cut is
+    announced so the model treats the document as partial rather than as
+    ending where it stops.
+    """
+    document = make_document().model_copy(update={"content": "x" * 9000})
+    graph, model = _graph_answering("Answered from the archive [1].", (document,))
+
+    graph.invoke({"query": "What did we decide about scheduling?"})
+
+    evidence = model.invoke.call_args.args[0][-1][1]
+    assert evidence.count("x") == MAX_DOCUMENT_CHARACTERS
+    assert TRUNCATION_NOTICE.strip() in evidence
+
+
+def test_a_document_within_the_budget_is_sent_whole() -> None:
+    """Truncation must not be the normal case; the archive is mostly short."""
+    document = make_document()
+    graph, model = _graph_answering("Answered from the archive [1].", (document,))
+
+    graph.invoke({"query": "What did we decide about scheduling?"})
+
+    evidence = model.invoke.call_args.args[0][-1][1]
+    assert "Start with schedules.toml and APScheduler." in evidence
+    assert TRUNCATION_NOTICE.strip() not in evidence
+
+
 def test_local_knowledge_has_only_the_approved_path() -> None:
     """The specialist contains no router or model-controlled tool loop."""
     repository = Mock(spec=KnowledgeRepository)
@@ -154,5 +234,6 @@ def test_local_knowledge_has_only_the_approved_path() -> None:
         ("__start__", "plan_search"),
         ("plan_search", "retrieve_knowledge"),
         ("retrieve_knowledge", "answer_from_knowledge"),
-        ("answer_from_knowledge", "__end__"),
+        ("answer_from_knowledge", "validate_answer"),
+        ("validate_answer", "__end__"),
     }

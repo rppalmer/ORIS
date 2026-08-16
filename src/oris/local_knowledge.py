@@ -1,6 +1,7 @@
 """Deterministic retrieval from ORIS's local knowledge archive."""
 
 import json
+import re
 from typing import NotRequired, TypedDict
 
 from langchain_core.language_models import BaseChatModel
@@ -69,6 +70,20 @@ class LocalKnowledgeState(TypedDict):
     sources: NotRequired[tuple[KnowledgeDocument, ...]]
 
 
+MAX_DOCUMENT_CHARACTERS = 3000
+"""How much of one archived document is worth sending to answer a question.
+
+Archived documents are whole prior exchanges, and a `/threat report` turn
+archives its entire fenced JSON pivot — a single real one-indicator report is
+over 5,000 characters. Five of those retrieved together would fill the prompt
+before the question and the system instructions were added, and nothing in the
+retrieval path bounds their size. The opening of a document is the part that
+says what it was about, so a cut tail costs the least.
+"""
+
+TRUNCATION_NOTICE = "\n…[truncated]"
+
+
 def _format_evidence(documents: tuple[KnowledgeDocument, ...]) -> str:
     """Serialize retrieved documents with stable, one-based source numbers."""
     evidence = [
@@ -78,11 +93,18 @@ def _format_evidence(documents: tuple[KnowledgeDocument, ...]) -> str:
             "source_type": document.source_type,
             "source_ref": document.source_ref,
             "created_at": document.created_at.isoformat(),
-            "content": document.content,
+            "content": _bounded(document.content),
         }
         for source_number, document in enumerate(documents, start=1)
     ]
     return json.dumps(evidence, ensure_ascii=False, indent=2)
+
+
+def _bounded(content: str) -> str:
+    """Cut an oversized document, saying so rather than trailing off silently."""
+    if len(content) <= MAX_DOCUMENT_CHARACTERS:
+        return content
+    return content[:MAX_DOCUMENT_CHARACTERS] + TRUNCATION_NOTICE
 
 
 def create_local_knowledge_graph(
@@ -146,6 +168,28 @@ def create_local_knowledge_graph(
             raise ValueError("The local knowledge model returned an empty answer")
         return {"answer": answer}
 
+    def validate_answer(state: LocalKnowledgeState) -> dict[str, object]:
+        """Reject an answer that points at evidence which was never supplied.
+
+        Unlike Web Research, this does not demand at least one citation. The
+        two prompts differ deliberately: this specialist is told to say when
+        the archive does not answer the question, and that answer is honest
+        precisely because it cites nothing. What is never acceptable is a
+        number the reader cannot follow back to a retrieved document.
+        """
+        if not state["sources"]:
+            return {}
+
+        cited = {int(number) for number in re.findall(r"\[(\d+)\]", state["answer"])}
+        unavailable = sorted(
+            number for number in cited if not 1 <= number <= len(state["sources"])
+        )
+        if unavailable:
+            raise ValueError(
+                f"The archive answer cited unavailable sources: {unavailable}"
+            )
+        return {}
+
     builder = StateGraph(
         LocalKnowledgeState,
         input_schema=LocalKnowledgeInput,
@@ -154,8 +198,10 @@ def create_local_knowledge_graph(
     builder.add_node("plan_search", plan_search)
     builder.add_node("retrieve_knowledge", retrieve_knowledge)
     builder.add_node("answer_from_knowledge", answer_from_knowledge)
+    builder.add_node("validate_answer", validate_answer)
     builder.add_edge(START, "plan_search")
     builder.add_edge("plan_search", "retrieve_knowledge")
     builder.add_edge("retrieve_knowledge", "answer_from_knowledge")
-    builder.add_edge("answer_from_knowledge", END)
+    builder.add_edge("answer_from_knowledge", "validate_answer")
+    builder.add_edge("validate_answer", END)
     return builder.compile()

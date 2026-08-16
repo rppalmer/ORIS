@@ -20,6 +20,7 @@ CATCH_UP_SYSTEM_PROMPT = load_system_prompt("youtube_catch_up_system.txt")
 
 DEFAULT_MAX_VIDEOS = 5
 MAX_VIDEOS = 10
+SUMMARY_TIMEOUT_SECONDS = 900
 
 
 class TranscriptSummary(BaseModel):
@@ -291,7 +292,13 @@ def create_youtube_catch_up_preparation_graph(
         output_schema=PreparedYouTubeCatchUpOutput,
     )
     builder.add_node("discover_videos", discover_videos)
-    builder.add_node("summarize_videos", summarize_videos)
+    # One node holds up to ten transcript fetches and ten model calls, so the
+    # per-request MCP timeout bounds each call but nothing bounds the node.
+    # Unattended scheduled runs are where that matters: a hung job keeps its
+    # `max_instances=1` slot and every later firing is skipped in silence.
+    builder.add_node(
+        "summarize_videos", summarize_videos, timeout=SUMMARY_TIMEOUT_SECONDS
+    )
     builder.add_node("create_digest", create_digest)
     builder.add_node("validate_citations", validate_citations)
     builder.add_edge(START, "discover_videos")

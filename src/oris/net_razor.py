@@ -1,11 +1,17 @@
 """Official MCP connection for the local Net-Razor capability provider."""
 
+from datetime import timedelta
 from pathlib import Path
 
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 NET_RAZOR_SERVER_NAME = "net_razor"
+
+# Without a session read timeout the MCP SDK skips its `anyio.fail_after` guard
+# entirely and a request waits forever. Longer than ThreatSyft's because a
+# transcript fetch depends on YouTube rather than on a bounded provider fan-out.
+READ_TIMEOUT = timedelta(seconds=120)
 COMMUNITY_RESEARCH_TOOL_NAMES = ("net_razor_research",)
 YOUTUBE_CATCH_UP_TOOL_NAMES = (
     "net_razor_yt_new_videos",
@@ -29,6 +35,7 @@ def create_net_razor_client(python_executable: Path) -> MultiServerMCPClient:
                 "transport": "stdio",
                 "command": str(python_executable),
                 "args": ["-m", "net_razor.mcp"],
+                "session_kwargs": {"read_timeout_seconds": READ_TIMEOUT},
             }
         },
         handle_tool_errors=False,

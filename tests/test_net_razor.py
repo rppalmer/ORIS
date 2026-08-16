@@ -8,6 +8,7 @@ import pytest
 
 from oris.net_razor import (
     NET_RAZOR_SERVER_NAME,
+    READ_TIMEOUT,
     create_net_razor_client,
     load_community_research_tools,
     load_youtube_catch_up_tools,
@@ -27,6 +28,9 @@ def test_create_net_razor_client_uses_absolute_stdio_command(tmp_path: Path) -> 
             "transport": "stdio",
             "command": str(python_executable),
             "args": ["-m", "net_razor.mcp"],
+            # Absent, the MCP SDK skips its own timeout guard and a request
+            # waits forever rather than failing the turn.
+            "session_kwargs": {"read_timeout_seconds": READ_TIMEOUT},
         }
     }
     assert client.handle_tool_errors is False

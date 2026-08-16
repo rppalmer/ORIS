@@ -168,6 +168,25 @@ def newest_trace_at(database_path: Path) -> datetime | None:
     return _utc(row[0]) if row and row[0] else None
 
 
+def trace_count(database_path: Path) -> int:
+    """Return how many runs the store holds, across every session."""
+    with _connect(database_path) as con:
+        if con is None:
+            return 0
+        try:
+            row = con.execute(
+                """
+                SELECT count(*) FROM traces t
+                  JOIN projects p ON p.id = t.project_rowid
+                 WHERE p.name = ?
+                """,
+                (PROJECT_NAME,),
+            ).fetchone()
+        except sqlite3.Error:
+            return 0
+    return int(row[0]) if row else 0
+
+
 def recent_traces(
     database_path: Path,
     limit: int = 50,

@@ -62,6 +62,7 @@ from oris.observability import (
     recent_traces,
     spans_for_trace,
     system_prompts_for_trace,
+    trace_count,
 )
 from oris.sessions import (
     SessionSummary,
@@ -609,10 +610,20 @@ class OrisTui(App):
         elapsed = sum(trace.elapsed_seconds for trace in self._traces)
         tokens = sum(trace.prompt_tokens for trace in self._traces)
         failed = sum(1 for trace in self._traces if trace.failed)
+        # A session showing one run out of thirty-five looks exactly like a
+        # store holding one run, and the reader has no way to tell which. The
+        # hint used to appear only when the table was empty, which is the one
+        # case where it was least needed.
+        elsewhere = (
+            0
+            if self._every_session
+            else trace_count(self.trace_database_path) - len(self._traces)
+        )
+        others = f" · {elsewhere} more in other sessions (a)" if elsewhere > 0 else ""
         self.query_one("#summary", Static).update(
             Text(
                 f"{scope} · {len(self._traces)} runs · {elapsed:.1f}s · "
-                f"{tokens:,} prompt tokens · {failed} failed"
+                f"{tokens:,} prompt tokens · {failed} failed{others}"
             )
         )
 

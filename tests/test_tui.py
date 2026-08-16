@@ -423,6 +423,36 @@ def test_without_traces_the_activity_tab_explains_itself(tmp_path: Path) -> None
     assert "Censys reports" in conversation
 
 
+def test_a_narrow_session_says_how_much_it_is_hiding(tmp_path: Path) -> None:
+    """One run out of many looks exactly like a store holding one run.
+
+    The activity view is scoped to the current conversation on purpose, so
+    older work sits under other threads and does not appear. Nothing said so
+    while the table had rows in it — the hint existed only for the empty case,
+    which is the one case where it was least needed.
+    """
+
+    async def drive() -> tuple[str, int, str, int]:
+        app, _, _ = _build(tmp_path, traces=True)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            narrow = str(app.query_one("#summary").render())
+            narrow_rows = app.query_one("#turns", DataTable).row_count
+            await pilot.press("a")
+            await pilot.pause()
+            wide = str(app.query_one("#summary").render())
+            wide_rows = app.query_one("#turns", DataTable).row_count
+            return narrow, narrow_rows, wide, wide_rows
+
+    narrow, narrow_rows, wide, wide_rows = _run(drive())
+
+    assert wide_rows > narrow_rows
+    assert f"{wide_rows - narrow_rows} more in other sessions" in narrow
+    # The wide view is already showing everything, so it has nothing to offer.
+    assert "more in other sessions" not in wide
+
+
 def test_an_empty_session_is_not_confused_with_tracing_being_off(
     tmp_path: Path,
 ) -> None:

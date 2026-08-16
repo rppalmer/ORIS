@@ -283,10 +283,18 @@ explicit. Live web responses and generated wording may change.
 
 ### Observability and retention
 
-Phoenix will run locally on the MacBook as an optional development process. It
-will use SQLite, disable its analytics and unneeded services, and retain traces
-for 14 days. LangGraph Studio will connect to the local development server with
-LangSmith tracing disabled and CLI analytics disabled.
+Phoenix runs locally on whichever machine ORIS runs on. It uses SQLite,
+disables its analytics and unneeded services, and retains traces for 14 days.
+LangGraph Studio connects to the local development server with LangSmith
+tracing disabled and CLI analytics disabled.
+
+It is supervised rather than started by hand. Tracing is optional and a run
+never fails because the collector is absent, but a collector nobody notices has
+stopped is worse than no collector at all: one was down for two days, and the
+only symptom was an activity view that looked merely quiet. Phoenix therefore
+has a LaunchAgent under the same rules as the scheduler and is installed
+separately as a pinned tool, because ORIS speaks to it over the network and
+never imports it.
 
 The direct CLI uses the official asynchronous SQLite checkpointer for durable
 conversation threads. The raw Tavily response will not be written into graph
@@ -340,8 +348,9 @@ read-only workflows.
 - The same application package can run on either Mac.
 - Development observability consumes resources on the MacBook, not the model
   host.
-- Phoenix placement for always-on scheduled execution remains a later decision
-  and will be based on measured CPU, memory, and disk usage.
+- Phoenix runs wherever ORIS runs, supervised, rather than being placed on one
+  machine by measurement. The cost of running it was never the deciding factor;
+  the cost of not noticing it had stopped was.
 - Replaying an old web answer after trace/checkpoint expiry will not be possible
   unless that task explicitly saved an artifact.
 - The command-line chat interface and local knowledge index are implemented.

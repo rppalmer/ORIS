@@ -877,186 +877,116 @@ live tests, clean Ruff lint and formatting. Storage was measured while doing
 it: everything ORIS owns is 2.4 MB, against Phoenix's own 36 MB, which settles
 the plan's storage-retention deferral without building anything.
 
-### Certificate trust and per-step status — 2026-08-14
+### Verifying the review fixes against reality — 2026-08-16
 
-- **Web Research broke, and moving the search to the asynchronous path is why.**
-  `requests` bundles certifi and always has root certificates; aiohttp uses
-  Python's default SSL context, which on this python.org macOS build reads a
-  `cert.pem` that only exists once `Install Certificates.command` has been run.
-  Measured: that context loaded **zero** certificates, so every Tavily request
-  failed the TLS handshake while the synchronous path had worked for weeks.
-  Building the client now points OpenSSL at certifi when the interpreter has no
-  roots of its own, leaving a deliberate `SSL_CERT_FILE` alone. Verified with a
-  real handshake to `api.tavily.com`. `certifi` becomes an explicit dependency
-  because the code imports it directly; it was already installed through
-  `requests`.
-- **A `/threat` run looked silent.** It was not — the interface has always shown
-  a label and a timer — but the label was one dim line at the bottom edge that
-  never changed. The traces say why that matters: a real run took 29 seconds,
-  **23 of them inside the final model call**. One unchanging label across that
-  wait cannot distinguish working from hung.
-- Turns are now streamed rather than invoked, and each graph node is named as it
-  **starts**. Node updates arrive on completion, which is exactly too late to
-  say what is running, so this reads the debug stream instead. `subgraphs=True`
-  is what makes it useful: the specialists' own nodes are where the time goes.
-  Both front ends share the runner and the wording; the terminal interface also
-  gained a spinner frame, because a number that only changes once a second
-  reads as static.
+The fixes above were verified against fakes. Running them against real services
+found five defects, all of one kind, and every one of them had a green test
+sitting on top of it.
 
-Deterministic baseline after this work: 247 passing tests, 17 skipped opt-in
-live tests, clean Ruff lint and formatting.
+- **Moving the search to the asynchronous path broke every search.** `requests`
+  bundles certifi and always has root certificates; aiohttp uses Python's
+  default SSL context, which on a python.org macOS build reads a `cert.pem`
+  that exists only once `Install Certificates.command` has been run. Measured:
+  that context held **zero** certificates against certifi's 121.
+- **The first repair was correct and useless.** aiohttp builds its verified
+  context once, at *its own* import, and caches it in a module global — its
+  source says so in a comment. Repairing the environment when the Tavily client
+  was constructed happened long after `langchain_tavily` had already frozen an
+  empty context. The repair now runs in the package's `__init__`, the one place
+  guaranteed to execute before any `oris` module body. Verified by a real
+  handshake to `api.tavily.com`.
+- **The evaluation runner had been broken by the same change.** It still called
+  the graph synchronously, which LangGraph refuses once a graph holds an
+  asynchronous node, so every case would have been recorded as a failure the
+  next time a prompt change needed measuring.
+- **Two live contracts had been broken by it too** — the Tavily one called the
+  search without awaiting it, the Web Research one called the graph
+  synchronously. Neither had been run, so neither had said so.
+- **A `/threat` run looked silent.** It was not: the interface showed a label
+  and a timer, but the label never changed. The traces say why that matters — a
+  real run took 29 seconds, **23 of them inside the final model call**. Turns
+  are now streamed and each graph node is named as it *starts*, which is why
+  this reads the debug stream rather than node updates: an update arrives on
+  completion, exactly too late to say what is running. `subgraphs=True` is what
+  makes it useful, because the specialists' own nodes are where the time goes.
+- **That status was then invisible anyway.** It and the prompt were docked to
+  the same edge; the prompt is three rows tall against the status line's one,
+  their regions overlapped, and the prompt was composited over the top. The
+  widget's content read correctly throughout while the painted screen contained
+  none of it.
 
-### Evaluation runner repair and documentation cleanup — 2026-08-14
+The common cause, worth stating once: **a check that asks the component under
+test what it did will agree with it.** A mock graph agreed with the runner about
+a calling convention that had become illegal. A certificate test built a fresh
+SSL context rather than reading the one aiohttp had cached. A status test asked
+the widget to render its own line, which a covered widget still does perfectly.
+Two diagnostic probes failed the same way and were caught before being reported.
+Tests now read the result — the painted screen, the real compiled graph, the
+cached context — and each was proved by reverting its fix and watching it fail.
 
-- **The asynchronous search move broke a second thing, found while reviewing
-  documentation rather than by any check.** `evaluation.py` still called
-  `graph.invoke` on the Web Research graph, which had gained an asynchronous
-  search node. LangGraph refuses that combination — verified against the
-  installed package, which raises `TypeError: No synchronous function provided
-  to "search_web"` — so every evaluation case would have been recorded as a
-  failure. The runner and its entry point are now asynchronous.
-- The reason nothing caught it is the same reason nothing caught the
-  certificate failure the day before: **the double replaced the thing that
-  broke.** The runner's test drove a `Mock()` graph, which accepts whatever call
-  it is given and therefore agrees with the runner about the calling convention
-  no matter what either one does. The test now compiles the real Web Research
-  graph with the existing search and model fakes. Reverting the fix makes it
-  fail, with both cases erroring and the search never reached — which is exactly
-  what a real evaluation run would have produced.
-- Test rationale, per the project rules. *Invariant:* the evaluation runner can
-  drive the real graph and read the state keys it depends on, and one failing
-  case neither hides a passing case nor prevents the report. *Deterministic:*
-  yes — graph wiring, calling convention, and report shape involve no model
-  judgement; the fake model returns fixed structured output. *Generalises:* it
-  asserts nothing about answer wording, only that a case completes against the
-  real graph and that its status, latency, and source count are recorded, so any
-  future change to the call convention or the output keys breaks it.
-  *Why pytest rather than the evaluation set:* the evaluation set measures
-  answer quality against live services; this measures whether the runner can run
-  at all, which is a deterministic contract and should block.
-- **The missed scheduled run is explained and closed.** The `weekday-ai-news`
-  job did not fire on the morning of 2026-08-14 because the MacBook was asleep.
-  APScheduler skips executions missed while it was not running, and a sleeping
-  host is that same case. Recorded as a consequence in ADR 002 and in the README
-  rather than investigated further; it is a property of scheduling on a laptop
-  and is one of the reasons for the Mac mini.
-- **Documentation cleanup.** The history file carried 380 lines of the July 29
-  plan snapshot, written in the future tense, including claims that were no
-  longer true — that scheduled runs did not populate the knowledge index, and
-  that security-research specialists were outside the plan. It is now a
-  thirty-line summary of the four planned steps, and the file is 907 lines
-  instead of 1,253. The active plan's "Things to consider later" mixed open
-  questions with decisions already settled against a measurement; those are now
-  two separate sections, so a settled decision is visibly settled. Its claim
-  that everything ORIS stores lives under `~/.oris` was overstated: scheduled
-  reports and run history still resolve relatively, pinned to the checkout only
-  by the LaunchAgent's working directory. That is now recorded accurately and
-  listed as an open question rather than quietly fixed, because moving them
-  moves existing files.
-- Roadmap additions: schedule management in the terminal interface, a review of
-  the eleven system prompts together with the evaluation coverage needed to
-  judge a prompt change, and a re-test of scheduled execution on the Mac mini.
-  SearXNG and Firecrawl were already on the roadmap inside the Web Evidence MCP
-  entry; that entry now says plainly what each one buys instead of naming them
-  in passing.
-- ADR 001 gained the certificate-trust decision, which is a portability
-  decision: the Mac mini will have the same interpreter build, and the
-  application must not depend on someone having run its certificate installer.
-  ADR 002 records the measured storage outcome that settled its own deferred
-  retention question.
+Test rationale, per the project rules, for the three tests added. *Invariants:*
+the evaluation runner can drive the real graph and read the state keys it
+depends on; aiohttp has a root store by the time it is imported; the status is
+painted where the reader can see it. *All deterministic* — graph wiring, import
+ordering, and layout geometry, with no model involved. *All generalise* — they
+assert that trust exists rather than which bundle, that a case completes rather
+than what it says, that the label appears rather than where. *All belong in
+pytest* rather than the evaluation set, being startup and interface contracts
+whose failure is silent and total. The certificate test's honest weakness: on a
+correctly installed interpreter it passes regardless, so it detects the
+regression only on a machine that has the underlying problem.
 
-Deterministic baseline after this work: 247 passing tests, 17 skipped opt-in
-live tests, clean Ruff lint and formatting. Unchanged, because the runner's
-existing test was rewritten rather than joined by a second one — the failure it
-now catches is the failure it was always meant to catch.
+**Fifteen of the seventeen live contracts were then run against real services
+and pass**, and the two YouTube contracts followed once their side effects were
+approved: they acknowledge processed videos back to Net-Razor, which is a real
+change to the user's data. **All seventeen now pass.** Community Research failed
+once with a connection error during synthesis and passed on retry in 15 seconds,
+recorded as a transient oMLX blip under concurrent load rather than a defect.
 
-### Certificate fix repaired, and the live contracts actually run — 2026-08-14
+Documentation was brought back in line at the same time. The history file
+carried 380 lines of the July 29 plan snapshot, written in the future tense,
+including claims that had gone false. The active plan mixed open questions with
+decisions already settled against a measurement; those became two sections. Its
+claim that everything ORIS stores lives under `~/.oris` was overstated —
+scheduled reports and run history still resolve relatively — and that is now
+recorded accurately as an open question rather than quietly changed.
 
-- **The certificate fix did not work.** It was correct about what to do and
-  wrong about when. aiohttp builds its verified SSL context once, at *its own*
-  import, and caches it in a module global — the source says so in a comment.
-  The repair ran later, when the Tavily client was constructed, by which point
-  importing `langchain_tavily` had already frozen a context holding **zero**
-  certificates. Measured directly: the cached context had 0 CAs while a freshly
-  built one had 121.
-- It now runs in the package's `__init__`, which is the one place guaranteed to
-  execute before any `oris` module body and therefore before aiohttp is
-  imported. Confirmed first by setting the variable in the shell, which made the
-  live Tavily contract pass, and then by the relocated code passing the same
-  contract with a clean environment.
-- **The test that was supposed to prove this asserted the wrong thing.** It
-  built a fresh default context and checked that one had roots. That is true and
-  irrelevant, because no fresh context is ever what aiohttp uses. It now runs a
-  clean subprocess and asserts on the context aiohttp actually holds, because
-  import order is the entire contract and cannot be observed inside a process
-  where everything is already imported.
-- Test rationale, per the project rules. *Invariant:* by the time aiohttp is
-  imported inside an ORIS process, OpenSSL has a root store, so an HTTPS call
-  can complete its handshake. *Deterministic:* yes — an import-ordering and
-  configuration fact, with no model and no network. *Generalises:* it asserts
-  that trust exists, not which bundle or how many roots, so it holds equally for
-  an interpreter that already has its own, one falling back to certifi, and one
-  pointed at a corporate bundle. *Why pytest rather than the evaluation set:* it
-  is a startup contract whose failure silently removes every web capability.
-  Its one honest weakness is that on a correctly installed interpreter it would
-  pass regardless — it only detects the regression on a machine that has the
-  underlying problem, which is the machine that matters.
-- **Two more live contracts were broken by the same asynchronous move**, both
-  invisible because they are opt-in and were never run: the Tavily contract
-  called the search without awaiting it, and the Web Research contract called
-  the graph synchronously. That is the fourth and fifth instance of one class —
-  a caller that no longer matches the code it calls, hidden behind either a
-  double or a disabled switch.
-- **Fifteen of the seventeen live contracts were then run against the real
-  services and pass:** five oMLX model contracts, Tavily search, two search
-  planning calls, Web Research end to end, routing across all seven evaluation
-  cases, Local Knowledge, Community Research and its command-line variant, the
-  Net-Razor stdio contract, and Threat Intel's local reference path. Community
-  Research failed once with a connection error during synthesis and passed on
-  retry in 15 seconds, so that is recorded as a transient oMLX blip under
-  concurrent load rather than a defect.
-- The two YouTube contracts were deliberately not run. Both acknowledge
-  processed videos back to Net-Razor, which is a real state change on the user's
-  own data — a later catch-up would silently skip whatever they marked. They
-  need an explicit decision, not a blanket "run everything".
+Deterministic baseline: 247 passing, 17 skipped, clean lint and formatting.
 
-Deterministic baseline: unchanged at 247 passing, 17 skipped, clean lint and
-formatting. Live baseline: 15 of 17 contracts passing against real services.
+### Phoenix as a supervised service — 2026-08-16
 
-### The status was never invisible to the code, only to the reader — 2026-08-14
+- **Phoenix had been down for two days and nothing said so.** The only signal
+  was an empty activity pane, and the only way to start it was remembering a
+  shell script in another terminal. Nothing had been traced since 2026-08-14
+  18:38.
+- **ORIS had two ways of launching its own services.** The scheduler ran from an
+  absolute path inside the project's virtual environment under launchd; Phoenix
+  ran from a shell script that called `uvx` off PATH and restated the trace
+  directory in its own words, with a comment conceding the two had to be kept in
+  step by hand. Both now render the same way: one label built from the service
+  name, one absolute executable in `.venv/bin`, one pair of logs named after it.
+  A test asserts that rule across every service rather than leaving it to be
+  remembered.
+- **The collector is launched through its own console script, not `uvx`.** `uvx`
+  runs the collector as a *child* rather than replacing itself, so launchd
+  supervised a wrapper: measured, a stopped service left the previous collector
+  alive holding port 6006, and its replacement then failed to bind the gRPC port
+  and crash-looped under `KeepAlive`. Verified after the change that the launchd
+  job ID and the process holding the port are the same, that a restart replaces
+  it leaving no orphan, and that the scheduler is untouched throughout.
+- The collector's environment is derived from ORIS's own settings, so the
+  directory ORIS reads and the one Phoenix writes cannot drift.
+- **The activity pane could not distinguish three different empty states.** It
+  now separates a store that has never recorded anything from one holding other
+  sessions' runs, naming the newest entry and its age; it says how many runs the
+  session scope is hiding; and it counts conversation turns beside traced runs.
+  That last one matters because the two are different sets — a failed request is
+  removed from the conversation but keeps its trace, and a turn taken while the
+  collector was down stays in the conversation with no trace. One real session
+  had one of each and shared nothing between the two panes.
+- A failed ThreatSyft call is attributed to the request rather than borrowing
+  the subject's name, which had produced entries reading
+  `{"not-an-ip": {"not-an-ip": "invalid_indicator"}}`.
 
-- **The per-step status was correct all along and could not be seen.** The
-  status line and the prompt were both docked to the bottom edge of the same
-  container. The prompt is three rows tall and the status one, and their regions
-  overlapped on the last of those rows; being later in document order, the
-  prompt was composited on top. Measured in a real headless run: the widget's
-  content read `⠋ Threat Intel · writing the answer … 2.0s` while the painted
-  screen contained neither "Threat Intel" nor "writing the answer". Removing the
-  dock puts it in normal flow directly above the prompt, where an empty one is
-  zero rows high and gives the line back between turns.
-- **Every existing assertion about it passed, in both states.** The step test
-  asks the widget to render its own line, which a covered widget still does
-  perfectly. Confirmed by reverting the layout: the step test stayed green and
-  only the new one failed. That is the same shape as the four failures before
-  it — a check that consults the component rather than the result.
-- The new test reads the composited screen. *Invariant:* while a turn runs, the
-  status is painted where the reader can see it, not merely set on a widget.
-  *Deterministic:* yes — layout geometry and compositing, driven by a fake graph
-  with no model involved. *Generalises:* it asserts the label appears somewhere
-  in the rendered screen, not where or in what colour, so any future layout
-  change that hides it fails regardless of the cause. *Why pytest rather than
-  the evaluation set:* a deterministic interface contract whose failure silently
-  removes all progress feedback.
-- Two diagnostic attempts were wrong before this one landed, and both were
-  caught before being reported. The first read a `renderable` attribute that
-  Textual 8.2.8's `Static` does not have, so it reported an empty status for a
-  working interface. The second matched plain text against a screenshot that
-  encodes spaces as entities and splits lines across style spans, so it reported
-  a hidden status for a visible one. Reading the installed source settled both.
-- Recorded because it generalises: three of this session's bugs and two of its
-  failed diagnoses share one cause. A check that asks the component under test
-  what it did will agree with it. Only a check that reads the result — the
-  painted screen, the real graph, the cached SSL context — can disagree.
-
-Deterministic baseline after this work: 248 passing tests, 17 skipped opt-in
-live tests, clean Ruff lint and formatting.
+Deterministic baseline: 257 passing, 17 skipped, clean lint and formatting.
+All 17 live contracts passing against real services.

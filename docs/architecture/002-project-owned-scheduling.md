@@ -47,18 +47,25 @@ single-machine deployment.
   authoritative job store.
 - Executions missed while the scheduler is offline will be skipped. No
   persistent APScheduler job store or custom catch-up state will be added.
-- During initial development, one machine-specific LaunchAgent in
-  `~/Library/LaunchAgents/` will supervise the scheduler in the logged-in user's
+- During initial development, machine-specific LaunchAgents in
+  `~/Library/LaunchAgents/` supervise ORIS's services in the logged-in user's
   context. `launchd` will not contain individual task schedules.
-- The repository-owned template is
-  `launchd/com.rppalmer.oris.scheduler.plist.template`. The
-  `orisctl scheduler` command renders the machine-specific plist and provides
-  install, uninstall, start, stop, restart, and status operations using
-  `launchctl bootstrap`, `bootout`, `kickstart`, and `print`.
-- The generated service runs `.venv/bin/oris-scheduler` directly with
-  `schedules.toml`, the project root as its working directory, and `KeepAlive`
-  enabled. It is classified as a background process. Standard output and error
-  go to separate files under the project-owned `logs/` directory.
+- Every service is rendered by one set of rules, so none has its own path
+  convention: a label built from the service name, a repository-owned template
+  at `launchd/com.rppalmer.oris.<service>.plist.template`, an absolute
+  executable inside the project's own virtual environment, and a pair of logs
+  named after the service under the project-owned `logs/` directory. A test
+  asserts that rule across every service rather than leaving it to be
+  remembered. `orisctl <service> <action>` renders the plist and provides
+  install, uninstall, start, stop, restart, and status using `launchctl
+  bootstrap`, `bootout`, `kickstart`, and `print`.
+- A supervised program must be the thing being supervised, not a wrapper in
+  front of it. Launching the trace collector through `uvx` made the collector a
+  child of the supervised process, so a stop killed the wrapper and left the
+  collector holding its port; the replacement then crash-looped under
+  `KeepAlive`. Services are launched through their own console scripts.
+- Services are independent. The scheduler runs the two services' health apart:
+  a stopped collector neither stops nor fails a scheduled run.
 - The generated plist contains absolute paths and the non-secret
   `PYTHONUNBUFFERED` setting only. Runtime configuration and credentials remain
   in `.env`; they are not copied into the plist.

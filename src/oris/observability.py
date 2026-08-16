@@ -143,6 +143,31 @@ def _seconds(start: str | None, end: str | None) -> float:
         return 0.0
 
 
+def newest_trace_at(database_path: Path) -> datetime | None:
+    """Return when the store last recorded anything, across every session.
+
+    An empty activity view has two very different causes: nothing has been
+    traced at all, or nothing has been traced *for the session being viewed*.
+    Only the store can tell them apart, and the age of its newest entry is what
+    reveals a collector that stopped days ago while the setting stayed on.
+    """
+    with _connect(database_path) as con:
+        if con is None:
+            return None
+        try:
+            row = con.execute(
+                """
+                SELECT MAX(t.start_time) FROM traces t
+                  JOIN projects p ON p.id = t.project_rowid
+                 WHERE p.name = ?
+                """,
+                (PROJECT_NAME,),
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+    return _utc(row[0]) if row and row[0] else None
+
+
 def recent_traces(
     database_path: Path,
     limit: int = 50,

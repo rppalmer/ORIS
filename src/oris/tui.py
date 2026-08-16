@@ -58,6 +58,7 @@ from oris.observability import (
     Span,
     SystemPrompt,
     Trace,
+    newest_trace_at,
     recent_traces,
     spans_for_trace,
     system_prompts_for_trace,
@@ -83,9 +84,32 @@ ACTIVITY_ONLY_ACTIONS = frozenset(
 CHAT_ONLY_ACTIONS = frozenset({"delete_session"})
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 NO_TRACES = (
-    "No traces for this session. Tracing is optional: start Phoenix with "
+    "No traces recorded. Tracing is optional: start Phoenix with "
     "./start-phoenix.sh and set LOCAL_TRACING_ENABLED=true to record runs."
 )
+# Said separately because the two look identical in an empty table and call for
+# opposite responses. Naming the newest entry is what shows a collector that
+# stopped days ago while the setting stayed on — the earlier wording told the
+# reader to switch on something they had already switched on, which is easy to
+# read as boilerplate and dismiss.
+NO_TRACES_THIS_SESSION = (
+    "No traces for this session. The newest recorded anywhere is {age}"
+    " ({when}); press a to show every session."
+)
+
+
+def _age(moment: datetime) -> str:
+    """Say how long ago something was, coarsely.
+
+    "2 days ago" answers the question an absolute timestamp makes the reader do
+    arithmetic for: is this stale, or did it just happen.
+    """
+    seconds = max(0.0, (datetime.now(UTC) - moment).total_seconds())
+    for size, unit in ((86400.0, "day"), (3600.0, "hour"), (60.0, "minute")):
+        if seconds >= size:
+            count = int(seconds // size)
+            return f"{count} {unit}{'s' if count != 1 else ''} ago"
+    return "moments ago"
 
 
 def _local(moment: datetime) -> datetime:
@@ -571,7 +595,16 @@ class OrisTui(App):
             "all sessions" if self._every_session else f"session {self.thread_id[:8]}"
         )
         if not self._traces:
-            self.query_one("#summary", Static).update(Text(NO_TRACES, style="yellow"))
+            newest = newest_trace_at(self.trace_database_path)
+            message = (
+                NO_TRACES
+                if newest is None
+                else NO_TRACES_THIS_SESSION.format(
+                    age=_age(newest),
+                    when=f"{_local(newest):%b %d %H:%M}",
+                )
+            )
+            self.query_one("#summary", Static).update(Text(message, style="yellow"))
             return
         elapsed = sum(trace.elapsed_seconds for trace in self._traces)
         tokens = sum(trace.prompt_tokens for trace in self._traces)

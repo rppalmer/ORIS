@@ -423,6 +423,38 @@ def test_without_traces_the_activity_tab_explains_itself(tmp_path: Path) -> None
     assert "Censys reports" in conversation
 
 
+def test_an_empty_session_is_not_confused_with_tracing_being_off(
+    tmp_path: Path,
+) -> None:
+    """The two empty panes look identical and call for opposite responses.
+
+    A store that has never recorded anything means the collector was never
+    started. A store holding other sessions' runs but none of this one's means
+    tracing worked and either this session is new or the collector has since
+    stopped — which the age of the newest entry is what reveals. Telling the
+    second reader to switch on a setting they already have on is how a real
+    diagnosis got missed.
+    """
+
+    async def drive() -> str:
+        app, _, _ = _build(tmp_path, traces=True)
+        app.thread_id = "a-session-with-no-traces-of-its-own"
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            app.action_refresh_activity()
+            await pilot.pause()
+            return str(app.query_one("#summary").render())
+
+    summary = _run(drive())
+
+    assert "No traces for this session" in summary
+    assert "ago" in summary
+    # The advice for a store that has never recorded anything must not appear
+    # here: this store plainly has.
+    assert "start-phoenix.sh" not in summary
+
+
 def test_evidence_opens_from_the_selected_run_without_typing_an_id(
     tmp_path: Path,
 ) -> None:

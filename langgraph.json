@@ -4,6 +4,5 @@
     "oris": "./src/oris/web_research_app.py:make_oris_graph",
     "web_research": "./src/oris/web_research_app.py:web_research_graph",
     "community_research": "./src/oris/web_research_app.py:make_community_research_graph"
-  },
-  "env": "./.env"
+  }
 }

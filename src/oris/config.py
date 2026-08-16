@@ -3,7 +3,14 @@
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, HttpUrl, SecretStr, StringConstraints, field_validator
+from pydantic import (
+    AfterValidator,
+    Field,
+    HttpUrl,
+    SecretStr,
+    StringConstraints,
+    field_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 NonEmptyString = Annotated[
@@ -11,6 +18,25 @@ NonEmptyString = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1),
 ]
 NonEmptySecret = Annotated[SecretStr, Field(min_length=1)]
+ConfiguredPath = Annotated[Path, AfterValidator(Path.expanduser)]
+"""A path from the environment, with a leading `~` resolved to the home directory.
+
+`Path` keeps `~` as an ordinary character, so an override written the way people
+actually write it would silently create a directory named `~` beside whatever
+the process was started in — the same invisible split this file exists to close.
+"""
+
+ORIS_HOME = Path.home() / ".oris"
+"""Where ORIS keeps the data and credentials it owns, and the one fixed anchor.
+
+A relative default resolves against whatever directory the process was started
+in, so the interactive session, the scheduler under its LaunchAgent, and a
+shell one level down each quietly built their own conversation history and
+knowledge index. Nothing reported the split; `/recall` simply stopped finding
+yesterday's answers. Every path below is absolute for that reason, and the
+matching environment variable still overrides it, which is how an existing
+installation keeps pointing at the directories it already has.
+"""
 
 DEFAULT_MAX_HISTORY_TOKENS = 8000
 """Conversation tokens sent to the model per turn, excluding the system prompt.
@@ -24,7 +50,7 @@ class Settings(BaseSettings):
     """Configuration required by ORIS's first external adapters."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ORIS_HOME / ".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
@@ -58,28 +84,34 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:6006/v1/traces",
         validation_alias="PHOENIX_COLLECTOR_ENDPOINT",
     )
-    checkpoint_database_path: Path = Field(
-        default=Path("data/checkpoints.sqlite"),
+    # Phoenix's own variable, read deliberately rather than duplicated: whatever
+    # `start-phoenix.sh` sets is where the traces are, so the two cannot drift.
+    phoenix_working_directory: ConfiguredPath = Field(
+        default=ORIS_HOME / "traces" / "phoenix",
+        validation_alias="PHOENIX_WORKING_DIR",
+    )
+    checkpoint_database_path: ConfiguredPath = Field(
+        default=ORIS_HOME / "data" / "checkpoints.sqlite",
         validation_alias="ORIS_CHECKPOINT_DB_PATH",
     )
-    knowledge_database_path: Path = Field(
-        default=Path("data/knowledge.sqlite"),
+    knowledge_database_path: ConfiguredPath = Field(
+        default=ORIS_HOME / "data" / "knowledge.sqlite",
         validation_alias="ORIS_KNOWLEDGE_DB_PATH",
     )
-    net_razor_python_executable: Path | None = Field(
+    net_razor_python_executable: ConfiguredPath | None = Field(
         default=None,
         validation_alias="NET_RAZOR_PYTHON_EXECUTABLE",
     )
-    threatsyft_python_executable: Path | None = Field(
+    threatsyft_python_executable: ConfiguredPath | None = Field(
         default=None,
         validation_alias="THREATSYFT_PYTHON_EXECUTABLE",
     )
-    threatsyft_root: Path | None = Field(
+    threatsyft_root: ConfiguredPath | None = Field(
         default=None,
         validation_alias="THREATSYFT_ROOT",
     )
-    threat_report_directory: Path = Field(
-        default=Path("artifacts/threat"),
+    threat_report_directory: ConfiguredPath = Field(
+        default=ORIS_HOME / "artifacts" / "threat",
         validation_alias="ORIS_THREAT_REPORT_DIR",
     )
     threat_report_retention_days: int = Field(
@@ -87,6 +119,28 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias="ORIS_THREAT_REPORT_RETENTION_DAYS",
     )
+
+    @property
+    def trace_database_path(self) -> Path:
+        """Phoenix's SQLite file, whether or not Phoenix is currently running."""
+        return self.phoenix_working_directory / "phoenix.db"
+
+    @property
+    def export_directory(self) -> Path:
+        """Where the terminal interface writes exported activity.
+
+        Anchored to the fixed root rather than derived from the threat-report
+        directory. Deriving it meant that pointing `ORIS_THREAT_REPORT_DIR`
+        somewhere else silently moved the exports as well — a setting doing a
+        second, undocumented thing.
+        """
+        return ORIS_HOME / "artifacts" / "exports"
+
+    @property
+    def phoenix_url(self) -> str:
+        """The Phoenix UI, derived from the endpoint traces are already sent to."""
+        endpoint = str(self.phoenix_collector_endpoint)
+        return endpoint.removesuffix("/v1/traces").rstrip("/")
 
     @field_validator("langsmith_tracing")
     @classmethod

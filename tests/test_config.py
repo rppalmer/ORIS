@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from oris.config import Settings
+from oris.config import ORIS_HOME, Settings
 
 VALID_TEST_SETTINGS = {
     "LOCAL_LLM_BASE_URL": "http://llm.test/v1",
@@ -29,8 +29,8 @@ def test_settings_accept_valid_explicit_values() -> None:
     assert str(settings.phoenix_collector_endpoint) == (
         "http://127.0.0.1:6006/v1/traces"
     )
-    assert settings.checkpoint_database_path == Path("data/checkpoints.sqlite")
-    assert settings.knowledge_database_path == Path("data/knowledge.sqlite")
+    assert settings.checkpoint_database_path == ORIS_HOME / "data/checkpoints.sqlite"
+    assert settings.knowledge_database_path == ORIS_HOME / "data/knowledge.sqlite"
     assert settings.net_razor_python_executable is None
 
 
@@ -96,3 +96,69 @@ def test_validation_errors_hide_raw_input_values() -> None:
     assert "local-test-key" not in error_text
     assert "tavily-test-key" not in error_text
     assert "input_value" not in error_text
+
+
+def test_the_trace_database_follows_phoenix_own_variable() -> None:
+    """Reading PHOENIX_WORKING_DIR is what keeps the two from drifting apart."""
+    settings = Settings(_env_file=None, **VALID_TEST_SETTINGS)
+    moved = Settings(
+        _env_file=None,
+        **VALID_TEST_SETTINGS,
+        PHOENIX_WORKING_DIR="/var/phoenix",
+    )
+
+    assert settings.trace_database_path == ORIS_HOME / "traces/phoenix/phoenix.db"
+    assert moved.trace_database_path == Path("/var/phoenix/phoenix.db")
+
+
+def test_storage_paths_do_not_depend_on_the_working_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Two ORIS processes must reach one store however they were started.
+
+    The interactive session runs from wherever the user happens to be and the
+    scheduler runs from its LaunchAgent's directory. While the defaults were
+    relative each of them built a private conversation history and knowledge
+    index, and nothing reported it: `/recall` just stopped finding answers.
+    """
+    from_the_project = Settings(_env_file=None, **VALID_TEST_SETTINGS)
+    monkeypatch.chdir(tmp_path)
+    from_elsewhere = Settings(_env_file=None, **VALID_TEST_SETTINGS)
+
+    for name in (
+        "checkpoint_database_path",
+        "knowledge_database_path",
+        "threat_report_directory",
+        "phoenix_working_directory",
+    ):
+        assert getattr(from_the_project, name).is_absolute()
+        assert getattr(from_the_project, name) == getattr(from_elsewhere, name)
+
+
+def test_a_configured_path_expands_a_leading_home_shortcut() -> None:
+    """`~/…` is how these overrides get written, and Path keeps `~` literal.
+
+    Unexpanded it names a directory called `~` beside the working directory,
+    which is the same invisible split the absolute defaults exist to close.
+    """
+    settings = Settings(
+        _env_file=None,
+        **VALID_TEST_SETTINGS,
+        ORIS_KNOWLEDGE_DB_PATH="~/elsewhere/knowledge.sqlite",
+    )
+
+    assert (
+        settings.knowledge_database_path == Path.home() / "elsewhere/knowledge.sqlite"
+    )
+
+
+def test_the_phoenix_url_is_derived_from_the_collector_endpoint() -> None:
+    """One address is configured; the UI is the same server without the path."""
+    settings = Settings(
+        _env_file=None,
+        **VALID_TEST_SETTINGS,
+        PHOENIX_COLLECTOR_ENDPOINT="http://127.0.0.1:7000/v1/traces",
+    )
+
+    assert settings.phoenix_url == "http://127.0.0.1:7000"

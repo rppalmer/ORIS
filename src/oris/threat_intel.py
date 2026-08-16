@@ -43,6 +43,12 @@ MAX_ENRICHED_INDICATORS = 5
 REFERENCE_SEARCH_LIMIT = 5
 REFERENCE_SEARCH_KEY = "reference_search"
 
+# The same budget in wall-clock terms. ThreatSyft's session read timeout bounds
+# each call, but this node makes one per indicator plus the reference lookups,
+# so only the node itself can bound the run. The slowest real single-indicator
+# collection took 16 seconds.
+EVIDENCE_TIMEOUT_SECONDS = 300
+
 # enrich() accepts network indicators and file hashes; CVEs and technique IDs
 # are reference lookups instead.
 ENRICHABLE_IOC_TYPES = ("ips", "domains", "urls", "hashes")
@@ -82,6 +88,11 @@ class ThreatIntelInput(TypedDict):
     request: str
     capability: NotRequired[ThreatIntelCapability]
     report_only: NotRequired[bool]
+    # Passed in rather than read from the run's config: the stored evidence has
+    # to name the conversation that asked for it so deleting that conversation
+    # can take it along, and a link that important should be visible in the
+    # call rather than inherited from an ambient context.
+    thread_id: NotRequired[str]
 
 
 class ThreatIntelOutput(TypedDict):
@@ -103,6 +114,7 @@ class ThreatIntelState(TypedDict):
     request: str
     capability: NotRequired[ThreatIntelCapability]
     report_only: NotRequired[bool]
+    thread_id: NotRequired[str]
     report: NotRequired[dict[str, Any] | None]
     report_id: NotRequired[str | None]
     report_path: NotRequired[str | None]
@@ -131,10 +143,11 @@ def _structured_content(result: object, tool_name: str) -> dict[str, Any]:
 
 MINIMUM_CITATION_STEM = 3
 
-# Report shaping. Values are grouped by field rather than by source, so the
-# providers that answered the same question sit next to each other and disagree
-# visibly. Nothing is judged or merged: every value keeps the name of whoever
-# said it.
+# Report shaping. Values are grouped by subject and then by field rather than by
+# source, so the providers that answered the same question about the same
+# indicator sit next to each other and disagree visibly. Nothing is judged or
+# merged: every value keeps the name of whoever said it and the subject it was
+# said about.
 REPORT_MAX_DEPTH = 2
 REPORT_MAX_LIST_ITEMS = 10
 # Bookkeeping a provider adds about itself, not findings about the indicator.
@@ -178,14 +191,20 @@ def _flatten_source(value: Any, prefix: str = "", depth: int = 0) -> dict[str, A
 
 
 def build_report(evidence: dict[str, Any]) -> dict[str, Any]:
-    """Pivot collected evidence from source-major to field-major.
+    """Pivot collected evidence from source-major to subject-major, then field.
 
     A raw fan-out is one object per provider, which is mostly bulk and hides the
     fact that five sources answered the same question differently. Grouping by
     field puts those answers side by side at a fraction of the size.
+
+    The subject — the indicator or reference the evidence was collected about —
+    stays the outer key because provider names repeat across subjects. Without
+    it, one indicator's answer overwrites another's, and an address with an
+    AbuseIPDB confidence of 0 and one with a confidence of 100 collapse into a
+    single row reading 100.
     """
-    findings: dict[str, dict[str, Any]] = {}
-    errors: dict[str, str] = {}
+    findings: dict[str, dict[str, dict[str, Any]]] = {}
+    errors: dict[str, dict[str, str]] = {}
 
     for key, envelope in evidence.items():
         if not isinstance(envelope, dict):
@@ -205,11 +224,11 @@ def build_report(evidence: dict[str, Any]) -> dict[str, Any]:
                 code = entry.get("code")
                 if code is None and isinstance(error, dict):
                     code = error.get("code")
-                errors[name] = str(code or "failed")
+                errors.setdefault(key, {})[name] = str(code or "failed")
                 continue
             data = entry.get("data") if isinstance(entry.get("data"), dict) else entry
             for field, item in _flatten_source(data).items():
-                findings.setdefault(field, {})[name] = item
+                findings.setdefault(key, {}).setdefault(field, {})[name] = item
 
     report: dict[str, Any] = {"findings": findings}
     if errors:
@@ -475,7 +494,9 @@ def create_threat_intel_graph(
         # summary cannot answer: what exactly did that source say. Without this
         # the answer is "re-run it and pay again".
         if report_store is not None:
-            stored = report_store.save(state["request"], evidence)
+            stored = report_store.save(
+                state["request"], evidence, thread_id=state.get("thread_id", "")
+            )
             updates["report_id"] = stored.report_id
             updates["report_path"] = str(stored.path)
         return updates
@@ -490,12 +511,20 @@ def create_threat_intel_graph(
         context on every later turn if they entered the conversation.
         """
         report = build_report(state["evidence"])
-        answered = len(state["source_status"]) - len(report.get("no_answer", {}))
+        findings = report["findings"]
+        # Counted from the pivot itself so the line cannot claim more than the
+        # report holds. Subjects are named because a report covering several
+        # indicators looked identical to one covering a single indicator.
+        fields = sum(len(subject) for subject in findings.values())
+        answered = sum(
+            1 for status in state["source_status"].values() if status == "ok"
+        )
         return {
             "report": report,
             "answer": (
                 f"Evidence report for {state['request']}: "
-                f"{len(report['findings'])} fields from {answered} sources."
+                f"{fields} fields on {len(findings)} subjects from "
+                f"{answered} sources."
             ),
             "sources_used": sorted(state["source_status"]),
         }
@@ -559,7 +588,9 @@ def create_threat_intel_graph(
     builder.add_node("validate_request", validate_request)
     builder.add_node("extract_indicators", extract_indicators)
     builder.add_node("plan_investigation", plan_investigation)
-    builder.add_node("collect_evidence", collect_evidence)
+    builder.add_node(
+        "collect_evidence", collect_evidence, timeout=EVIDENCE_TIMEOUT_SECONDS
+    )
     builder.add_node("compile_report", compile_report)
     builder.add_node("synthesize_answer", synthesize_answer)
     builder.add_node("validate_sources", validate_sources)

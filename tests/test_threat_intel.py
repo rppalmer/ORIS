@@ -382,6 +382,37 @@ def test_evidence_is_stored_even_when_a_summary_was_asked_for() -> None:
     assert "8.8.8.8" in saved["evidence"]
 
 
+def test_stored_evidence_names_the_conversation_that_asked_for_it() -> None:
+    """Otherwise deleting that conversation cannot find the evidence again.
+
+    The specialist is invoked as a subgraph with no checkpointer of its own, so
+    the conversation is passed in rather than inherited from the surrounding
+    run's configuration — the link is too important to be ambient.
+    """
+    extract, enrich, lookup, search, model = make_dependencies(
+        iocs(ips=["8.8.8.8"]),
+        ThreatIntelAnswer(answer="Clean.", sources_used=("8.8.8.8",)),
+    )
+    saved: dict[str, object] = {}
+
+    class Store:
+        retention_days = 30
+
+        def save(self, request, evidence, *, thread_id, **_kwargs):
+            saved["thread_id"] = thread_id
+            return SimpleNamespace(report_id="abc123", path=Path("/tmp/r.json"))
+
+    graph = create_threat_intel_graph(
+        extract, enrich, lookup, search, model, report_store=Store()
+    )
+
+    asyncio.run(
+        graph.ainvoke({"request": "enrich 8.8.8.8", "thread_id": "5a1c-conversation"})
+    )
+
+    assert saved["thread_id"] == "5a1c-conversation"
+
+
 def test_report_keyword_returns_evidence_without_calling_the_model() -> None:
     """The report path is lossless because no model rewrites it.
 
@@ -407,11 +438,57 @@ def test_report_keyword_returns_evidence_without_calling_the_model() -> None:
     model.answer_model.ainvoke.assert_not_awaited()
     model.planning_model.ainvoke.assert_not_awaited()
     # Grouped by field, every value still attributed to who said it.
-    assert result["report"]["findings"]["asn"] == {
-        "virustotal": 15169,
-        "abuseipdb": 15169,
+    findings = result["report"]["findings"]["8.8.8.8"]
+    assert findings["asn"] == {"virustotal": 15169, "abuseipdb": 15169}
+    assert findings["isp"] == {"abuseipdb": "Google"}
+
+
+def test_a_report_on_two_indicators_keeps_both_answers() -> None:
+    """Provider names repeat across indicators, so the subject has to be the key.
+
+    Keyed by field and source alone, the second address's answer overwrites the
+    first's and the report reads as one subject with the surviving value.
+    """
+    extract, enrich, lookup, search, model = make_dependencies(
+        iocs(ips=["1.1.1.1", "45.83.192.4"]),
+        ThreatIntelAnswer(answer="unused", sources_used=()),
+        enrich_payloads=[
+            envelope(
+                "enrich",
+                {
+                    "sources": {
+                        "abuseipdb": {"ok": True, "data": {"confidence_score": 0}},
+                        "shodan": {"ok": False, "code": "not_found"},
+                    }
+                },
+            ),
+            envelope(
+                "enrich",
+                {
+                    "sources": {
+                        "abuseipdb": {"ok": True, "data": {"confidence_score": 100}},
+                        "shodan": {"ok": False, "code": "quota_exceeded"},
+                    }
+                },
+            ),
+        ],
+        plan=ThreatIntelPlan(capability="enrich", reference_query="unused"),
+    )
+    graph = create_threat_intel_graph(extract, enrich, lookup, search, model)
+
+    result = asyncio.run(graph.ainvoke({"request": "report enrich these"}))
+
+    report = result["report"]
+    assert report["findings"]["1.1.1.1"]["confidence_score"] == {"abuseipdb": 0}
+    assert report["findings"]["45.83.192.4"]["confidence_score"] == {"abuseipdb": 100}
+    # A source that failed differently on each subject says so on each subject.
+    assert report["no_answer"] == {
+        "1.1.1.1": {"shodan": "not_found"},
+        "45.83.192.4": {"shodan": "quota_exceeded"},
     }
-    assert result["report"]["findings"]["isp"] == {"abuseipdb": "Google"}
+    # The answer line has to name the subject count, or a report covering two
+    # indicators reads exactly like one covering a single indicator.
+    assert "2 subjects" in result["answer"]
 
 
 def test_report_keywords_compose_with_a_capability_keyword() -> None:
@@ -448,8 +525,9 @@ def test_report_records_which_sources_had_no_answer() -> None:
 
     result = asyncio.run(graph.ainvoke({"request": "report enrich 8.8.8.8"}))
 
-    assert result["report"]["no_answer"] == {"shodan": "not_found"}
-    assert "shodan" not in result["report"]["findings"].get("reputation", {})
+    assert result["report"]["no_answer"] == {"8.8.8.8": {"shodan": "not_found"}}
+    findings = result["report"]["findings"]["8.8.8.8"]
+    assert "shodan" not in findings.get("reputation", {})
 
 
 def test_report_summarises_bulky_lists_rather_than_inlining_them() -> None:
@@ -476,7 +554,7 @@ def test_report_summarises_bulky_lists_rather_than_inlining_them() -> None:
 
     findings = asyncio.run(graph.ainvoke({"request": "report enrich 8.8.8.8"}))[
         "report"
-    ]["findings"]
+    ]["findings"]["8.8.8.8"]
 
     assert findings["services.count"] == {"censys": 22}
     assert "services" not in findings

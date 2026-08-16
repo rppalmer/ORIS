@@ -1,5 +1,6 @@
 """Official MCP connection for the local ThreatSyft capability provider."""
 
+from datetime import timedelta
 from pathlib import Path
 
 from langchain_core.tools import BaseTool
@@ -7,6 +8,12 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 ENRICHMENT_SERVER_NAME = "threatsyft_enrichment"
 KNOWLEDGE_SERVER_NAME = "threatsyft_knowledge"
+
+# Without a session read timeout the MCP SDK skips its `anyio.fail_after` guard
+# entirely and a request waits forever, which in the CLI is an endless spinner
+# and in the scheduler is a held job slot that silently skips every later run.
+# One `enrich` fans out to ten providers; the slowest observed took 16 seconds.
+READ_TIMEOUT = timedelta(seconds=60)
 
 # Only the tools the Threat Intel specialist actually calls. The status tools
 # each server also exposes are diagnostics and stay out of the allowlist.
@@ -46,6 +53,7 @@ def create_threatsyft_client(
             "args": ["-m", module],
             "cwd": str(project_root),
             "env": {"PYTHONPATH": str(project_root / "src")},
+            "session_kwargs": {"read_timeout_seconds": READ_TIMEOUT},
         }
 
     return MultiServerMCPClient(

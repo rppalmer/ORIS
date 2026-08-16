@@ -24,46 +24,56 @@ external systems.
 
 ## Current position
 
-The initial core ORIS milestone has passed its final targeted
-acceptance run across direct chat, Web Research, Community Research, YouTube
-Catch-up, Local Knowledge, and session isolation.
+The initial core ORIS milestone has passed its final targeted acceptance run
+across direct chat, Web Research, Community Research, YouTube Catch-up, Local
+Knowledge, and session isolation. The parent graph, durable sessions, explicit
+Local Knowledge recall, and Threat Intel are working.
 
-The parent graph, CLI, durable sessions, explicit Local Knowledge recall, Web
-Research, Community Research, and YouTube Catch-up are working. Ordinary CLI
-input uses a constrained structured-output router; `/research`, `/community`,
-and `/recall` remain deterministic overrides. The router now resolves
-context-dependent follow-ups and prepares specialist input in the same model
-call. Community Research receives a concise Net-Razor topic; other specialists
-receive standalone requests. Failed requests are kept out of conversation history and report
-their actual component and reason. Web Research distinguishes current-state
-lookups from publication-bounded news and selects Tavily's news category for
-explicit news requests. YouTube Catch-up discovers a bounded queue through
-Net-Razor, summarizes transcripts one at a time, and maps only its cited digest
-and caveats back into chat. It acknowledges successful transcript call IDs only
-after final citation validation; Net-Razor remains the sole owner of
-processed-video state.
+Ordinary input uses a constrained structured-output router; `/research`,
+`/community`, `/recall`, and `/threat` remain deterministic overrides. The
+router resolves context-dependent follow-ups and prepares specialist input in
+the same model call. Community Research receives a concise Net-Razor topic;
+other specialists receive standalone requests. Failed requests are kept out of
+conversation history and report their actual component and reason. Web Research
+distinguishes current-state lookups from publication-bounded news and selects
+Tavily's news category for explicit news requests. YouTube Catch-up discovers a
+bounded queue through Net-Razor, summarizes transcripts one at a time, and maps
+only its cited digest and caveats back into chat; Net-Razor remains the sole
+owner of processed-video state. Local Knowledge plans each archive search into
+concise terms, a chat or scheduled-report filter, and relevance or newest
+ordering, and recall answers are not re-indexed as new knowledge. Direct chat
+leads with the answer and expands only when depth is requested — a prompt-only
+behaviour, with no output truncation or graph change.
 
-Local Knowledge now plans each archive search into concise terms, a chat or
-scheduled-report filter, and relevance or newest ordering. Newest searches
-return one document while relevance searches return up to five. Recall answers
-are not re-indexed as new knowledge, preventing derived answers from outranking
-their original evidence.
-
-Direct chat now leads with the answer, stays concise for ordinary questions,
-and expands when the user explicitly requests depth. This is a prompt-only
-behavior; no output truncation, graph change, or model configuration was added.
+There are two front ends over that one graph. The command line is the floor: it
+has no optional dependency, works over a plain SSH session, and is what a piped
+or scripted run gets. The tabbed terminal interface adds session switching,
+deletion, and an activity view built from the traces Phoenix already collected;
+`textual` stays an optional extra. Neither owns behaviour the other lacks — the
+command vocabulary, the reading of a typed line, the command reference, the
+turn runner, and the rule for what gets archived are each defined once and used
+by both. Which becomes the primary interface is still open and waiting on real
+use.
 
 Local Phoenix tracing, the project-owned APScheduler runtime, scheduled run
-history, and the transitional `orisctl scheduler` LaunchAgent are working.
-The scheduler can run either Web Research or YouTube Catch-up directly from a
-validated `schedules.toml` entry. YouTube scheduled runs retain history and a
-Markdown report, add the report to Local Knowledge, and only then acknowledge
-processed transcripts in Net-Razor. No recurring YouTube job is enabled in the
+history, and the transitional `orisctl scheduler` LaunchAgent are working. The
+scheduler can run either Web Research or YouTube Catch-up directly from a
+validated `schedules.toml` entry. No recurring YouTube job is enabled in the
 committed schedule because its timing and work budget have not been chosen.
+
+Everything ORIS holds as personal data now lives under a fixed `~/.oris`:
+configuration, conversation state, the `/recall` archive, stored Threat Intel
+evidence, exported activity, and local traces. Those paths used to be relative
+and resolved against whatever directory a process started in, so the
+interactive session and the scheduler quietly kept separate archives. Each has
+an environment override for pointing an existing installation at directories it
+already has. Scheduled reports and run history are the remaining exception and
+are listed under open questions.
+
 Deterministic and live verification details are retained in the
 [implementation history](implementation-history.md), including the accepted
-Community Research, YouTube Catch-up, and the accepted seven-case routing
-report.
+Community Research, YouTube Catch-up, the accepted seven-case routing report,
+and the August 13 foundation review and its fixes.
 
 ## Architecture boundaries
 
@@ -87,89 +97,169 @@ report.
   own deterministic paths and tool allowlists.
 - No unrestricted model-controlled tool loop or remote-write capability.
 
-## Long-term Mac mini service
+## Roadmap
 
-- [ ] Move ORIS and oMLX away from dependence on an interactive login.
-- [ ] Run the scheduler as a system LaunchDaemon under a dedicated non-root
-  service identity.
-- [ ] Use service-owned configuration, logs, databases, and artifact paths.
-- [ ] Verify a scheduled run after reboot without a user login.
-- [ ] Consider LangGraph deployment cron only if persistent Agent Server
-  infrastructure later becomes justified.
+### Answer quality
 
-## Provider and specialist roadmap
+This is the work that changes what an investigation actually tells the user.
+Nothing else on this roadmap moves that number.
 
-- [ ] When a real second backend is available, introduce the smallest
-  ORIS-owned adapter needed to preserve the existing specialist contract. Do
-  not add provider-selection configuration before two implementations exist.
+- [ ] Review the eleven system prompts in `src/oris/prompts/` as one body of
+  work. They come to 140 lines in total, and they — not the graph — decide what
+  an answer contains. No pass has yet read them together: the August 13
+  foundation review covered code, and pytest cannot assert prompt quality
+  because the output is probabilistic. Cover at least what each prompt says
+  about citations and about admitting missing evidence, where prompts disagree
+  with each other on tone and length, and whether Threat Intel's planning and
+  synthesis prompts ask for the analytic structure a real investigation needs.
+- [ ] Give the specialists that have no versioned evaluation set one. Today
+  there are two: four Web Research questions and seven routing cases. Community
+  Research, YouTube Catch-up, Local Knowledge, and Threat Intel have only
+  one-off run reports under `artifacts/evaluations/`. A prompt change cannot be
+  judged without a before-and-after on the same fixed questions, so this gates
+  the review above rather than following it.
+
+### Interfaces
+
+- [ ] Add schedule management to the terminal interface: list the jobs in
+  `schedules.toml` with their next run time, show each job's recent run history
+  and its reports, and run one on demand. Editing schedules is a separate
+  question — `schedules.toml` is version-controlled and project-owned by ADR
+  002, and an interface that writes it becomes a second source of truth. Start
+  read-only plus a manual trigger, which is what the missed-run diagnosis
+  actually needed.
+- [ ] Decide whether a long turn needs a cancel key. Per-step status now names
+  the running graph node, which was the larger half of the complaint; whether
+  the remaining wait is worth interrupting is a question for real use.
+
+### Evidence providers
+
+- [ ] Build the separate Web Evidence MCP server. Its point is to end the
+  single-vendor dependency on Tavily and to get past search snippets:
+  - **SearXNG** as a second search provider. Self-hosted, so it removes the
+    per-search cost and quota from routine research, and it makes provider
+    failure a choice rather than an outage. Its recency and domain filters
+    depend on the engines it is configured with and must be proven by contract
+    test rather than assumed to match Tavily's.
+  - **Firecrawl** for page extraction, kept as a separate capability from
+    search so a client can review URLs before spending extraction credits.
+    Snippets are all Web Research has today; anything needing the body of a
+    page cannot currently be answered.
+  See [web-evidence-mcp-plan.md](web-evidence-mcp-plan.md) for the tool
+  contracts, safety boundaries, and build phases. Keep `playwright-stealth`
+  optional and disabled by default.
+- [ ] When a real second backend exists, introduce the smallest ORIS-owned
+  adapter needed to preserve the existing specialist contract. Do not add
+  provider-selection configuration before two implementations exist.
 - [ ] After the fixed workflows remain stable, consider a separate dynamic MCP
   exploration specialist for interactive, read-only, best-effort requests. It
   must use a small explicit tool allowlist and bounded execution, and it must
   not run scheduled or persistence-sensitive workflows.
 
-- [ ] Build the separate Web Evidence MCP server for explicit Tavily or SearXNG
-  search, Firecrawl extraction, and bounded Playwright scraping. Keep
-  `playwright-stealth` optional and disabled by default. See
-  [web-evidence-mcp-plan.md](web-evidence-mcp-plan.md).
-
 The Net-Razor boundary uses the official `langchain-mcp-adapters` package and a
 fixed tool allowlist, and Net-Razor is optional configuration. Direct Tavily
-access remains until the separate Web Evidence MCP replacement proves equivalent
+access remains until the Web Evidence MCP replacement proves equivalent
 behavior, tracing, error propagation, and acceptable resource usage. The
 Net-Razor-specific tool names and result mapping are still inline in Community
 Research and YouTube Catch-up; that is a known deviation from the adapter
 boundary, to be repaid when either specialist is next changed rather than
 treated as accepted precedent.
 
-## Things to consider later
+### Mac mini service
 
+- [ ] Move ORIS and oMLX away from dependence on an interactive login.
+- [ ] Run the scheduler as a system LaunchDaemon under a dedicated non-root
+  service identity.
+- [ ] Use service-owned configuration, logs, databases, and artifact paths.
+- [ ] Verify a scheduled run after reboot without a user login.
+- [ ] Re-test scheduled execution on the Mac mini once the code is moved there.
+  The `weekday-ai-news` job did not fire on the morning of 2026-08-14: the
+  scheduler process was alive and had never exited, and no run record or log
+  line exists. The cause is that the scheduler is running on a laptop that was
+  asleep at the trigger time. APScheduler deliberately skips executions missed
+  while it was not running (ADR 002), and a sleeping host is the same case.
+  This is a property of the host, not a defect, and it is one of the reasons
+  the always-on Mac mini is the intended home. Do not chase it further on the
+  MacBook.
+- [ ] Consider LangGraph deployment cron only if persistent Agent Server
+  infrastructure later becomes justified.
+
+## Open questions
+
+- Scheduled reports and run history still resolve relatively, against whatever
+  directory the process started in — `artifacts/scheduled/<job-id>/`, pinned to
+  the checkout only because the LaunchAgent sets a working directory. This is
+  the same class of problem the `~/.oris` move fixed everywhere else. The
+  schedule file and `logs/` are deliberately project-owned and should stay; the
+  reports are data and probably should not. Moving them means moving existing
+  files, so it needs an explicit decision.
+- Which front end is primary. Waiting on real use, not on analysis.
 - Verify that the scheduler LaunchAgent resumes after a real login or reboot
   while the user is logged in.
 - Decide whether an always-on Phoenix service belongs on the MacBook or Mac
   mini. If it is needed, give Phoenix its own LaunchAgent and expose its
   lifecycle through `orisctl phoenix <action>`. Do not make scheduler health
   depend on Phoenix health.
-- The terminal interface, paused deliberately on 2026-08-12. `uv run oris-tui`
-  is an unwired mock: the layout and interactions were accepted, and the
-  decision to build it for real waits on a few days of ordinary CLI use. Build
-  it only if the cost-beside-the-conversation view turns out to be something
-  worth having; if the instinct in the moment is to open Phoenix instead, the
-  answer is no and the mock should be deleted rather than left to rot.
-  Watch for, while using the CLI: whether the per-turn cost line gets read,
-  whether sessions need switching rather than just resuming, and whether the
-  twenty-second wait wants streaming and a cancel key.
-- Session listing, naming, and switching if the interface demonstrates a need.
-  The mock demonstrated it; the data is already in `checkpoints.sqlite` and only
-  needs querying. Deletion is the part that needs a decision rather than code:
-  what happens to `knowledge.sqlite` rows whose `source_ref` is that thread.
-- Selected session deletion with an explicit decision about associated
-  searchable knowledge.
 - A confirmed administrative backup-and-reset operation for all local state.
-- Automatic storage retention limits only after storage growth is measured.
-  Prompt-side history trimming is already implemented and is a separate concern.
-- Settled 2026-08-10: per-tool-call Net-Razor sessions stay. Measured startup is
+- The command line's own input history is not covered by session deletion and
+  wants its own `/forget`.
+- Whether Threat Intel should become a router destination. It is deliberately
+  not one today: `enrich` egresses indicators to third-party providers and
+  consumes paid credits, so it stays an explicit user choice.
+- Keep cross-session recall explicit; do not automatically inject old sessions.
+- Provider auto-parameters, advanced search, and an LLM-based evaluator remain
+  deferred unless evidence shows they solve a real problem.
+- Broader security-research specialists, n8n, and remote-write tools remain
+  outside the current ORIS scope.
+
+## Settled — do not revisit without new evidence
+
+Each of these was decided against a measurement or a demonstrated constraint.
+They are kept here, rather than in the history file, because they are the
+answers to questions that keep getting asked again.
+
+- **Prompt editing from the terminal interface** (2026-08-12). Considered and
+  dropped. Viewing is read-only against the trace, which is a fact; editing
+  would make the interface a second, unversioned source of prompts.
+- **Session deletion removes the conversation and its archive rows**
+  (2026-08-12). `SqliteSaver.delete_thread` handles the conversation;
+  `KnowledgeRepository.delete_by_source_ref` handles the archive. Phoenix
+  traces are deliberately left alone: they belong to Phoenix, which has its own
+  retention, and ORIS only reads them. Deletion also removes the Threat Intel
+  evidence that conversation collected, matched by the thread recorded in each
+  report's filename (2026-08-13).
+- **No automatic storage retention** (measured 2026-08-13). Everything ORIS
+  owns came to 2.4 MB: 2.2 MB of conversation state across 245 checkpoints in 4
+  threads, a 94 KB archive holding 23 documents, and 184 KB of stored evidence.
+  Phoenix's own 36 MB dwarfs all of it and already has a 14-day policy. Threat
+  reports age out at 30 days. The condition for building automatic retention
+  was met and the answer is no: the growth is not there. Revisit when the
+  archive passes a few hundred megabytes or the checkpoint database becomes the
+  reason a session feels slow. Prompt-side history trimming is already
+  implemented and is a separate concern.
+- **Per-tool-call Net-Razor sessions stay** (measured 2026-08-10). Startup is
   0.30-0.47s, so a five-video YouTube run spends about two seconds launching
   processes against a run dominated by transcript fetches and model calls.
   Holding one session would trade that for a Net-Razor process alive for the
   whole CLI session. Do not revisit without a measurement showing otherwise.
-- Settled 2026-08-10: oMLX accepts strict `json_schema` structured output,
-  including the `minLength`/`maxLength` constraints ORIS emits, which OpenAI's
-  own strict mode rejects. All specialists now use `json_schema`; Community
-  Research's `json_mode` was an unexplained inconsistency, not a workaround.
-- Keep cross-session recall explicit; do not automatically inject old sessions.
-- Provider auto-parameters, advanced search, and an LLM-based evaluator remain
-  deferred unless evidence shows they solve a real problem.
-- A bounded, defensive ThreatSyft Threat Intel specialist is implemented behind
-  the explicit `/threat` command. Broader security-research specialists, n8n,
-  and remote-write tools remain outside the current ORIS scope.
-- Whether Threat Intel should become a router destination. It is deliberately
-  not one today: `enrich` egresses indicators to third-party providers and
-  consumes paid credits, so it stays an explicit user choice.
+- **All specialists use strict `json_schema` structured output** (2026-08-10).
+  oMLX accepts the `minLength`/`maxLength` constraints ORIS emits, which
+  OpenAI's own strict mode rejects. Community Research's `json_mode` was an
+  unexplained inconsistency, not a workaround.
+- **No node-level timeouts on the search path** (2026-08-13). LangGraph refuses
+  a `timeout=` on a synchronous node, so the foundation review's recommendation
+  was not implementable as written. The deadline lives in the provider client
+  instead. See ADR 001.
 
 ## Immediate next action
 
-The current core milestone is complete. Select the next milestone before adding
-more code. Current roadmap candidates are the separate Web Evidence MCP server,
-interface improvements, or the later Mac mini service hardening already listed
-above. Provider adapters remain contingent on a real second implementation,
-and dynamic MCP exploration remains unapproved future work.
+The core milestone is complete and the August 13 foundation review is closed
+out. Nothing in this session's changes has been exercised against live
+services; a smoke run over the command line and the terminal interface, plus
+the seventeen opt-in live contracts, should come before the next milestone
+rather than after it.
+
+Then select one: the prompt and evaluation work under "Answer quality", the
+Web Evidence MCP server, or the Mac mini service hardening. Provider adapters
+remain contingent on a real second implementation, and dynamic MCP exploration
+remains unapproved.

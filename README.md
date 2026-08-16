@@ -5,7 +5,8 @@ assistant built with Python and LangGraph. Its goal is to handle ad-hoc
 questions and scheduled research with predictable workflows, cited evidence,
 durable local history, and local traces that make its activity easy to inspect.
 
-The current application is a command-line assistant and web researcher. It can
+The current application is a local assistant and web researcher, usable from a
+plain command line or a tabbed terminal interface. It can
 chat directly, research the open web, collect community information from X and
 Hacker News, summarize recent videos from configured YouTube channels, and
 search earlier conversations and scheduled reports. It is read-only with
@@ -20,6 +21,9 @@ respect to external systems.
   and Hacker News evidence.
 - YouTube Catch-up uses Net-Razor to discover recent videos, retrieves and
   summarizes transcripts one at a time, and produces a cited digest.
+- Threat Intel runs bounded defensive ThreatSyft lookups behind the explicit
+  `/threat` command and stores the full evidence for every run. The router never
+  selects it, because enrichment sends indicators to third-party providers.
 - SQLite stores resumable chat sessions and a separate searchable archive of
   successful chat exchanges and scheduled reports.
 - APScheduler runs validated jobs from the project-owned `schedules.toml` file
@@ -49,16 +53,22 @@ Install the project and create the local configuration:
 
 ```shell
 uv sync
-cp .env.example .env
+mkdir -p ~/.oris
+cp .env.example ~/.oris/.env
+chmod 600 ~/.oris/.env
 ```
 
-Edit `.env` with your own values. Do not commit that file.
+Edit `~/.oris/.env` with your own values. It lives outside the checkout on
+purpose: ORIS reads it from there whatever directory it is started in, so the
+interactive session and the scheduler always agree about which conversation
+history and knowledge index are live.
 
 | Setting | Purpose |
 | --- | --- |
 | `LOCAL_LLM_BASE_URL` | oMLX API base URL reachable from the machine running ORIS |
 | `LOCAL_LLM_MODEL` | Model ID reported by oMLX |
 | `LOCAL_LLM_API_KEY` | Local oMLX API credential |
+| `LOCAL_LLM_TIMEOUT_SECONDS` | Ceiling on one model call (default 120) |
 | `LOCAL_LLM_MAX_HISTORY_TOKENS` | Conversation tokens sent per turn; raise it for a larger context window |
 | `TAVILY_API_KEY` | Tavily credential for Web Research |
 | `NET_RAZOR_PYTHON_EXECUTABLE` | Absolute path to Net-Razor's virtual-environment Python |
@@ -66,10 +76,17 @@ Edit `.env` with your own values. Do not commit that file.
 | `THREATSYFT_ROOT` | Absolute path to the ThreatSyft checkout |
 | `ORIS_THREAT_REPORT_RETENTION_DAYS` | Days to keep full Threat Intel evidence reports (default 30) |
 | `LOCAL_TRACING_ENABLED` | Set to `true` only when local Phoenix tracing is wanted |
+| `LANGSMITH_TRACING` | Must stay `false`; a true value is rejected at startup |
+| `PHOENIX_COLLECTOR_ENDPOINT` | Where traces are sent; the Phoenix UI address is derived from it (default `http://127.0.0.1:6006/v1/traces`) |
+| `PHOENIX_WORKING_DIR` | Where Phoenix keeps its data; the terminal interface reads its traces from here (default `~/.oris/traces/phoenix`) |
+| `ORIS_CHECKPOINT_DB_PATH` | Conversation state (default `~/.oris/data/checkpoints.sqlite`) |
+| `ORIS_KNOWLEDGE_DB_PATH` | The `/recall` archive (default `~/.oris/data/knowledge.sqlite`) |
+| `ORIS_THREAT_REPORT_DIR` | Stored Threat Intel evidence (default `~/.oris/artifacts/threat`) |
 
-Keep `LANGSMITH_TRACING=false`. Storage paths and the Phoenix endpoint have
-working local defaults in `.env.example` and can be changed when moving the
-application to another machine.
+Every storage path already defaults to somewhere under `~/.oris` and needs no
+configuration; the last four exist to point an installation at directories it
+already has. A leading `~` is expanded. Exported activity is always written to
+`~/.oris/artifacts/exports` and does not follow `ORIS_THREAT_REPORT_DIR`.
 
 ## Use the assistant
 
@@ -78,6 +95,9 @@ Start the command-line interface from the project root:
 ```shell
 uv run oris
 ```
+
+There is also a tabbed terminal interface over the same graph; see
+[Terminal interface](#terminal-interface).
 
 Ordinary messages use the constrained router. These commands bypass it when
 you want an explicit path:
@@ -110,18 +130,29 @@ Knowledge.
 
 ## Local data
 
-- `data/checkpoints.sqlite` stores durable conversation state.
-- `data/current_session` identifies the conversation resumed at startup.
-- `data/knowledge.sqlite` indexes successful chats and scheduled reports for
-  `/recall`.
+Your own data lives under `~/.oris`, not in the checkout, so that it survives a
+re-clone and is the same data whatever directory ORIS was started in:
+
+- `~/.oris/data/checkpoints.sqlite` stores durable conversation state.
+- `~/.oris/data/current_session` identifies the conversation resumed at startup.
+- `~/.oris/data/knowledge.sqlite` indexes successful chats and scheduled reports
+  for `/recall`.
+- `~/.oris/artifacts/threat/` contains full Threat Intel evidence reports, named
+  `<timestamp>-<id>-<subject>-<conversation>.json`. Deleting a conversation in
+  the terminal interface deletes the reports it produced. Otherwise they are
+  deleted after `ORIS_THREAT_REPORT_RETENTION_DAYS` (default 30); copy one
+  elsewhere to keep it. The sweep runs when a report is written.
+- `~/.oris/artifacts/exports/` contains activity exported from the terminal
+  interface.
+- `~/.oris/traces/phoenix/` contains local Phoenix data when tracing is enabled.
+  The terminal interface reads `phoenix.db` from here, read-only.
+
+Two directories stay in the checkout, because they belong to the project rather
+than to you and are read alongside `schedules.toml` and `evaluations/`:
+
 - `artifacts/scheduled/<job-id>/` contains scheduled Markdown reports and JSON
   run records.
 - `artifacts/evaluations/` contains retained live-evaluation results.
-- `artifacts/threat/` contains full Threat Intel evidence reports, named
-  `<timestamp>-<id>-<subject>.json`. They are deleted after
-  `ORIS_THREAT_REPORT_RETENTION_DAYS` (default 30); copy one elsewhere to
-  keep it. The sweep runs when a report is written.
-- `traces/phoenix/` contains local Phoenix data when tracing is enabled.
 
 Ad-hoc answers are kept in the conversation and searchable knowledge database;
 they are not written as separate Markdown reports. Older sessions are not
@@ -158,8 +189,11 @@ uv run orisctl scheduler uninstall
 ```
 
 Inspect the rendered plist before installation. This LaunchAgent requires its
-user to be logged in; moving to a dedicated, headless Mac mini LaunchDaemon is
-a documented future deployment step.
+user to be logged in and the machine to be awake: a job whose time passes while
+the host is asleep is skipped, not caught up, exactly as a job missed while the
+scheduler was stopped is skipped. That makes a laptop a poor scheduler host.
+Moving to a dedicated, headless Mac mini LaunchDaemon is a documented future
+deployment step.
 
 ## Local tracing
 
@@ -169,11 +203,12 @@ Start Phoenix in a separate terminal:
 ./start-phoenix.sh
 ```
 
-Set `LOCAL_TRACING_ENABLED=true` in `.env`, restart ORIS, and open
+Set `LOCAL_TRACING_ENABLED=true` in `~/.oris/.env`, restart ORIS, and open
 `http://127.0.0.1:6006`. ORIS does not start Phoenix automatically,
 and requests made while tracing is disabled are not added retroactively.
 Phoenix binds to loopback, disables telemetry, stores data under
-`traces/phoenix/`, and retains it for 14 days.
+`~/.oris/traces/phoenix/`. Retention is a 14-day rule swept by a weekly job, so
+traces can legitimately be up to about three weeks old.
 
 ## Development
 
@@ -192,24 +227,64 @@ and retains its results for review. Task-specific system prompts are
 version-controlled in `src/oris/prompts/` and are loaded when the
 application starts.
 
-## Terminal interface spike
+## Terminal interface
 
-An unwired placeholder of a tabbed terminal interface exists so the layout can
-be judged before any of it is built. Every value it shows is invented.
+A tabbed terminal interface runs the same graph as `oris`, parses the same
+commands, and writes to the same archive. It is an alternative front end, not a
+second application.
 
 ```shell
 uv sync --extra tui
 uv run oris-tui
 ```
 
-It is deliberately disposable: `src/oris/tui.py` imports nothing from the rest
-of ORIS, `textual` is an optional extra rather than a dependency, and the `oris`
-command is untouched. Removing it is deleting that file, the `tui` extra in
-`pyproject.toml`, the `oris-tui` script, and `tests/test_tui.py`.
+**Chat** is the working surface: past sessions on the left, named by their most
+recent request so the name agrees with the time beside it, and the conversation
+on the right. Selecting a session replays it and continues it, and that choice is
+written to `data/current_session`, so `oris` and `oris-tui` resume the same
+conversation. The up arrow recalls earlier requests from the session itself.
+
+`d` deletes the highlighted session after a confirmation that states what goes:
+the conversation *and* every answer it contributed to `/recall`, since a
+searchable answer belonging to a conversation that no longer exists is not what
+deleting a conversation means. It cannot be undone. Phoenix traces are not
+touched — they are Phoenix's data, under its own 14-day retention, and ORIS only
+ever reads them. Deleting the session you are in starts a fresh one. The command
+line has no equivalent; it has no list to select from.
+
+**Activity** answers what a turn actually did, from the traces Phoenix already
+collected: which node ran, how deeply nested, how long it took, and how many
+tokens it spent. It lists the current session's runs by default.
+
+| Key | Action |
+| --- | --- |
+| `F1` / `F2` | Chat / Activity |
+| `d` | Delete the highlighted session (Chat tab, after confirming) |
+| `F5` | Reload traces |
+| `a` | Toggle between this session and every session |
+| `p` | Show the system prompt each model call in the selected run was given |
+| `e` | Open the full JSON evidence behind the selected run |
+| `x` | Export the visible activity to `artifacts/exports/` as JSON |
+| `Ctrl+Q` | Quit |
+
+The activity keys work only on the Activity tab and are hidden from the footer
+elsewhere, so evidence has exactly one home. `/threat show [id]` still works
+from the chat box, but it answers by switching to Activity and opening the
+viewer there. The prompt shown by `p` is
+the one that reached the model, after substitution — not the file in
+`src/oris/prompts/`. Evidence is matched to a run by the conversation it names
+and when it was written, so `e` is only offered on runs that stored some.
+
+Activity needs Phoenix's database, not a running Phoenix: it reads
+`~/.oris/traces/phoenix/phoenix.db` directly, read-only. With tracing off the tab
+explains that instead of failing, and chat is unaffected. `textual` stays an
+optional extra, so an install without it is unchanged.
 
 `langgraph.json` exposes `oris`, `web_research`, and
 `community_research` for local LangGraph development-server or Studio use. The
-normal CLI and scheduler do not depend on that server.
+normal CLI and scheduler do not depend on that server. It declares no `env`
+file: ORIS reads `~/.oris/.env` itself wherever it is started, so no separate
+process needs to be handed the whole file.
 
 ## Project documentation
 

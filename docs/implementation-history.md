@@ -1,394 +1,48 @@
 # ORIS implementation history
 
-This file preserves the detailed implementation record. The opening sections
-capture the July 29, 2026 project snapshot; the dated milestone sections that
-follow continue the record through the August 9 core acceptance pass.
-References to "next" work in this archive are historical and are not the active
-to-do list.
+This file preserves the detailed implementation record: a summary of the
+July 29, 2026 project snapshot, then dated milestone entries running from
+August 8 onward. Everything here is a record of work already done. Any
+reference to "next" work is historical and is not the active to-do list.
 
-See [implementation-plan.md](implementation-plan.md) for current work.
+See [implementation-plan.md](implementation-plan.md) for current work and open
+questions.
 
-## Goal
+## The July 29, 2026 snapshot
 
-Build a private, portable personal assistant whose initial role is web
-research. It will accept a question, collect bounded web evidence, produce a
-cited answer with a local oMLX-hosted model, and make every workflow step
-inspectable locally.
+The project reached that point in four planned steps, all since completed. The
+snapshot is summarized here rather than reproduced. It was written in the future
+tense, and every claim in it about what was "not yet built or approved" has been
+overtaken by the dated record below.
 
-The same Python application must run on the development MacBook or the Mac mini
-through configuration changes only. The first version is read-only: it may
-retrieve public information and write local application state, but it may not
-modify remote systems.
+- **Step 1 — Web Research specialist.** A compiled graph with fixed edges:
+  `validate_request`, `plan_search`, `search_web`, a structured
+  `synthesize_answer`, and a deterministic `validate_answer`. ORIS-owned search
+  request, result, and response models sit behind a provider-independent
+  `WebSearch` interface with the official `TavilySearch` integration behind
+  that, and a typed cited-answer contract keeps source URLs application-owned.
+- **Step 2 — Local visibility and evaluation.** Optional local Phoenix tracing
+  through the official OpenInference LangChain instrumentor, with analytics
+  disabled, loopback-only access, and 14-day retention. A versioned set of four
+  representative Web Research questions, and a runner writing one timestamped
+  JSON report of answers, sources, latency, and errors.
+- **Step 3 — Interactive assistant.** An `oris` chat graph over LangGraph's
+  `MessagesState` with a fixed conditional route between direct chat and Web
+  Research; a command-line front end invoking the compiled graph directly with
+  no separate server; durable history through the official SQLite checkpointer;
+  and a separate SQLite FTS5 archive queried explicitly through `/recall`.
+- **Step 4 — Scheduled operation.** Deferred at the time of the snapshot. Its
+  accepted design — a project-root `schedules.toml` as the source of truth, one
+  APScheduler process recreating schedules at startup, a transitional per-user
+  LaunchAgent, and timestamped Markdown artifacts as the deliverable — is
+  recorded in [ADR 002](architecture/002-project-owned-scheduling.md) and was
+  implemented across the August 8 milestones below.
 
-## Architecture boundaries
-
-- LangGraph owns the research workflow, state transitions, model calls, and
-  later specialist routing.
-- External providers and MCP servers own deterministic data collection.
-- Graph state uses ORIS-owned types rather than provider or MCP
-  payloads.
-- The initial workflow has fixed edges and no unrestricted model-controlled
-  tool loop.
-- LangSmith tracing remains disabled. Development traces remain local.
-- A root orchestrator will not be built until at least two proven specialist
-  workflows require routing.
-
-## Current state
-
-Completed:
-
-- Python 3.12 project managed by `uv`, using a `src/` layout, Ruff, and pytest;
-- validated environment configuration with secrets masked;
-- official `ChatOpenAI` integration configured for the oMLX OpenAI-compatible
-  endpoint;
-- opt-in live contracts for chat, streaming, structured output, function
-  calling, and one tool round trip;
-- official `TavilySearch` integration with fixed basic-search parameters;
-- ORIS-owned web-search request, result, and response models;
-- Tavily response normalization and an opt-in live search contract;
-- a provider-independent `WebSearch` interface;
-- a compiled `WebResearch` graph containing `validate_request`, `search_web`,
-  structured `synthesize_answer`, and deterministic `validate_answer` nodes
-  with fixed edges and distinct input and output schemas;
-- a typed cited-answer contract that keeps source URLs application-owned and
-  asks the model to reference stable, one-based source numbers;
-- a passing opt-in end-to-end Web Research contract using Tavily and oMLX;
-- a minimal LangGraph development entry point and `langgraph.json` exposing the
-  compiled graph as `web_research`;
-- a verified, version-pinned local development-server command that keeps the
-  CLI outside the project lock and disables LangSmith tracing, metadata, and
-  CLI analytics;
-- a verified stateless Agent Server API invocation through `/runs/wait`;
-- optional local Phoenix tracing using the official OpenInference LangChain
-  instrumentor, with analytics disabled, loopback-only access, local SQLite
-  storage, and 14-day retention;
-- a verified trace spanning the graph nodes, Tavily tool call, oMLX model call,
-  token counts, and a deterministic validation failure;
-- a `oris` chat graph using LangGraph's official `MessagesState`
-  contract and a fixed conditional route between direct chat and Web Research;
-- an explicit `chat` mode that invokes only the local model and an explicit
-  `web_research` mode that returns cited sources as links;
-- a verified Agent Server schema exposing the `messages` field required by
-  compatible clients;
-- a local Python command-line chat interface that invokes the compiled
-  `oris` graph directly without a separate server or frontend stack;
-- verified live Phoenix traces showing direct chat uses only `ChatOpenAI`, while
-  explicit Web Research includes one `tavily_search` span and the research
-  validation nodes;
-- a clean-session manual CLI smoke test in which a UAP research request stayed
-  on topic, returned cited sources, and produced a fresh local Phoenix trace;
-- a safe, empty project-root `schedules.toml` plus an immutable Pydantic schema
-  loaded with standard-library `tomllib`, including time-zone validation,
-  duplicate-ID rejection, safe job IDs, and an allowlisted task name;
-- durable chat history using the official LangGraph SQLite checkpointer and a
-  separate SQLite FTS5 repository containing successful chat exchanges;
-- a compiled Local Knowledge specialist that retrieves at most five archive
-  documents and asks the model to answer only from that evidence;
-- an explicit `/recall <question>` CLI command that selects Local Knowledge
-  without model-controlled routing; and
-- a passing opt-in Local Knowledge contract using a temporary archive and the
-  configured oMLX model, without contacting Tavily;
-- a versioned set of four representative Web Research evaluation questions,
-  validated during ordinary tests without contacting external services; and
-- an explicit local evaluation runner that executes the cases sequentially and
-  writes answers, sources, latency, pass/fail status, and errors to one
-  timestamped JSON report; and
-- a recorded live baseline using `Qwen3.6-35B-A3B-4bit-DWQ`; and
-- optional, bounded official-domain and recency controls in the
-  provider-independent search request, forwarded through the existing official
-  `TavilySearch` integration; and
-- a model-backed `SearchPlan` with bounded structured output, hostname
-  validation, offline unit tests, and an opt-in local-model contract, integrated
-  as one explicit node before the Web Research search node.
-
-Not yet built or approved:
-
-- a user-reviewed acceptance decision for the live evaluation baseline;
-- the scheduler runtime and scheduled-report ingestion; or
-- MCP integration.
-
-## Step 1: Web Research specialist
-
-The workflow implementation, unit contracts, and opt-in end-to-end Tavily and
-oMLX contract are complete.
-
-1. Define a small `WebSearch` interface using the existing ORIS search
-   request and response types.
-2. Implement a typed `WebResearch` graph with fixed nodes:
-   `validate_request -> plan_search -> search_web -> synthesize_answer ->
-   validate_answer`.
-3. Inject the model and search implementation when constructing the graph.
-   Nodes must not read credentials or construct provider clients.
-4. Send one validated query to Tavily with the existing bounded configuration.
-5. Give the local model only normalized evidence and require source citations.
-6. Validate that every citation refers to evidence supplied to the model.
-
-Acceptance criteria:
-
-- blank input fails before an external call;
-- one valid request performs exactly one bounded search;
-- graph state contains no raw Tavily payload or Tavily SDK object;
-- the answer contains only citations tied to normalized results;
-- provider and model failures remain visible and useful for diagnosis;
-- unit tests use injected fakes and assert state, schemas, and graph paths rather
-  than exact model prose;
-- the end-to-end live test is opt-in.
-
-## Step 2: Local development visibility and evaluation
-
-After the graph works end to end:
-
-- add `langgraph.json` and run the graph through the local development server;
-- inspect graph execution in Studio;
-- run Phoenix manually on the MacBook with local storage and a 14-day trace
-  retention policy;
-- correlate the graph run, Tavily request, and model call with one run ID;
-- create a small versioned set of representative research questions;
-- record latency, schema validity, citation validity, and failure behavior.
-
-Phoenix must remain optional: stopping it may not prevent the application or
-tests from running.
-
-The Agent Server API boundary, local Phoenix trace path, four versioned
-evaluation questions, and explicit local runner are complete. The runner reuses
-the compiled Web Research graph, continues after individual failures, and
-writes one local JSON report.
-
-The first live baseline is recorded in
-`artifacts/evaluations/web-research-20260729T120756Z.json`. All four cases passed
-the mechanical workflow checks. A preliminary assistant review, not a user or
-human acceptance review, found that only the checkpointer-versus-store case met
-its full evaluation goal. The LangGraph and SQLite answers were broadly
-accurate but did not rely on the requested primary or authoritative sources.
-The Python case was stale under either reasonable interpretation: it reported
-Python 3.12.3 without a publication date. Later official-source review also
-showed that the evaluation question itself is ambiguous. Python 3.12.10 is the
-last full maintenance release, while Python 3.12.13 is the newer source-only
-security release. The user has not yet reviewed or accepted this baseline.
-Mechanical pass status must not be interpreted as factual-quality approval.
-
-A focused Tavily comparison showed that `include_domains` plus a one-year
-`time_range` retrieved the correct official LangGraph and Python evidence using
-basic search. An official-domain restriction alone returned duplicate SQLite
-forum posts. Advanced search cost twice as many credits and returned the same
-poor SQLite results; a more precise basic query retrieved SQLite's official WAL
-documentation. ORIS therefore keeps basic search and
-`auto_parameters=False`. Search controls are available to explicit graph
-callers, but ordinary CLI research does not select them automatically.
-
-A second focused comparison tested the original and planner-generated queries
-for the three weak baseline cases using six basic Tavily searches. Planning
-improved first-party retrieval for two cases: the LangGraph plan surfaced an
-official LangChain engineering article, and the SQLite plan surfaced SQLite's
-official WAL documentation. The Python 3.12 plan did not improve retrieval; both
-queries missed the current maintenance-release page. This limited but material
-improvement justified adding `plan_search` to the fixed graph path. The planner
-runs once, does not choose the provider or number of searches, and may add a
-domain only when the question explicitly requests it. Structured controls
-provided directly by a graph caller take precedence, and synthesis continues to
-answer the original question rather than the shortened search query.
-
-The first complete evaluation after planner integration is recorded in
-`artifacts/evaluations/web-research-20260730T001247Z.json`. All four cases again
-passed the mechanical schema and citation-number checks. A preliminary
-assistant review found that two cases clearly met their evaluation goals. The
-checkpointer comparison cited official LangGraph documentation, and the SQLite
-answer cited SQLite's official WAL documentation. The LangGraph-purpose case
-improved by retrieving a first-party LangChain article, but cited third-party
-sources for its core explanatory claims, so it remains only a partial success.
-The Python case is inconclusive because of the evaluation wording. Its answer,
-Python 3.12.10 from April 8, 2025, correctly identifies the last full maintenance
-release. Python 3.12.13 from March 3, 2026 is newer but is classified as a
-source-only security release. The case therefore does not reliably test the
-intended question about the newest release in the 3.12 series and must be
-rewritten before it can be accepted. The user has not yet reviewed or accepted
-this post-integration evaluation.
-
-Evaluation-set version 2 replaces that ambiguous case with a request for the
-newest Python 3.12 release including security-only releases, its date, and its
-release type. The targeted live result is recorded in
-`artifacts/evaluations/web-research-20260730T001726Z.json`. Retrieval found the
-official Python 3.12.13 page, and the answer correctly reported Python 3.12.13,
-March 3, 2026, and its security-bugfix classification. It did not state that the
-release was source-only, so a preliminary assistant review rates it as partial
-against the evaluation goal. The question asks generally for the release type,
-while the goal specifically requires the source-only detail; that remaining
-question-goal mismatch must be resolved before acceptance.
-
-## Step 3: Interactive web-research assistant
-
-Expose the proven `WebResearch` graph through a simple local command-line chat
-interface.
-
-The CLI selects the path deterministically: ordinary input uses direct chat and
-`/research <question>` uses Web Research. No routing model is allowed to choose
-whether an external search occurs.
-
-The two-path messages graph, Agent Server schema, and Python command-line
-interface are complete. The CLI invokes the compiled graph directly, while the
-same graph remains exposed through Agent Server for future remote clients.
-The direct CLI now compiles the parent graph with the official
-`langgraph-checkpoint-sqlite` `SqliteSaver`, uses a unique UUID for each
-conversation session, and requests synchronous checkpoint durability. A small
-pointer file next to the checkpoint database identifies the active session so
-it resumes after application restart. `/new` creates and selects a blank
-session, while `/session` displays the active ID. Older session checkpoints
-remain stored but are not sent to the model. The database path is environment
-configurable, and tests prove both checkpoint restoration and active-session
-restoration.
-
-CLI failure handling is complete. Unknown slash commands are rejected before
-graph invocation. The parent graph uses the official LangGraph node error
-handler to convert a model or specialist failure into a short assistant message,
-which completes the saved conversation turn and prevents an unanswered user
-message from contaminating the next request. The CLI returns to the prompt and
-does not add failed exchanges to the searchable knowledge repository. The
-underlying failed node remains available in checkpoint and tracing history for
-diagnosis. A regression test reproduces the observed failed-research followed
-by direct-chat sequence and verifies a valid user/assistant message order.
-
-The repaired CLI and UUID session isolation passed a manual end-to-end check on
-July 29, 2026: an explicit UAP research request returned only UAP material with
-cited sources, and a new trace appeared in the local Phoenix project. The
-legacy `main` checkpoint thread and its contaminated test knowledge document
-were then deleted with the user's approval. This confirms the reported
-cross-topic contamination is no longer present in retained application data.
-
-### Things to consider for future session management
-
-- List, name, and switch among retained sessions when the CLI or a future chat
-  interface demonstrates that navigation is needed.
-- Delete a selected session through the official checkpointer
-  `delete_thread(session_id)` operation, with an explicit choice about whether
-  its searchable knowledge documents should also be removed.
-- Add a separate, confirmed administrative reset operation that backs up and
-  clears all checkpoints and searchable knowledge. Do not overload `/new` with
-  destructive behavior.
-- Add a retention policy only after stored checkpoint growth becomes a measured
-  problem.
-- Keep cross-session recall explicit through `/recall`. Do not inject earlier
-  sessions automatically unless a bounded memory policy is later approved.
-- Let a future chat client select and retain its own LangGraph thread ID; the
-  local pointer file is the simple CLI equivalent of that client behavior.
-
-Conversation restoration and knowledge retrieval are separate. The local
-knowledge index is intended to make completed chat turns and final scheduled
-reports searchable from chat. It indexes user-facing content and source
-metadata, not raw checkpoints, intermediate graph state, or Phoenix traces.
-
-The first knowledge-index contract is complete. `KnowledgeDocument` identifies
-either a chat exchange or scheduled run by ID, source reference, timestamp,
-title, and user-facing content. `KnowledgeRepository` uses SQLite FTS5 for
-durable lexical search with an explicit result limit and optional source-type
-filter. It does not implement LangGraph's `BaseStore`, expose backend ranking
-scores, require an embedding model, or add a runtime dependency. Tests prove
-reopen persistence, replacement by document ID, source filtering, and bounded
-retrieval.
-
-CLI chat ingestion and explicit retrieval are complete. After each successful
-graph invocation, the CLI writes one knowledge document containing the user's
-request and the assistant's user-visible `AIMessage.text`. Failed graph
-invocations write nothing. The knowledge database path is environment
-configurable. `/recall <question>` retrieves at most five matching documents
-through the Local Knowledge specialist, which answers only from that evidence
-and returns archive source labels. Scheduled-report ingestion remains unwired.
-
-## Step 4: Scheduled operation and Mac mini deployment
-
-This entire step is deferred until the interactive assistant is explicitly
-approved as ready for scheduled operation.
-
-The accepted short-term design uses a project-root `schedules.toml` file as the
-source of truth for multiple jobs. A single APScheduler 3.x process will load
-and validate the file, recreate its in-memory schedules at startup, and invoke
-allowlisted specialist graphs directly. One machine-specific `launchd` service
-will supervise that scheduler; individual schedules will not be stored in
-launchd plists.
-
-The first service integration will be a per-user LaunchAgent so it can use the
-current user-owned project, `.env`, virtual environment, and oMLX DMG. This is a
-transitional development arrangement, not the final Mac mini runtime. The
-repository will provide a plist template and an idempotent management script
-for install, uninstall, restart, and status operations.
-
-Scheduled jobs are unattended deliverables. Successful runs will write
-timestamped Markdown files under `artifacts/scheduled/<job-id>/`. Ad-hoc CLI
-responses remain terminal output rather than artifacts; their conversation
-state is already retained by the official SQLite checkpointer and is not part
-of scheduling.
-
-Before enabling scheduled execution, define and test the `schedules.toml`
-schema, failure reporting, artifact retention, missed-run policy, safe shutdown,
-and one-at-a-time execution. Also resolve how interactive and scheduled model
-calls share the single oMLX server.
-
-The `schedules.toml` structure and loader are complete. Cron-expression
-semantics remain intentionally unvalidated until APScheduler is added; the
-project will use its official `CronTrigger` rather than implementing a parser.
-
-Before the Mac mini runtime is considered always-on, migrate both oMLX and the
-ORIS scheduler away from the interactive login session. The scheduler
-must run as a system LaunchDaemon under a dedicated non-root service identity,
-with service-owned configuration, logs, and artifact directories. Acceptance
-requires a successful scheduled run after reboot without a user login. See
-[ADR 002](architecture/002-project-owned-scheduling.md).
-
-The long-term deployment path replaces APScheduler and `launchd` with the
-official LangGraph cron API when persistent Agent Server infrastructure is
-justified. Specialist graph inputs and outputs must remain independent of the
-scheduling backend. See
-[ADR 002](architecture/002-project-owned-scheduling.md).
-
-## Future research specialists
-
-These are roadmap items, not part of the current build:
-
-- **Web Evidence capability provider:** build a separate, reusable MCP server
-  for explicit Tavily or SearXNG search, Firecrawl extraction, and bounded
-  manual browser scraping with Playwright. `playwright-stealth` remains an
-  optional, disabled-by-default compatibility aid. See the
-  [Web Evidence MCP plan](web-evidence-mcp-plan.md).
-- **Community Research:** use Net-Razor over stdio MCP to collect normalized,
-  audited evidence from X, Hacker News, and optionally topical YouTube search;
-  LangGraph will synthesize and cite the evidence.
-- **YouTube Catch-up:** use Net-Razor to discover new channel videos, fetch one
-  transcript at a time, checkpoint progress, summarize each video, and produce
-  a final digest.
-
-Net-Razor remains a separate capability provider. When its first specialist is
-approved, use the official `langchain-mcp-adapters` package, expose only the
-required MCP tools to that specialist, and add a focused stdio contract test
-before integrating it into a graph.
-
-Once a second specialist is proven, add a constrained root chat graph that
-routes among a fixed set of specialist names using structured output. Scheduled
-jobs will continue to bypass the router and invoke a named specialist directly.
-
-## Deferred or excluded scope
-
-- The Web Evidence MCP server is a separate future project. ORIS keeps
-  its direct Tavily adapter until MCP parity is proven. SearXNG, Firecrawl,
-  Playwright, and `playwright-stealth` are not ORIS dependencies.
-- The local searchable knowledge repository is implemented, populated by
-  successful CLI exchanges, and queried explicitly with `/recall`. Scheduled
-  runs do not yet populate it. It remains distinct from checkpoint persistence.
-- Ad-hoc research artifacts remain deferred. Scheduled Markdown artifacts are
-  introduced only as the explicit deliverable of an approved scheduled job.
-- Remote-write tools and autonomous side effects are excluded from the current
-  read-only assistant.
-- ThreatSyft capabilities and security-research specialists are outside the
-  ORIS plan.
-- n8n is outside the current architecture.
-
-## Immediate next action
-
-The interactive researcher has passed its clean-session readiness check. At the
-next development session, decide whether to approve entry into Step 4. If
-approved, define one scheduled Web Research job's input, isolated run identity,
-Markdown output, failure behavior, and overlap policy before adding the
-APScheduler runtime. Provider auto-parameters, advanced search, an unrestricted
-tool loop, and an LLM judge remain disabled. Automatic routing and MCP
-integration remain deferred.
+Three things the snapshot ruled out have since been approved and built:
+automatic routing among specialists, MCP integration through Net-Razor, and a
+bounded defensive Threat Intel specialist behind an explicit command. The
+reasoning for each is in the dated entries and the architecture records.
+Remote-write tools, autonomous side effects, and n8n remain excluded.
 
 ## Milestones after the July 29 snapshot
 
@@ -1074,3 +728,335 @@ integration remain deferred.
   from scheduled or persistence-sensitive workflows.
 - This was a documentation decision only. Source code, configuration,
   dependencies, tests, and runtime behavior did not change.
+
+### Terminal interface wired to real data — 2026-08-12
+
+- Replaced the placeholder terminal interface with a working one over the same
+  compiled graph, the same command table, and the same knowledge archive as the
+  command line. The graph call runs in a Textual worker, so the long part of a
+  turn does not block the interface and a raised error costs the turn rather
+  than the session. Everything around it — session listing, transcript replay,
+  trace reads, evidence listing, the archive write — runs on the event loop,
+  measured later at about 4 ms per turn and recorded as a known cost.
+- Moved the command vocabulary to `src/oris/commands.py`. Both front ends now
+  parse one table, so neither can support a command the other does not.
+- Added `src/oris/observability.py`: read-only queries against Phoenix's own
+  SQLite file. No Phoenix client, no running server. It recovers each run's
+  request, mode, and thread from the OpenInference attributes on the root span,
+  which is what turns a list of timings into a list of turns.
+- Added session listing and transcript replay over `checkpoints.sqlite`. A
+  session is named by its most recent request: naming it by the first one meant
+  a long-running session carried a name from days earlier next to a timestamp
+  from minutes earlier, which read as unrelated data.
+  Thread IDs come from SQL because `SqliteSaver.list()` requires a thread_id;
+  every per-thread read goes through the checkpointer. Choosing a session writes
+  `data/current_session`, so both front ends resume the same conversation.
+- Prompt viewing shows the system prompt each model call was actually given,
+  read from the trace rather than from `src/oris/prompts/`. Prompt editing was
+  considered and rejected: it would make the interface a second, unversioned
+  source of prompts.
+- Evidence is reachable from one tab only. `e` and the other run-scoped keys
+  are disabled and hidden outside Activity through Textual's `check_action`,
+  and `/threat show` from the chat switches tabs rather than opening a second
+  entry point to the same viewer.
+- Stored evidence is matched to the run that produced it by timestamp
+  containment. Nothing records the link, and inventing an index was not worth
+  it for a correlation the filenames already support.
+- Session deletion removes the conversation through the checkpointer's own
+  `delete_thread` and its archived answers through a new
+  `KnowledgeRepository.delete_by_source_ref`, behind a confirmation that states
+  the count of both. Phoenix traces are left alone. Deleting the active session
+  starts a fresh one rather than leaving the interface pointing at a gap.
+- Every external *read* degrades to an explanation rather than an error: no
+  Phoenix database, an unreadable schema, no checkpoints, and no reports are
+  all ordinary states. Rendering what a successful read returned did not
+  degrade, which a later review found and a later entry records.
+- Deterministic baseline after this work: 212 passing tests, 17 skipped opt-in
+  live tests, clean Ruff lint and formatting.
+
+### Foundation review fixes — 2026-08-13
+
+A max-effort review of the foundation produced thirteen findings. Everything
+below was fixed against the running system, one change at a time, with the
+review treated as evidence rather than as instruction: three of its claims did
+not survive contact with the code and are recorded here as corrections.
+
+- **The terminal interface could be closed by a request that mentioned a
+  path.** `DataTable` runs string cells through rich's markup parser, so a
+  request containing `[/var/log/syslog]` raised `MarkupError` in the table's
+  idle handler and took the application down. Because the activity table is
+  rebuilt from the trace store on every start, the interface stayed shut until
+  the trace aged out. Runtime text is now added as `Text`, which is the
+  discipline the command line already documented.
+- **`/threat report` discarded findings when a request named more than one
+  indicator.** The pivot was keyed by field and then by source, so provider
+  names repeated across subjects and one indicator's answer silently replaced
+  another's — an abuseipdb confidence of 0 and of 100 collapsed to whichever
+  came last. It is now keyed by subject, then field, then source, and failed
+  providers keep a per-subject code. Measured against a real one-indicator,
+  ten-provider report the pivot is 84% of the raw fan-out, so what justifies
+  putting it in the conversation is the legibility of the reorganisation, not
+  a size saving. ADR 001's claim of "about a fifth" was wrong and is corrected.
+- **Nothing but the model had a timeout.** MCP sessions now carry a read
+  timeout — without one the SDK skips its own guard entirely and a request
+  waits forever, which is an endless spinner interactively and a held job slot
+  in the scheduler. Node ceilings were added only where a node makes many calls
+  it cannot individually bound: evidence collection and video summarisation.
+- **The router's prompt did not say to treat earlier messages as untrusted.**
+  One line, no schema change.
+- **Web search was unbounded at every layer, and the review's recommended fix
+  was illegal.** LangGraph refuses a node timeout on a synchronous node,
+  because Python cannot cancel a blocking call in place; `search_web` was
+  synchronous. Verified in the installed library: `langchain-tavily` posts
+  through `requests` with no timeout argument, and through aiohttp with a
+  300-second overall and 30-second connect ceiling. The tool exposes no timeout
+  setting, so the search capability is now asynchronous end to end, which is
+  how the call acquires a deadline at all. The scheduler reaches it through the
+  async API for the same reason.
+- **Storage moved to a fixed `~/.oris`.** Relative defaults resolved against
+  whatever directory a process started in, so the interactive session, the
+  scheduler under its LaunchAgent, and a shell one level down each built a
+  private conversation history and knowledge index while reporting nothing;
+  `/recall` simply stopped finding yesterday's answers. Configuration moved
+  with it. A leading `~` in an override is now expanded, because otherwise the
+  natural way to write one creates a directory named `~`.
+- **Deleting a conversation left its threat evidence behind** for up to a
+  month — the most sensitive files ORIS writes. Reports now name their
+  conversation in the filename and the header, so deletion finds them without
+  an index that could fall out of step, and the confirmation counts them. The
+  filename splits on `-`, so the thread is last and is the only field allowed
+  to contain one.
+- **Evidence failed to attach to its own run on a sub-second boundary**, and
+  could attach to a run in another conversation. Filenames keep whole seconds,
+  so a report written a fraction of a second into a run dates from just before
+  it started; the comparison now allows exactly that much, and the conversation
+  narrows the candidates before the time picks the turn.
+- **Local Knowledge had no citation check and no bound on its evidence.** It
+  now rejects a citation pointing at a document that was never retrieved, but
+  still allows an answer that cites nothing, because this specialist is told to
+  say when the archive cannot answer and that response is honest precisely
+  because it has no citation. Each document is truncated to 3,000 characters
+  with the cut announced.
+- **`/threat show *` opened a report** instead of reporting an unknown ID: the
+  ID reached `Path.glob`, where `*`, `?`, and `[…]` are patterns. It is checked
+  against the shape it is generated in first. Not a traversal; the review
+  probed that and found none.
+- **Importing the composition root created a database.** The knowledge
+  repository built its schema in its constructor, so importing that module — to
+  read a setting, to collect a test, to list graphs for the development server
+  — wrote a directory and a file wherever the process resolved the path. The
+  schema is now created on first use.
+- **The live LangSmith credential was removed** from the environment file, and
+  `langgraph.json` no longer declares an `env` file at all: ORIS reads its own
+  configuration from a fixed path, so no separate process needs to be handed
+  the whole file. Nothing had ever read the key — settings ignore unknown
+  variables and add nothing to the environment — but the development server
+  would have.
+- **The two front ends stopped duplicating each other.** The command reference,
+  the reading of a typed line, and the archive-on-success rule now live in one
+  place each. The terminal interface accepted `/quit` and the command line did
+  not, which is the drift a shared vocabulary exists to prevent.
+
+Corrections to the review, which was written without running the code:
+
+- Its central timeout recommendation was impossible as written, as above.
+- `dist/` was described as empty; it held a stale wheel and sdist, now removed.
+- `create_youtube_catch_up_graph` was listed as dead. It has no production
+  caller but eight test callers, and deleting it would add code rather than
+  remove it, so it stays. `Trace.span_count` and
+  `WebSearchResponse.provider_response_time_seconds` were genuinely unread and
+  are gone; `provider_request_id` stays because a live contract test reads it
+  and it is the handle to quote to the provider; `relevance_score` stays
+  because the planned web-evidence MCP boundary specifies it.
+- The archive-on-success block was described as duplicated four times. Two of
+  those build a scheduled-run document keyed by report path, which is a
+  different fact, not the same one written twice.
+
+Deterministic baseline after this work: 244 passing tests, 17 skipped opt-in
+live tests, clean Ruff lint and formatting. Storage was measured while doing
+it: everything ORIS owns is 2.4 MB, against Phoenix's own 36 MB, which settles
+the plan's storage-retention deferral without building anything.
+
+### Certificate trust and per-step status — 2026-08-14
+
+- **Web Research broke, and moving the search to the asynchronous path is why.**
+  `requests` bundles certifi and always has root certificates; aiohttp uses
+  Python's default SSL context, which on this python.org macOS build reads a
+  `cert.pem` that only exists once `Install Certificates.command` has been run.
+  Measured: that context loaded **zero** certificates, so every Tavily request
+  failed the TLS handshake while the synchronous path had worked for weeks.
+  Building the client now points OpenSSL at certifi when the interpreter has no
+  roots of its own, leaving a deliberate `SSL_CERT_FILE` alone. Verified with a
+  real handshake to `api.tavily.com`. `certifi` becomes an explicit dependency
+  because the code imports it directly; it was already installed through
+  `requests`.
+- **A `/threat` run looked silent.** It was not — the interface has always shown
+  a label and a timer — but the label was one dim line at the bottom edge that
+  never changed. The traces say why that matters: a real run took 29 seconds,
+  **23 of them inside the final model call**. One unchanging label across that
+  wait cannot distinguish working from hung.
+- Turns are now streamed rather than invoked, and each graph node is named as it
+  **starts**. Node updates arrive on completion, which is exactly too late to
+  say what is running, so this reads the debug stream instead. `subgraphs=True`
+  is what makes it useful: the specialists' own nodes are where the time goes.
+  Both front ends share the runner and the wording; the terminal interface also
+  gained a spinner frame, because a number that only changes once a second
+  reads as static.
+
+Deterministic baseline after this work: 247 passing tests, 17 skipped opt-in
+live tests, clean Ruff lint and formatting.
+
+### Evaluation runner repair and documentation cleanup — 2026-08-14
+
+- **The asynchronous search move broke a second thing, found while reviewing
+  documentation rather than by any check.** `evaluation.py` still called
+  `graph.invoke` on the Web Research graph, which had gained an asynchronous
+  search node. LangGraph refuses that combination — verified against the
+  installed package, which raises `TypeError: No synchronous function provided
+  to "search_web"` — so every evaluation case would have been recorded as a
+  failure. The runner and its entry point are now asynchronous.
+- The reason nothing caught it is the same reason nothing caught the
+  certificate failure the day before: **the double replaced the thing that
+  broke.** The runner's test drove a `Mock()` graph, which accepts whatever call
+  it is given and therefore agrees with the runner about the calling convention
+  no matter what either one does. The test now compiles the real Web Research
+  graph with the existing search and model fakes. Reverting the fix makes it
+  fail, with both cases erroring and the search never reached — which is exactly
+  what a real evaluation run would have produced.
+- Test rationale, per the project rules. *Invariant:* the evaluation runner can
+  drive the real graph and read the state keys it depends on, and one failing
+  case neither hides a passing case nor prevents the report. *Deterministic:*
+  yes — graph wiring, calling convention, and report shape involve no model
+  judgement; the fake model returns fixed structured output. *Generalises:* it
+  asserts nothing about answer wording, only that a case completes against the
+  real graph and that its status, latency, and source count are recorded, so any
+  future change to the call convention or the output keys breaks it.
+  *Why pytest rather than the evaluation set:* the evaluation set measures
+  answer quality against live services; this measures whether the runner can run
+  at all, which is a deterministic contract and should block.
+- **The missed scheduled run is explained and closed.** The `weekday-ai-news`
+  job did not fire on the morning of 2026-08-14 because the MacBook was asleep.
+  APScheduler skips executions missed while it was not running, and a sleeping
+  host is that same case. Recorded as a consequence in ADR 002 and in the README
+  rather than investigated further; it is a property of scheduling on a laptop
+  and is one of the reasons for the Mac mini.
+- **Documentation cleanup.** The history file carried 380 lines of the July 29
+  plan snapshot, written in the future tense, including claims that were no
+  longer true — that scheduled runs did not populate the knowledge index, and
+  that security-research specialists were outside the plan. It is now a
+  thirty-line summary of the four planned steps, and the file is 907 lines
+  instead of 1,253. The active plan's "Things to consider later" mixed open
+  questions with decisions already settled against a measurement; those are now
+  two separate sections, so a settled decision is visibly settled. Its claim
+  that everything ORIS stores lives under `~/.oris` was overstated: scheduled
+  reports and run history still resolve relatively, pinned to the checkout only
+  by the LaunchAgent's working directory. That is now recorded accurately and
+  listed as an open question rather than quietly fixed, because moving them
+  moves existing files.
+- Roadmap additions: schedule management in the terminal interface, a review of
+  the eleven system prompts together with the evaluation coverage needed to
+  judge a prompt change, and a re-test of scheduled execution on the Mac mini.
+  SearXNG and Firecrawl were already on the roadmap inside the Web Evidence MCP
+  entry; that entry now says plainly what each one buys instead of naming them
+  in passing.
+- ADR 001 gained the certificate-trust decision, which is a portability
+  decision: the Mac mini will have the same interpreter build, and the
+  application must not depend on someone having run its certificate installer.
+  ADR 002 records the measured storage outcome that settled its own deferred
+  retention question.
+
+Deterministic baseline after this work: 247 passing tests, 17 skipped opt-in
+live tests, clean Ruff lint and formatting. Unchanged, because the runner's
+existing test was rewritten rather than joined by a second one — the failure it
+now catches is the failure it was always meant to catch.
+
+### Certificate fix repaired, and the live contracts actually run — 2026-08-14
+
+- **The certificate fix did not work.** It was correct about what to do and
+  wrong about when. aiohttp builds its verified SSL context once, at *its own*
+  import, and caches it in a module global — the source says so in a comment.
+  The repair ran later, when the Tavily client was constructed, by which point
+  importing `langchain_tavily` had already frozen a context holding **zero**
+  certificates. Measured directly: the cached context had 0 CAs while a freshly
+  built one had 121.
+- It now runs in the package's `__init__`, which is the one place guaranteed to
+  execute before any `oris` module body and therefore before aiohttp is
+  imported. Confirmed first by setting the variable in the shell, which made the
+  live Tavily contract pass, and then by the relocated code passing the same
+  contract with a clean environment.
+- **The test that was supposed to prove this asserted the wrong thing.** It
+  built a fresh default context and checked that one had roots. That is true and
+  irrelevant, because no fresh context is ever what aiohttp uses. It now runs a
+  clean subprocess and asserts on the context aiohttp actually holds, because
+  import order is the entire contract and cannot be observed inside a process
+  where everything is already imported.
+- Test rationale, per the project rules. *Invariant:* by the time aiohttp is
+  imported inside an ORIS process, OpenSSL has a root store, so an HTTPS call
+  can complete its handshake. *Deterministic:* yes — an import-ordering and
+  configuration fact, with no model and no network. *Generalises:* it asserts
+  that trust exists, not which bundle or how many roots, so it holds equally for
+  an interpreter that already has its own, one falling back to certifi, and one
+  pointed at a corporate bundle. *Why pytest rather than the evaluation set:* it
+  is a startup contract whose failure silently removes every web capability.
+  Its one honest weakness is that on a correctly installed interpreter it would
+  pass regardless — it only detects the regression on a machine that has the
+  underlying problem, which is the machine that matters.
+- **Two more live contracts were broken by the same asynchronous move**, both
+  invisible because they are opt-in and were never run: the Tavily contract
+  called the search without awaiting it, and the Web Research contract called
+  the graph synchronously. That is the fourth and fifth instance of one class —
+  a caller that no longer matches the code it calls, hidden behind either a
+  double or a disabled switch.
+- **Fifteen of the seventeen live contracts were then run against the real
+  services and pass:** five oMLX model contracts, Tavily search, two search
+  planning calls, Web Research end to end, routing across all seven evaluation
+  cases, Local Knowledge, Community Research and its command-line variant, the
+  Net-Razor stdio contract, and Threat Intel's local reference path. Community
+  Research failed once with a connection error during synthesis and passed on
+  retry in 15 seconds, so that is recorded as a transient oMLX blip under
+  concurrent load rather than a defect.
+- The two YouTube contracts were deliberately not run. Both acknowledge
+  processed videos back to Net-Razor, which is a real state change on the user's
+  own data — a later catch-up would silently skip whatever they marked. They
+  need an explicit decision, not a blanket "run everything".
+
+Deterministic baseline: unchanged at 247 passing, 17 skipped, clean lint and
+formatting. Live baseline: 15 of 17 contracts passing against real services.
+
+### The status was never invisible to the code, only to the reader — 2026-08-14
+
+- **The per-step status was correct all along and could not be seen.** The
+  status line and the prompt were both docked to the bottom edge of the same
+  container. The prompt is three rows tall and the status one, and their regions
+  overlapped on the last of those rows; being later in document order, the
+  prompt was composited on top. Measured in a real headless run: the widget's
+  content read `⠋ Threat Intel · writing the answer … 2.0s` while the painted
+  screen contained neither "Threat Intel" nor "writing the answer". Removing the
+  dock puts it in normal flow directly above the prompt, where an empty one is
+  zero rows high and gives the line back between turns.
+- **Every existing assertion about it passed, in both states.** The step test
+  asks the widget to render its own line, which a covered widget still does
+  perfectly. Confirmed by reverting the layout: the step test stayed green and
+  only the new one failed. That is the same shape as the four failures before
+  it — a check that consults the component rather than the result.
+- The new test reads the composited screen. *Invariant:* while a turn runs, the
+  status is painted where the reader can see it, not merely set on a widget.
+  *Deterministic:* yes — layout geometry and compositing, driven by a fake graph
+  with no model involved. *Generalises:* it asserts the label appears somewhere
+  in the rendered screen, not where or in what colour, so any future layout
+  change that hides it fails regardless of the cause. *Why pytest rather than
+  the evaluation set:* a deterministic interface contract whose failure silently
+  removes all progress feedback.
+- Two diagnostic attempts were wrong before this one landed, and both were
+  caught before being reported. The first read a `renderable` attribute that
+  Textual 8.2.8's `Static` does not have, so it reported an empty status for a
+  working interface. The second matched plain text against a screenshot that
+  encodes spaces as entities and splits lines across style spans, so it reported
+  a hidden status for a visible one. Reading the installed source settled both.
+- Recorded because it generalises: three of this session's bugs and two of its
+  failed diagnoses share one cause. A check that asks the component under test
+  what it did will agree with it. Only a check that reads the result — the
+  painted screen, the real graph, the cached SSL context — can disagree.
+
+Deterministic baseline after this work: 248 passing tests, 17 skipped opt-in
+live tests, clean Ruff lint and formatting.

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-20
-- Last reviewed: 2026-08-10
+- Last reviewed: 2026-08-14
 
 ## Context
 
@@ -37,6 +37,16 @@ Moving the application from the MacBook to the Mac mini must require
 configuration changes, not source-code changes. On the MacBook, the model URL
 will refer to the Mac mini over the private network. On the Mac mini, it can
 refer to localhost.
+
+Portability extends to the interpreter's certificate store. A python.org macOS
+framework build ships without one until its `Install Certificates.command` is
+run, and OpenSSL's default context then loads zero roots — so an HTTPS client
+that relies on that default fails every handshake while one bundling `certifi`
+succeeds. ORIS therefore supplies `certifi` as its trust anchor when the
+interpreter has none, and leaves an explicit `SSL_CERT_FILE` untouched so a
+host with a corporate or inspecting proxy still works. Running the interpreter's
+own certificate installer is the better fix for a machine and remains
+worthwhile; the application must not depend on someone having done it.
 
 ### Development topology
 
@@ -101,6 +111,18 @@ Web Research is a fixed workflow, not an orchestrator:
    boundary;
 5. synthesize an answer with citations; and
 6. validate that every citation identifies supplied evidence.
+
+The search capability is asynchronous, and that is a deadline decision rather
+than a style one. Python cannot cancel a blocking call in place, so a
+synchronous adapter cannot be bounded by the workflow above it — LangGraph
+refuses a node timeout on a synchronous node for exactly that reason.
+`langchain-tavily` also behaves differently across the two: it posts through
+`requests` with no timeout argument, which waits indefinitely, and through
+aiohttp, which applies a 300-second overall and 30-second connect ceiling. The
+tool exposes no timeout setting, so awaiting it is how the call acquires a
+deadline at all. An unbounded search is worst where nobody is watching: it
+holds the scheduler's single slot for that job, and every later firing is
+skipped in silence.
 
 Tavily parameters remain bounded and conservative. Basic search is used with
 automatic provider parameters disabled. Explicit callers may provide bounded
@@ -177,24 +199,62 @@ selection, and result normalisation stay in ThreatSyft; the per-run indicator
 cap is an ORIS-owned orchestration budget because the MCP contract cannot
 express a limit across separate calls.
 
+Everything the user owns — the checkpoint database, the knowledge index, the
+threat reports, the terminal exports, the local traces, and the configuration
+file itself — lives under a fixed `~/.oris`, not in the checkout. The paths
+began as relative defaults, which resolve against whatever directory the
+process happened to start in: the interactive session started from the project
+root, the scheduler from its LaunchAgent's working directory, and a shell one
+level down each built a private conversation history and knowledge index while
+reporting nothing. `/recall` simply stopped finding yesterday's answers. A
+fixed absolute root is what makes the data one thing, survive a re-clone, and
+follow the user to the Mac mini rather than following the checkout. The
+matching environment variables still override each path, which is how an
+existing installation keeps pointing at the directories it already has. Two
+directories stay in the checkout because they belong to the project and are
+read beside `schedules.toml` and `evaluations/`: scheduled run artifacts and
+retained evaluation results.
+
 The complete provider responses behind a report are written to
-`artifacts/threat/` rather than returned, because they are several times larger
-than the pivot and would cost context on every later turn. Everything needed to
-find, identify, or age out a report is encoded in its filename, so there is no
-index that can fall out of step with the files. `/threat show` reads them
-without touching the graph, which is what keeps a large report free: it reaches
-the terminal without entering the conversation, the checkpoint database, or any
-later prompt. Retention is a fixed age window swept whenever a report is
-written, read from the filename rather than the file's mtime, which a backup or
-sync client would rewrite.
+`~/.oris/artifacts/threat/` rather than returned, because they are several
+times larger than the pivot and would cost context on every later turn.
+Everything needed to find, identify, or age out a report is encoded in its
+filename, so there is no index that can fall out of step with the files.
+`/threat show` reads them without touching the graph, which is what keeps a
+large report free: it reaches the terminal without entering the conversation,
+the checkpoint database, or any later prompt. Retention is a fixed age window
+swept whenever a report is written, read from the filename rather than the
+file's mtime, which a backup or sync client would rewrite.
+
+The conversation that collected the evidence is part of that filename, and of
+the header, so deleting a conversation means the conversation, its archived
+answers, and the evidence it produced. Leaving the evidence behind was the
+wrong reading of "delete": these are the most sensitive files ORIS writes —
+every indicator investigated and everything the providers returned about it,
+kept for a month — and they are the ones someone deleting a conversation most
+expects to go. Recording the thread keeps the "no index" property rather than
+trading it away, because the fact lives in the same name the sweep and the
+listing already read. The filename is split on `-`, so the thread is last and
+is the only field allowed to contain one; the request's own hyphens are
+flattened, which is why a report can be attributed without opening it. A
+`/forget` for the command line's separate input history is a different gap and
+is not answered by this.
 
 `/threat report` returns the collected evidence instead of a written answer,
-pivoted from source-major to field-major so the providers that answered the same
-question sit together and disagree visibly. It is a reorganisation, not a
-judgement: every value keeps the name of the source that produced it, and no
-verdict is computed. That path makes no model call at all, so nothing is lost to
-summarising. Lists of objects are replaced by their counts, which is what keeps
-a ten-source report about a fifth of the size of the raw fan-out.
+pivoted from source-major to subject-major and then field-major, so the
+providers that answered the same question about the same indicator sit together
+and disagree visibly. The subject — the indicator or reference the evidence was
+collected about — is the outer key because provider names repeat across
+subjects: keyed by field and source alone, one indicator's findings overwrite
+another's, and an address with an AbuseIPDB confidence of 0 and one with a
+confidence of 100 collapse into a single row reading 100. Sources that did not
+answer are recorded per subject for the same reason. It is a reorganisation, not
+a judgement: every value keeps the name of the source that produced it and the
+subject it was said about, and no verdict is computed. That path makes no model
+call at all, so nothing is lost to summarising. Lists of objects are replaced by
+their counts. Measured against a real one-indicator, ten-provider report the
+pivot is 84% of the raw fan-out, so what justifies putting it in the
+conversation is the legibility of the reorganisation, not a size saving.
 
 Within Threat Intel, `/threat enrich` and `/threat ref` name the capability
 deterministically and make no planning model call at all. A freeform `/threat`
@@ -252,6 +312,21 @@ concise search terms, a source filter, and relevance-or-newest ordering before
 SQLite performs the search. A newest plan returns one document; relevance
 returns up to five. Recall answers are not added back to the index because they
 are derived copies of existing evidence.
+
+A recall answer is checked for citations it cannot support, but is not required
+to carry one. The difference from Web Research is deliberate. Both specialists
+reject a source number that was never supplied, because a number the reader
+cannot follow back reads as corroboration that does not exist. Only Web
+Research demands at least one, because Local Knowledge is also told to say when
+the archive does not answer the question, and that response is honest precisely
+because it cites nothing.
+
+Each retrieved document is truncated to a character budget before it reaches
+the model, with the cut announced rather than left to trail off. Archived
+documents are whole prior exchanges, and a `/threat report` turn archives its
+entire evidence pivot — one real single-indicator report is over 5,000
+characters. Five retrieved together would crowd out the question and the
+instructions, and nothing else in the retrieval path bounds their size.
 
 ### Side effects
 

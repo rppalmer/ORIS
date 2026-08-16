@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-27
-- Last reviewed: 2026-08-09
+- Last reviewed: 2026-08-14
 
 ## Context
 
@@ -85,8 +85,12 @@ timestamped Markdown artifact under `artifacts/scheduled/<job-id>/`. A
 scheduled artifact is the job's deliverable; the run record is its operational
 history. Exact search category and date bounds are retained with the run record.
 Neither is a checkpoint, agent memory, or diagnostic trace. The initial policy
-keeps all run records and reports. Automatic deletion will be considered only
-after their storage growth is measured.
+keeps all run records and reports.
+
+That growth was measured on 2026-08-13 and automatic deletion was declined:
+everything ORIS owns came to 2.4 MB, against 36 MB for Phoenix, which already
+enforces its own 14-day policy. The policy stays "keep everything" until the
+archive passes a few hundred megabytes.
 
 Incremental collection jobs that acknowledge provider-owned work use a stricter
 completion boundary. The runner first writes and indexes the validated report,
@@ -140,8 +144,13 @@ the same time.
 - Multiple schedules remain centralized and reviewable in the project.
 - The Python scheduling code remains portable; only process supervision is
   macOS-specific.
-- Initial scheduling depends on the development user being logged in; this is a
-  recorded limitation with a required LaunchDaemon migration path.
+- Initial scheduling depends on the development user being logged in, and on
+  the host being awake. On 2026-08-14 the `weekday-ai-news` job did not fire:
+  the scheduler process was alive and had never exited, but the MacBook was
+  asleep at the trigger time. A missed execution on a sleeping host is the same
+  case as a missed execution on a stopped scheduler and is skipped by the same
+  rule, deliberately. Both are recorded limitations of running on a laptop, and
+  both are resolved by the LaunchDaemon migration onto the always-on Mac mini.
 - The LaunchAgent tooling, installation, and lifecycle operations have been
   verified on the development machine. A timed unattended execution has also
   produced the expected run history, report, and knowledge document. Only

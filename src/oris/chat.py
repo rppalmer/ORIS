@@ -13,6 +13,7 @@ from langchain_core.messages import (
     SystemMessage,
     trim_messages,
 )
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.errors import NodeError
 from langgraph.graph import END, START, MessagesState, StateGraph
@@ -210,6 +211,44 @@ def history_for_model(
     return trimmed or messages[-1:]
 
 
+async def run_turn(
+    graph: CompiledStateGraph,
+    request: dict[str, object],
+    config: dict[str, object],
+    *,
+    on_step: Callable[[str], None],
+) -> dict:
+    """Run one turn, naming each graph node as it starts.
+
+    Streamed rather than invoked so a front end can say what is happening. A
+    real `/threat` run measured 29 seconds, 23 of them inside the final model
+    call, and one unchanging label for that whole wait cannot tell working
+    apart from hung. `subgraphs=True` is what makes the useful steps visible:
+    the specialist's own nodes are where the time goes, not the parent's.
+
+    Steps are reported as they *begin*, which is why this reads the debug
+    stream rather than node updates — an update arrives when a node finishes,
+    which is exactly too late to say what is running. Node names are passed
+    through untranslated; wording belongs to the interface.
+    """
+    final: dict = {}
+    async for namespace, mode, chunk in graph.astream(
+        request,
+        config,
+        stream_mode=["values", "debug"],
+        subgraphs=True,
+        durability="sync",
+    ):
+        if mode == "debug":
+            if chunk.get("type") == "task":
+                on_step(chunk["payload"]["name"])
+        elif not namespace:
+            # Only the parent's values are the turn's result; a subgraph's are
+            # its own private state.
+            final = chunk
+    return final
+
+
 def create_oris_graph(
     web_research_graph: CompiledStateGraph,
     local_knowledge_graph: CompiledStateGraph,
@@ -269,11 +308,11 @@ def create_oris_graph(
             content = f"{content}\n\nArchive sources:\n{source_list}"
         return {"messages": [AIMessage(content=content)]}
 
-    def run_web_research(
+    async def run_web_research(
         state: ORISState,
     ) -> dict[str, list[AIMessage]]:
         query = state["resolved_request"]
-        result = web_research_graph.invoke({"query": query})
+        result = await web_research_graph.ainvoke({"query": query})
         source_links = "\n".join(
             f"[{number}] [{source.title}]({source.url})"
             for number, source in enumerate(result["sources"], start=1)
@@ -313,14 +352,21 @@ def create_oris_graph(
 
     async def run_threat_intel(
         state: ORISState,
+        config: RunnableConfig,
     ) -> dict[str, list[AIMessage]]:
         if threat_intel_graph is None:
             raise ValueError(
                 "Threat Intel is not configured; set THREATSYFT_PYTHON_EXECUTABLE "
                 "and THREATSYFT_ROOT"
             )
+        # The only node that needs to know which conversation it is serving:
+        # the evidence it stores outlives the turn, and deleting the
+        # conversation has to be able to find it again.
         result = await threat_intel_graph.ainvoke(
-            {"request": state["resolved_request"]}
+            {
+                "request": state["resolved_request"],
+                "thread_id": config.get("configurable", {}).get("thread_id", ""),
+            }
         )
         indicator_list = "\n".join(
             f"- {indicator}" for indicator in result["indicators"]

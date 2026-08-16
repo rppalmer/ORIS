@@ -37,14 +37,15 @@ def test_oris_chats_without_web_research_by_default() -> None:
     messages = model.invoke.call_args.args[0]
     assert messages[-1].content == "Hello"
     assert result["messages"][-1].content == "A direct response."
-    web_research_graph.invoke.assert_not_called()
+    web_research_graph.ainvoke.assert_not_called()
     local_knowledge_graph.invoke.assert_not_called()
 
 
 def test_oris_delegates_explicit_research_to_web_research() -> None:
     """One human message becomes one sourced assistant response."""
     web_research_graph = Mock()
-    web_research_graph.invoke.return_value = {
+    web_research_graph.ainvoke = AsyncMock()
+    web_research_graph.ainvoke.return_value = {
         "answer": CitedAnswer(answer="LangGraph supports stateful workflows [1]."),
         "sources": (
             WebSearchResult(
@@ -65,14 +66,16 @@ def test_oris_delegates_explicit_research_to_web_research() -> None:
         model,
     )
 
-    result = graph.invoke(
-        {
-            "messages": [HumanMessage(content="What is LangGraph?")],
-            "mode": "web_research",
-        }
+    result = asyncio.run(
+        graph.ainvoke(
+            {
+                "messages": [HumanMessage(content="What is LangGraph?")],
+                "mode": "web_research",
+            }
+        )
     )
 
-    web_research_graph.invoke.assert_called_once_with({"query": "What is LangGraph?"})
+    web_research_graph.ainvoke.assert_called_once_with({"query": "What is LangGraph?"})
     local_knowledge_graph.invoke.assert_not_called()
     model.invoke.assert_not_called()
     request = result["messages"][0]
@@ -123,7 +126,7 @@ def test_oris_delegates_explicit_local_knowledge_request() -> None:
     local_knowledge_graph.invoke.assert_called_once_with(
         {"query": "What did we decide about scheduling?"}
     )
-    web_research_graph.invoke.assert_not_called()
+    web_research_graph.ainvoke.assert_not_called()
     model.invoke.assert_not_called()
     response = result["messages"][-1]
     assert isinstance(response, AIMessage)
@@ -163,7 +166,7 @@ def test_oris_delegates_explicit_community_research() -> None:
     )
 
     community_research_graph.ainvoke.assert_awaited_once_with({"topic": "LangGraph"})
-    web_research_graph.invoke.assert_not_called()
+    web_research_graph.ainvoke.assert_not_called()
     local_knowledge_graph.invoke.assert_not_called()
     model.invoke.assert_not_called()
     response = result["messages"][-1]
@@ -208,7 +211,7 @@ def test_oris_delegates_explicit_youtube_catch_up() -> None:
     )
 
     youtube_catch_up_graph.ainvoke.assert_awaited_once_with({})
-    web_research_graph.invoke.assert_not_called()
+    web_research_graph.ainvoke.assert_not_called()
     local_knowledge_graph.invoke.assert_not_called()
     community_research_graph.ainvoke.assert_not_awaited()
     model.invoke.assert_not_called()
@@ -266,7 +269,7 @@ def test_oris_uses_the_constrained_router_in_auto_mode() -> None:
     routing_model.invoke.assert_called_once()
     assert routing_model.invoke.call_args.kwargs == {"max_completion_tokens": 256}
     community_research_graph.ainvoke.assert_awaited_once_with({"topic": "LangGraph"})
-    web_research_graph.invoke.assert_not_called()
+    web_research_graph.ainvoke.assert_not_called()
     local_knowledge_graph.invoke.assert_not_called()
     assert result["messages"][-1].content == "Community answer."
 
@@ -300,7 +303,8 @@ def test_oris_passes_a_resolved_follow_up_to_research() -> None:
     model = Mock()
     model.with_structured_output.return_value = routing_model
     web_research_graph = Mock()
-    web_research_graph.invoke.return_value = {
+    web_research_graph.ainvoke = AsyncMock()
+    web_research_graph.ainvoke.return_value = {
         "answer": CitedAnswer(answer="White Lake is sunny [1]."),
         "sources": (
             WebSearchResult(
@@ -318,15 +322,17 @@ def test_oris_passes_a_resolved_follow_up_to_research() -> None:
         model,
     )
 
-    graph.invoke(
-        {
-            "messages": [
-                HumanMessage(content="What's the weather today?"),
-                AIMessage(content="What location should I check?"),
-                HumanMessage(content="My ZIP code is 48383."),
-            ],
-            "mode": "auto",
-        }
+    asyncio.run(
+        graph.ainvoke(
+            {
+                "messages": [
+                    HumanMessage(content="What's the weather today?"),
+                    AIMessage(content="What location should I check?"),
+                    HumanMessage(content="My ZIP code is 48383."),
+                ],
+                "mode": "auto",
+            }
+        )
     )
 
     routing_messages = routing_model.invoke.call_args.args[0]
@@ -336,7 +342,7 @@ def test_oris_passes_a_resolved_follow_up_to_research() -> None:
         "What location should I check?",
         "My ZIP code is 48383.",
     ]
-    web_research_graph.invoke.assert_called_once_with(
+    web_research_graph.ainvoke.assert_called_once_with(
         {"query": "What is today's weather for ZIP code 48383?"}
     )
 
@@ -381,7 +387,7 @@ def test_oris_reports_a_missing_human_message_as_a_closed_request() -> None:
     assert result["request_error"] == (
         "Request validation failed: ORIS requires a human message"
     )
-    web_research_graph.invoke.assert_not_called()
+    web_research_graph.ainvoke.assert_not_called()
     local_knowledge_graph.invoke.assert_not_called()
     model.invoke.assert_not_called()
 
@@ -441,35 +447,46 @@ def test_oris_closes_a_failed_turn_before_the_next_request(
     database_path = tmp_path / "checkpoints.sqlite"
     config = {"configurable": {"thread_id": "main"}}
     web_research_graph = Mock()
-    web_research_graph.invoke.side_effect = RuntimeError("model unavailable")
+    web_research_graph.ainvoke = AsyncMock(
+        side_effect=RuntimeError("model unavailable")
+    )
     direct_chat_model = Mock()
     direct_chat_model.invoke.return_value = AIMessage(content="Pistons answer.")
 
-    with SqliteSaver.from_conn_string(str(database_path)) as checkpointer:
-        graph = create_oris_graph(
-            web_research_graph,
-            Mock(),
-            Mock(),
-            Mock(),
-            direct_chat_model,
-            checkpointer=checkpointer,
-        )
-        failed_result = graph.invoke(
-            {
-                "messages": [HumanMessage(content="Latest UAP information")],
-                "mode": "web_research",
-            },
-            config,
-            durability="sync",
-        )
-        graph.invoke(
-            {
-                "messages": [HumanMessage(content="Latest Pistons information")],
-                "mode": "chat",
-            },
-            config,
-            durability="sync",
-        )
+    # The asynchronous checkpointer, because the graph reaches Web Research
+    # through an asynchronous node now and the synchronous saver refuses async
+    # methods outright. This is the same pairing the application itself uses.
+    async def drive() -> dict:
+        async with AsyncSqliteSaver.from_conn_string(
+            str(database_path)
+        ) as checkpointer:
+            graph = create_oris_graph(
+                web_research_graph,
+                Mock(),
+                Mock(),
+                Mock(),
+                direct_chat_model,
+                checkpointer=checkpointer,
+            )
+            failed = await graph.ainvoke(
+                {
+                    "messages": [HumanMessage(content="Latest UAP information")],
+                    "mode": "web_research",
+                },
+                config,
+                durability="sync",
+            )
+            await graph.ainvoke(
+                {
+                    "messages": [HumanMessage(content="Latest Pistons information")],
+                    "mode": "chat",
+                },
+                config,
+                durability="sync",
+            )
+            return failed
+
+    failed_result = asyncio.run(drive())
 
     assert failed_result["request_succeeded"] is False
     assert failed_result["request_error"] == "Web Research failed: model unavailable"
@@ -528,11 +545,14 @@ def test_oris_delegates_explicit_threat_intel_request() -> None:
             {
                 "messages": [HumanMessage(content="45.83.192.4")],
                 "mode": "threat_intel",
-            }
+            },
+            {"configurable": {"thread_id": "5a1c-conversation"}},
         )
     )
 
-    threat_intel_graph.ainvoke.assert_awaited_once_with({"request": "45.83.192.4"})
+    threat_intel_graph.ainvoke.assert_awaited_once_with(
+        {"request": "45.83.192.4", "thread_id": "5a1c-conversation"}
+    )
     model.invoke.assert_not_called()
     assert result["messages"][-1].content == (
         "VirusTotal reports 3 detections.\n\n"

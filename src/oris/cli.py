@@ -5,22 +5,33 @@ import json
 import readline
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
-from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph.state import CompiledStateGraph
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.syntax import Syntax
-from rich.table import Table
 from rich.text import Text
 
-from oris.chat import REQUEST_FAILURE_MESSAGE
-from oris.knowledge import KnowledgeDocument, KnowledgeRepository
+from oris.chat import REQUEST_FAILURE_MESSAGE, run_turn
+from oris.commands import (
+    Rejected,
+    SelfHandled,
+    command_table,
+    phase_label,
+    read_command,
+    working_label,
+)
+from oris.knowledge import KnowledgeRepository
 from oris.sessions import (
     ACTIVE_SESSION_FILENAME,
     load_or_create_session,
@@ -47,47 +58,6 @@ BANNER_TAGLINE = "Orchestrator / Research / Analysis"
 # Below this the art wraps and turns to noise, so the plain title is used.
 MIN_BANNER_WIDTH = 36
 
-SLASH_COMMANDS = {
-    "/research": (
-        "web_research",
-        "<question>",
-        "Search the open web with Tavily.",
-    ),
-    "/community": (
-        "community_research",
-        "<topic>",
-        "One day of X and Hacker News, 10 results per source.",
-    ),
-    "/recall": (
-        "local_knowledge",
-        "<question>",
-        "Search your archive of past chats and reports.",
-    ),
-    "/threat": (
-        "threat_intel",
-        "[report] [enrich|ref] <target>",
-        "Defensive ThreatSyft lookup; 'enrich' egresses indicators to providers.",
-    ),
-}
-SIMPLE_COMMANDS = (
-    (
-        "/threat show [id] [source]",
-        "Print stored evidence, newest by default. Not sent to chat.",
-    ),
-    ("/session", "Show the active session ID."),
-    ("/new", "Start a new conversation session."),
-    ("/help", "Show these commands."),
-    ("/exit", "Quit."),
-)
-
-WORKING_LABELS = {
-    "web_research": "Web Research",
-    "community_research": "Community Research",
-    "local_knowledge": "Local Knowledge",
-    "threat_intel": "Threat Intel",
-}
-DEFAULT_WORKING_LABEL = "Thinking"
-
 
 @contextmanager
 def cli_history(path: Path) -> Iterator[None]:
@@ -105,21 +75,6 @@ def cli_history(path: Path) -> Iterator[None]:
         path.parent.mkdir(parents=True, exist_ok=True)
         with suppress(OSError):
             readline.write_history_file(path)
-
-
-def _command_table() -> Table:
-    """Build the command reference shown at startup and by `/help`."""
-    table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
-    table.add_column(style="bold cyan", no_wrap=True)
-    table.add_column(style="dim")
-    # Text, not str: usage strings are full of square brackets for optional
-    # arguments, and rich would parse "[report]" and "[source]" as markup tags
-    # and silently delete them, leaving the help lying about the syntax.
-    for command, (_mode, argument, description) in SLASH_COMMANDS.items():
-        table.add_row(Text(f"{command} {argument}"), Text(description))
-    for command, description in SIMPLE_COMMANDS:
-        table.add_row(Text(command), Text(description))
-    return table
 
 
 def print_banner(console: Console) -> None:
@@ -140,7 +95,7 @@ def print_banner(console: Console) -> None:
     console.print(Text(BANNER_TAGLINE, style="dim"))
 
 
-def _working(console: Console, label: str) -> Progress:
+def _working(console: Console) -> Progress:
     """Show a live spinner and elapsed time while a request runs."""
     return Progress(
         SpinnerColumn(),
@@ -150,18 +105,6 @@ def _working(console: Console, label: str) -> Progress:
         transient=True,
         disable=not console.is_terminal,
     )
-
-
-def _parse_command(query: str) -> tuple[str, str] | str:
-    """Return the mode and request, or a usage line when the argument is missing."""
-    command = query.split(maxsplit=1)[0]
-    if command not in SLASH_COMMANDS:
-        return "auto", query
-    mode, argument, _description = SLASH_COMMANDS[command]
-    request = query.removeprefix(command).strip()
-    if not request:
-        return f"Usage: {command} {argument}"
-    return mode, request
 
 
 def show_threat_report(
@@ -250,7 +193,7 @@ async def run_chat(
     console = console or Console(highlight=False)
     print_banner(console)
     console.print()
-    console.print(_command_table())
+    console.print(command_table())
     console.print(Text(f"Session: {thread_id}", style="dim"))
 
     while True:
@@ -259,52 +202,47 @@ async def run_chat(
         except (EOFError, KeyboardInterrupt):
             console.print()
             return
-
-        if query == "/exit":
-            return
         if not query:
             continue
 
-        if query == "/help":
-            console.print(_command_table())
+        parsed = read_command(query)
+        if isinstance(parsed, Rejected):
+            console.print(Text(parsed.message, style="yellow"))
             continue
-        if query.startswith("/threat show"):
-            arguments = query.removeprefix("/threat show").strip()
-            if threat_report_store is None:
+        if isinstance(parsed, SelfHandled):
+            if parsed.name == "exit":
+                return
+            if parsed.name == "help":
+                console.print(command_table())
+            elif parsed.name == "session":
+                console.print(Text(f"Current session: {thread_id}", style="dim"))
+            elif parsed.name == "new":
+                thread_id = start_new_session(session_file_path)
+                console.print(Text(f"Started new session: {thread_id}", style="dim"))
+            elif threat_report_store is None:
                 console.print(
                     Text("Stored evidence reports are not configured.", style="yellow")
                 )
             else:
-                show_threat_report(console, threat_report_store, arguments)
-            continue
-        if query == "/session":
-            console.print(Text(f"Current session: {thread_id}", style="dim"))
-            continue
-        if query == "/new":
-            thread_id = start_new_session(session_file_path)
-            console.print(Text(f"Started new session: {thread_id}", style="dim"))
+                show_threat_report(console, threat_report_store, parsed.argument)
             continue
 
-        parsed = _parse_command(query)
-        if isinstance(parsed, str):
-            console.print(Text(parsed, style="yellow"))
-            continue
-        mode, query = parsed
-        if mode == "auto" and query.startswith("/"):
-            command = query.split(maxsplit=1)[0]
-            console.print(Text(f"Unknown command: {command}", style="yellow"))
-            continue
+        mode, query = parsed.mode, parsed.request
+        label = working_label(mode)
+        with _working(console) as progress:
+            task = progress.add_task(label, total=None)
 
-        label = WORKING_LABELS.get(mode, DEFAULT_WORKING_LABEL)
-        with _working(console, label) as progress:
-            progress.add_task(label, total=None)
-            result = await graph.ainvoke(
+            def show(node: str, task_id: TaskID = task, name: str = label) -> None:
+                progress.update(task_id, description=f"{name} · {phase_label(node)}")
+
+            result = await run_turn(
+                graph,
                 {
                     "messages": [HumanMessage(content=query)],
                     "mode": mode,
                 },
                 {"configurable": {"thread_id": thread_id}},
-                durability="sync",
+                on_step=show,
             )
 
         if not result.get("request_succeeded", True):
@@ -320,18 +258,12 @@ async def run_chat(
         # lost because the local archive write failed.
         console.print("\n[bold green]ORIS[/]")
         console.print(Markdown(response_text))
-        selected_mode = result.get("selected_mode", mode)
-        if selected_mode != "local_knowledge":
-            knowledge_repository.add(
-                KnowledgeDocument(
-                    document_id=str(uuid4()),
-                    source_type="chat",
-                    source_ref=thread_id,
-                    created_at=datetime.now(UTC),
-                    title=query,
-                    content=f"User:\n{query}\n\nORIS:\n{response_text}",
-                )
-            )
+        knowledge_repository.add_exchange(
+            thread_id=thread_id,
+            request=query,
+            answer=response_text,
+            selected_mode=result.get("selected_mode", mode),
+        )
 
 
 async def _main() -> None:

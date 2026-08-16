@@ -2,22 +2,42 @@
 
 import asyncio
 import readline
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 from langchain_core.messages import AIMessage
 from rich.console import Console
 
-from oris.cli import _command_table, cli_history, print_banner, run_chat
+from oris.cli import cli_history, print_banner, run_chat
 from oris.knowledge import KnowledgeDocument, KnowledgeRepository
+
+
+def streaming_graph(result: dict | None = None, steps: tuple[str, ...] = ()) -> Mock:
+    """A graph that streams named steps and ends with one result.
+
+    The interface streams rather than invokes so it can say which step is
+    running, so a fake has to be an async iterator rather than a coroutine.
+    `calls` records what the graph was asked for, which is what the tests
+    about routing actually assert on.
+    """
+    graph = Mock()
+    graph.calls = Mock()
+
+    async def astream(request, config=None, /, **kwargs):
+        graph.calls(request, config, **kwargs)
+        for name in steps:
+            yield ("", "debug", {"type": "task", "payload": {"name": name}})
+        yield ((), "values", result if result is not None else {})
+
+    graph.astream = astream
+    return graph
 
 
 def test_run_chat_prints_error_text_containing_console_markup(
     monkeypatch, capsys, tmp_path
 ) -> None:
     """Runtime text is never parsed as console markup, whatever it contains."""
-    graph = Mock()
-    graph.ainvoke = AsyncMock(
-        return_value={
+    graph = streaming_graph(
+        {
             "request_succeeded": False,
             "request_error": "Web Research failed: tool returned [/] and [bold]",
         }
@@ -42,8 +62,7 @@ def test_run_chat_reports_an_unknown_command_containing_markup(
     monkeypatch, capsys, tmp_path
 ) -> None:
     """Whatever the user types is echoed back safely, not parsed as markup."""
-    graph = Mock()
-    graph.ainvoke = AsyncMock()
+    graph = streaming_graph()
     responses = iter(["/[/]", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
 
@@ -57,20 +76,7 @@ def test_run_chat_reports_an_unknown_command_containing_markup(
     )
 
     assert "Unknown command: /[/]" in capsys.readouterr().out
-    graph.ainvoke.assert_not_awaited()
-
-
-def test_command_help_shows_bracketed_usage_verbatim(capsys) -> None:
-    """Square brackets mark optional arguments; console markup eats them.
-
-    Rendered as markup, "[report]" and "[source]" are parsed as unknown tags and
-    dropped, leaving the help describing a syntax the CLI does not have.
-    """
-    Console(width=200).print(_command_table())
-
-    printed = capsys.readouterr().out
-    assert "[report] [enrich|ref] <target>" in printed
-    assert "/threat show [id] [source]" in printed
+    graph.calls.assert_not_called()
 
 
 def test_banner_falls_back_to_plain_text_when_not_a_terminal(capsys) -> None:
@@ -130,9 +136,8 @@ def test_run_chat_uses_automatic_routing_by_default(
     monkeypatch, capsys, tmp_path
 ) -> None:
     """Ordinary input requests the constrained parent-graph router."""
-    graph = Mock()
     knowledge_repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
-    graph.ainvoke = AsyncMock(return_value={"messages": [AIMessage(content="Hello.")]})
+    graph = streaming_graph({"messages": [AIMessage(content="Hello.")]})
     responses = iter(["", "Hello", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
 
@@ -145,13 +150,18 @@ def test_run_chat_uses_automatic_routing_by_default(
         )
     )
 
-    request = graph.ainvoke.call_args.args[0]
-    config = graph.ainvoke.call_args.args[1]
+    request = graph.calls.call_args.args[0]
+    config = graph.calls.call_args.args[1]
     assert request["messages"][0].content == "Hello"
     assert request["mode"] == "auto"
     assert config == {"configurable": {"thread_id": "session-1"}}
-    assert graph.ainvoke.call_args.kwargs == {"durability": "sync"}
-    assert graph.ainvoke.call_count == 1
+    assert graph.calls.call_args.kwargs == {
+        "durability": "sync",
+        # Steps come from inside the specialists, which is where the time goes.
+        "stream_mode": ["values", "debug"],
+        "subgraphs": True,
+    }
+    assert graph.calls.call_count == 1
     document = knowledge_repository.search("Hello")[0]
     assert isinstance(document, KnowledgeDocument)
     assert document.source_type == "chat"
@@ -165,10 +175,9 @@ def test_run_chat_uses_automatic_routing_by_default(
 
 def test_run_chat_uses_web_research_command(monkeypatch, tmp_path) -> None:
     """The research command selects Web Research and removes the command."""
-    graph = Mock()
     knowledge_repository = Mock()
-    graph.ainvoke = AsyncMock(
-        return_value={"messages": [AIMessage(content="A cited research answer [1].")]}
+    graph = streaming_graph(
+        {"messages": [AIMessage(content="A cited research answer [1].")]}
     )
     responses = iter(["/research What is LangGraph?", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
@@ -182,20 +191,19 @@ def test_run_chat_uses_web_research_command(monkeypatch, tmp_path) -> None:
         )
     )
 
-    request = graph.ainvoke.call_args.args[0]
-    config = graph.ainvoke.call_args.args[1]
+    request = graph.calls.call_args.args[0]
+    config = graph.calls.call_args.args[1]
     assert request["messages"][0].content == "What is LangGraph?"
     assert request["mode"] == "web_research"
     assert config == {"configurable": {"thread_id": "session-1"}}
-    assert knowledge_repository.add.call_count == 1
+    assert knowledge_repository.add_exchange.call_count == 1
 
 
 def test_run_chat_uses_local_knowledge_command(monkeypatch, tmp_path) -> None:
     """Recall selects Local Knowledge without archiving a derived answer."""
-    graph = Mock()
     knowledge_repository = Mock()
-    graph.ainvoke = AsyncMock(
-        return_value={"messages": [AIMessage(content="We chose schedules.toml [1].")]}
+    graph = streaming_graph(
+        {"messages": [AIMessage(content="We chose schedules.toml [1].")]}
     )
     responses = iter(["/recall What did we decide about scheduling?", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
@@ -209,22 +217,24 @@ def test_run_chat_uses_local_knowledge_command(monkeypatch, tmp_path) -> None:
         )
     )
 
-    request = graph.ainvoke.call_args.args[0]
-    config = graph.ainvoke.call_args.args[1]
+    request = graph.calls.call_args.args[0]
+    config = graph.calls.call_args.args[1]
     assert request["messages"][0].content == ("What did we decide about scheduling?")
     assert request["mode"] == "local_knowledge"
     assert config == {"configurable": {"thread_id": "session-1"}}
-    knowledge_repository.add.assert_not_called()
+    assert (
+        knowledge_repository.add_exchange.call_args.kwargs["selected_mode"]
+        == "local_knowledge"
+    )
 
 
 def test_run_chat_does_not_archive_automatically_routed_recall(
     monkeypatch, tmp_path
 ) -> None:
     """An automatically selected Local Knowledge answer is not re-indexed."""
-    graph = Mock()
     knowledge_repository = Mock()
-    graph.ainvoke = AsyncMock(
-        return_value={
+    graph = streaming_graph(
+        {
             "messages": [AIMessage(content="The retained decision [1].")],
             "selected_mode": "local_knowledge",
         }
@@ -241,17 +251,17 @@ def test_run_chat_does_not_archive_automatically_routed_recall(
         )
     )
 
-    request = graph.ainvoke.call_args.args[0]
+    request = graph.calls.call_args.args[0]
     assert request["mode"] == "auto"
-    knowledge_repository.add.assert_not_called()
+    assert (
+        knowledge_repository.add_exchange.call_args.kwargs["selected_mode"]
+        == "local_knowledge"
+    )
 
 
 def test_run_chat_uses_community_research_command(monkeypatch, tmp_path) -> None:
     """The community command selects its fixed specialist and strips the command."""
-    graph = Mock()
-    graph.ainvoke = AsyncMock(
-        return_value={"messages": [AIMessage(content="Community answer.")]}
-    )
+    graph = streaming_graph({"messages": [AIMessage(content="Community answer.")]})
     knowledge_repository = Mock()
     responses = iter(["/community LangGraph", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
@@ -265,10 +275,10 @@ def test_run_chat_uses_community_research_command(monkeypatch, tmp_path) -> None
         )
     )
 
-    request = graph.ainvoke.call_args.args[0]
+    request = graph.calls.call_args.args[0]
     assert request["messages"][0].content == "LangGraph"
     assert request["mode"] == "community_research"
-    assert knowledge_repository.add.call_count == 1
+    assert knowledge_repository.add_exchange.call_count == 1
 
 
 def test_run_chat_rejects_community_without_a_topic(
@@ -291,8 +301,8 @@ def test_run_chat_rejects_community_without_a_topic(
         )
     )
 
-    graph.ainvoke.assert_not_called()
-    knowledge_repository.add.assert_not_called()
+    graph.calls.assert_not_called()
+    knowledge_repository.add_exchange.assert_not_called()
     assert "Usage: /community <topic>" in capsys.readouterr().out
 
 
@@ -316,8 +326,8 @@ def test_run_chat_rejects_recall_without_a_question(
         )
     )
 
-    graph.ainvoke.assert_not_called()
-    knowledge_repository.add.assert_not_called()
+    graph.calls.assert_not_called()
+    knowledge_repository.add_exchange.assert_not_called()
     assert "Usage: /recall <question>" in capsys.readouterr().out
 
 
@@ -341,8 +351,8 @@ def test_run_chat_rejects_an_unknown_slash_command(
         )
     )
 
-    graph.ainvoke.assert_not_called()
-    knowledge_repository.add.assert_not_called()
+    graph.calls.assert_not_called()
+    knowledge_repository.add_exchange.assert_not_called()
     assert "Unknown command: /resaerch" in capsys.readouterr().out
 
 
@@ -352,9 +362,8 @@ def test_run_chat_does_not_index_a_failed_exchange(
     tmp_path,
 ) -> None:
     """A handled request failure returns to the prompt without being indexed."""
-    graph = Mock()
-    graph.ainvoke = AsyncMock(
-        return_value={
+    graph = streaming_graph(
+        {
             "messages": [],
             "request_succeeded": False,
             "request_error": "Web Research failed: provider unavailable",
@@ -373,14 +382,13 @@ def test_run_chat_does_not_index_a_failed_exchange(
         )
     )
 
-    knowledge_repository.add.assert_not_called()
+    knowledge_repository.add_exchange.assert_not_called()
     assert "Web Research failed: provider unavailable" in capsys.readouterr().out
 
 
 def test_run_chat_starts_and_uses_a_new_session(monkeypatch, capsys, tmp_path) -> None:
     """The session commands switch later requests to a fresh thread ID."""
-    graph = Mock()
-    graph.ainvoke = AsyncMock(return_value={"messages": [AIMessage(content="Hello.")]})
+    graph = streaming_graph({"messages": [AIMessage(content="Hello.")]})
     knowledge_repository = Mock()
     session_file_path = tmp_path / "current_session"
     responses = iter(["/session", "/new", "Hello", "/exit"])
@@ -396,11 +404,11 @@ def test_run_chat_starts_and_uses_a_new_session(monkeypatch, capsys, tmp_path) -
     )
 
     new_session_id = session_file_path.read_text(encoding="utf-8").strip()
-    config = graph.ainvoke.call_args.args[1]
+    config = graph.calls.call_args.args[1]
     assert new_session_id != "session-1"
     assert config == {"configurable": {"thread_id": new_session_id}}
-    document = knowledge_repository.add.call_args.args[0]
-    assert document.source_ref == new_session_id
+    archived = knowledge_repository.add_exchange.call_args.kwargs
+    assert archived["thread_id"] == new_session_id
     output = capsys.readouterr().out
     assert "Current session: session-1" in output
     assert f"Started new session: {new_session_id}" in output

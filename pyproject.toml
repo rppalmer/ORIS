@@ -27,6 +27,7 @@ oris = "oris.cli:main"
 oris-tui = "oris.tui:main"
 oris-run-scheduled = "oris.scheduled_runs:main"
 oris-scheduler = "oris.scheduler:main"
+oris-phoenix = "oris.phoenix:main"
 orisctl = "oris.launch_agent:main"
 
 # Optional on purpose. The terminal interface is an alternative front end over

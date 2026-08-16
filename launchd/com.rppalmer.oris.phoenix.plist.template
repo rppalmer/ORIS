@@ -8,8 +8,6 @@
     <key>ProgramArguments</key>
     <array>
         <string>${executable}</string>
-        <string>--schedule-file</string>
-        <string>${schedule_file}</string>
     </array>
 
     <key>WorkingDirectory</key>

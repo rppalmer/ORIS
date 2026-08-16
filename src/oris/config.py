@@ -84,8 +84,10 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:6006/v1/traces",
         validation_alias="PHOENIX_COLLECTOR_ENDPOINT",
     )
-    # Phoenix's own variable, read deliberately rather than duplicated: whatever
-    # `start-phoenix.sh` sets is where the traces are, so the two cannot drift.
+    # Phoenix's own variable, so an operator who already sets it keeps working.
+    # This is the single definition: `oris-phoenix` derives the collector's
+    # environment from this setting rather than restating the default, so the
+    # directory ORIS reads and the one the collector writes cannot drift.
     phoenix_working_directory: ConfiguredPath = Field(
         default=ORIS_HOME / "traces" / "phoenix",
         validation_alias="PHOENIX_WORKING_DIR",

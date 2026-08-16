@@ -1,25 +1,15 @@
 #!/bin/sh
 
+# Thin wrapper kept for muscle memory and for running the collector in the
+# foreground. Everything about how Phoenix starts — release, port, directory,
+# retention — lives in src/oris/phoenix.py, so this script has no settings of
+# its own to drift from ORIS's. It used to restate ORIS_HOME's default in its
+# own words, with a comment admitting the two had to be kept in step by hand.
+#
+# For a collector that survives this terminal, use:
+#     uv run orisctl phoenix install
+
 set -eu
 
 project_root=$(CDPATH= cd "$(dirname "$0")" && pwd)
-# Honour an exported PHOENIX_WORKING_DIR: ORIS reads the same variable to find
-# the traces, and the two pointing at different directories is a silent failure.
-# The fallback must stay in step with `ORIS_HOME` in src/oris/config.py for the
-# same reason — this is the one place the default is written twice.
-trace_directory="${PHOENIX_WORKING_DIR:-$HOME/.oris/traces/phoenix}"
-
-mkdir -p "$trace_directory"
-cd "$project_root"
-
-exec env \
-    PHOENIX_HOST=127.0.0.1 \
-    PHOENIX_PORT=6006 \
-    PHOENIX_WORKING_DIR="$trace_directory" \
-    PHOENIX_DEFAULT_RETENTION_POLICY_DAYS=14 \
-    PHOENIX_TELEMETRY_ENABLED=false \
-    PHOENIX_ALLOW_EXTERNAL_RESOURCES=false \
-    PHOENIX_ENABLE_MCP_SERVER=false \
-    PHOENIX_ALLOWED_PROVIDERS=NONE \
-    PHOENIX_ALLOWED_SANDBOX_PROVIDERS=NONE \
-    uvx --from "arize-phoenix==19.6.0" phoenix serve
+exec "$project_root/.venv/bin/oris-phoenix"

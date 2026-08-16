@@ -197,7 +197,29 @@ deployment step.
 
 ## Local tracing
 
-Start Phoenix in a separate terminal:
+Phoenix is installed separately from ORIS, pinned, because ORIS talks to it
+over the network and never imports it:
+
+```shell
+uv tool install "arize-phoenix==19.6.0"
+```
+
+Run it as a supervised service, which is the same command shape the scheduler
+uses and survives closing whichever front end you started it from:
+
+```shell
+uv run orisctl phoenix install
+uv run orisctl phoenix status
+uv run orisctl phoenix restart
+uv run orisctl phoenix stop
+uv run orisctl phoenix uninstall
+```
+
+Both services render an absolute executable inside `.venv/bin`, log to
+`logs/<service>.stdout.log`, and are otherwise independent: stopping Phoenix
+does not affect the scheduler, and the collector being down never fails a run.
+
+Or start it in the foreground for one session:
 
 ```shell
 ./start-phoenix.sh

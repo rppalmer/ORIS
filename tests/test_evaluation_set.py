@@ -1,10 +1,13 @@
 """Tests for the local Web Research evaluation runner."""
 
+import asyncio
 import json
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import Mock
+
+from test_web_research import FakeWebSearch, create_fake_model
 
 from oris.evaluation import (
     EvaluationCase,
@@ -13,8 +16,20 @@ from oris.evaluation import (
     run_evaluation_cases,
     write_evaluation_report,
 )
-from oris.search import WebSearchResult
-from oris.web_research import CitedAnswer
+from oris.search import WebSearchRequest, WebSearchResponse
+from oris.web_research import CitedAnswer, create_web_research_graph
+
+
+class FlakyWebSearch(FakeWebSearch):
+    """Answer the first search and fail the second.
+
+    Lets one report hold both outcomes while still running the real graph.
+    """
+
+    async def search(self, request: WebSearchRequest) -> WebSearchResponse:
+        if self.requests:
+            raise RuntimeError("provider unavailable")
+        return await super().search(request)
 
 
 def test_web_research_evaluation_set_is_valid() -> None:
@@ -51,8 +66,15 @@ def test_routing_evaluation_set_is_valid() -> None:
     assert follow_up_case["prior_assistant_response"]
 
 
-def test_evaluation_runner_records_successes_and_failures(tmp_path: Path) -> None:
-    """One failed case cannot hide a successful case or prevent the report."""
+def test_evaluation_runner_drives_the_real_graph(tmp_path: Path) -> None:
+    """The runner drives the real graph, and one failure cannot hide a pass.
+
+    Deliberately compiled against the production graph rather than a graph
+    double. A double accepts whatever call the runner makes, so it agrees with
+    the runner about the calling convention and the result keys no matter what
+    either one does — which is how the runner came to be calling a synchronous
+    `invoke` on a graph that had gained an asynchronous node.
+    """
     evaluation_set = EvaluationSet(
         version=2,
         cases=(
@@ -70,23 +92,12 @@ def test_evaluation_runner_records_successes_and_failures(tmp_path: Path) -> Non
             ),
         ),
     )
-    graph = Mock()
-    graph.invoke.side_effect = [
-        {
-            "answer": CitedAnswer(answer="A supported answer [1]."),
-            "sources": (
-                WebSearchResult(
-                    title="Official source",
-                    url="https://example.com/source",
-                    snippet="Supporting evidence.",
-                ),
-            ),
-        },
-        RuntimeError("provider unavailable"),
-    ]
+    search = FlakyWebSearch()
+    model, _, _ = create_fake_model(CitedAnswer(answer="A supported answer [1]."))
+    graph = create_web_research_graph(search, model)
     clock = Mock(side_effect=[10.0, 11.25, 20.0, 20.5])
 
-    results = run_evaluation_cases(graph, evaluation_set, clock=clock)
+    results = asyncio.run(run_evaluation_cases(graph, evaluation_set, clock=clock))
     report_path = write_evaluation_report(
         evaluation_set,
         results,
@@ -95,7 +106,7 @@ def test_evaluation_runner_records_successes_and_failures(tmp_path: Path) -> Non
         generated_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
     )
 
-    assert graph.invoke.call_count == 2
+    assert len(search.requests) == 1
     assert results[0]["status"] == "passed"
     assert results[0]["latency_seconds"] == 1.25
     assert results[0]["source_count"] == 1

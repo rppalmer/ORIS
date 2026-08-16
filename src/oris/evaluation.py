@@ -1,5 +1,6 @@
 """Local, opt-in evaluation runner for the Web Research specialist."""
 
+import asyncio
 import json
 import time
 import tomllib
@@ -55,19 +56,25 @@ def load_evaluation_set(
     return EvaluationSet.model_validate(values)
 
 
-def run_evaluation_cases(
+async def run_evaluation_cases(
     graph: CompiledStateGraph,
     evaluation_set: EvaluationSet,
     *,
     clock: Callable[[], float] = time.perf_counter,
 ) -> tuple[dict[str, object], ...]:
-    """Run every case sequentially and retain failures for the final report."""
+    """Run every case sequentially and retain failures for the final report.
+
+    Asynchronous because the graph is: its search node awaits the provider, and
+    LangGraph refuses a synchronous `invoke` on a graph that holds an
+    asynchronous node. Cases still run one at a time — the point of the report
+    is a per-case latency that is comparable across runs.
+    """
     results: list[dict[str, object]] = []
     for case in evaluation_set.cases:
         print(f"Running {case.id}...")
         started_at = clock()
         try:
-            graph_result = graph.invoke({"query": case.question})
+            graph_result = await graph.ainvoke({"query": case.question})
         except Exception as error:
             result: dict[str, object] = {
                 "id": case.id,
@@ -137,12 +144,12 @@ def write_evaluation_report(
     return report_path
 
 
-def main() -> None:
+async def _main() -> None:
     """Run the accepted Web Research cases against configured live services."""
     from oris.web_research_app import settings, web_research_graph
 
     evaluation_set = load_evaluation_set()
-    results = run_evaluation_cases(web_research_graph, evaluation_set)
+    results = await run_evaluation_cases(web_research_graph, evaluation_set)
     report_path = write_evaluation_report(
         evaluation_set,
         results,
@@ -151,6 +158,11 @@ def main() -> None:
     print(f"Report: {report_path}")
     if any(result["status"] == "failed" for result in results):
         raise SystemExit(1)
+
+
+def main() -> None:
+    """Start the asynchronous evaluation run."""
+    asyncio.run(_main())
 
 
 if __name__ == "__main__":

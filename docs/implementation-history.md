@@ -1055,3 +1055,40 @@ Deterministic baseline: 257 passing, 17 skipped, clean lint and formatting.
   Net-Razor never emits; its double now speaks the real contract.
 
 Deterministic baseline: 259 passing, 17 skipped, clean lint and formatting.
+
+### One evaluation runner for four specialists — 2026-08-17
+
+- **The runner was Web Research's, not a runner.** It hardcoded one case file,
+  one input key, and one result shape, so the four specialists without a
+  versioned set could not get one without a second copy of it. It now holds one
+  small table of how each specialist is asked and where its answer and citations
+  live — `query` against `topic` against `request`, `sources` against
+  `cited_urls` against `sources_used` — and a set names the specialist it
+  belongs to.
+- Versioned case files added for Local Knowledge, Community Research, and
+  Threat Intel. The reports they produce record what was asked, what came back,
+  what it cited and how long it took; there is no scoring and no model grading
+  another model's prose. Judgement is a person reading two reports side by side.
+- **`version` is no longer pinned to a single number.** Each file carries its
+  own, and its job is to tell a reader whether two reports asked the same
+  questions. Pinning it made sense with one file and is wrong with five.
+- The report's `sources`/`source_count` became `citations`/`citation_count`,
+  because what a specialist cites is a web result, an archive document, a URL,
+  or a provider name depending on which one it is. Reports written before this
+  use the older key names.
+- One test drives every specialist in the table through its real compiled graph
+  with scripted dependencies. It exists because a wrong key is invisible until a
+  live run fails partway through and produces no report — and because a graph
+  double would have agreed with whatever call the runner made, which is how the
+  runner previously came to be calling a synchronous `invoke` on an
+  asynchronous graph. Running it found the calling convention correct for all
+  four.
+- **This does not close the evaluation-coverage item and is recorded in the plan
+  as unfinished.** Local Knowledge and Threat Intel cases run against live state,
+  so two reports differ for reasons unrelated to the prompt; judgement is
+  entirely manual with no recorded per-case verdict; YouTube Catch-up takes no
+  question and does not fit this shape at all; and the cases are a first draft
+  written against the prompts' stated rules rather than against observed
+  failures.
+
+Deterministic baseline: 260 passing, 17 skipped, clean lint and formatting.

@@ -243,11 +243,19 @@ uv run pytest
 ```
 
 Live contracts under `tests/live/` are opt-in because they contact the local
-model or external services. The full Web Research evaluation can also be run
-with `uv run python -m oris.evaluation`; it consumes Tavily credits
-and retains its results for review. Task-specific system prompts are
-version-controlled in `src/oris/prompts/` and are loaded when the
-application starts.
+model or external services.
+
+Evaluation sets live in `evaluations/`, one file per specialist, and are run
+with `uv run python -m oris.evaluation <specialist>` — `web_research` (the
+default), `local_knowledge`, `community_research`, or `threat_intel`. Each run
+contacts the real services that specialist depends on, so it consumes Tavily
+credits or provider lookups, and Threat Intel additionally stores an evidence
+report. Reports are written to `artifacts/evaluations/` for human review; there
+is no automatic scoring, and the way to judge a prompt change is to put two
+reports on the same case file side by side.
+
+Task-specific system prompts are version-controlled in `src/oris/prompts/` and
+are loaded when the application starts.
 
 ## Terminal interface
 

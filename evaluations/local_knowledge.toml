@@ -1,0 +1,37 @@
+version = 1
+specialist = "local_knowledge"
+
+# These questions run against whatever the archive actually holds, so the goals
+# describe the shape of a good answer rather than a fact to match. A case whose
+# archive has nothing is still a useful case: how this specialist behaves with
+# no evidence is one of the things being measured.
+
+[[cases]]
+id = "recurring-report-newest"
+category = "recency-ordering"
+question = "What did the most recent scheduled research report say?"
+evaluation_goal = "Answer from the newest matching report alone, not a blend of several runs, and cite the archive entry it came from."
+
+[[cases]]
+id = "retained-decision"
+category = "retained-decision"
+question = "What has been decided about how ORIS schedules its own jobs?"
+evaluation_goal = "Recover a decision the user made earlier and cite the archive entries that record it, without restating the question."
+
+[[cases]]
+id = "citation-collision"
+category = "citation-discipline"
+question = "Summarise what the archive holds about LangGraph checkpointing."
+evaluation_goal = "Cite archive source numbers only. Archived documents carry their own bracketed citations to external sources; those numbers must not be copied into the answer."
+
+[[cases]]
+id = "absent-subject"
+category = "insufficient-evidence"
+question = "What does the archive record about the Norwegian sovereign wealth fund?"
+evaluation_goal = "Say plainly that the archive has nothing on this, without inventing a source and without a bare one-line dead end. Ideally say what would put it there."
+
+[[cases]]
+id = "cross-report-comparison"
+category = "multi-document-synthesis"
+question = "Across everything archived, what topics have come up more than once?"
+evaluation_goal = "Draw on several archive entries and cite each one used, rather than answering from the single most relevant document."

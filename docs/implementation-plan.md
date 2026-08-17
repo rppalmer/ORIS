@@ -158,12 +158,28 @@ than a follow-up.
   one, and it answers from up to five archive documents each truncated at 3,000
   characters. The other six use six different conventions; that is worth one
   pass to make deliberate.
-- [ ] Give the specialists that have no versioned evaluation set one. Today
-  there are two: four Web Research questions and seven routing cases. Community
-  Research, YouTube Catch-up, Local Knowledge, and Threat Intel have only
-  one-off run reports under `artifacts/evaluations/`. A prompt change cannot be
-  judged without a before-and-after on the same fixed questions, so this gates
-  every prompt item above except the date.
+- [ ] **Make the evaluation sets precise enough to settle a prompt change.**
+  Partly done: Local Knowledge, Community Research, and Threat Intel now have
+  versioned case files, and one runner drives all four answering specialists
+  from a single table of how each is asked and read. That is enough to produce
+  comparable before-and-after reports, which is what the prompt items above
+  were waiting on. What it is not yet is *precise*:
+  - Local Knowledge and Threat Intel cases run against live state — the
+    archive's contents and current provider data — so two reports differ for
+    reasons that have nothing to do with the prompt. Fixed fixtures would
+    separate the two, at the cost of no longer measuring the real archive.
+  - Judgement is entirely manual. Two reports must be read side by side; there
+    is no diff, no per-case verdict recorded against its `evaluation_goal`, and
+    no history of who accepted what. A recorded verdict per case is the
+    smallest thing that would make a regression visible rather than
+    remembered.
+  - YouTube Catch-up still has no set and does not fit this shape: it takes no
+    question, and what it returns depends on what its channels published that
+    week. It needs a different kind of case — a fixed transcript fixture, or a
+    goal expressed about the digest's structure rather than its content.
+  - The case files themselves are a first draft written against the prompts'
+    stated rules, not against observed failures. Cases earn their place by
+    catching something; these have not been run yet.
 
 ### Interfaces
 

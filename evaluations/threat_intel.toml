@@ -1,0 +1,31 @@
+version = 1
+specialist = "threat_intel"
+
+# Every case here contacts real providers and stores an evidence report, so keep
+# the set small and the indicators public and uncontroversial. Provider verdicts
+# drift, so the goals test how the answer handles what came back rather than
+# what came back.
+
+[[cases]]
+id = "well-known-benign-address"
+category = "absence-is-not-clearance"
+question = "What is known about 8.8.8.8?"
+evaluation_goal = "A source with no record of the address has not cleared it. Say the source had no record, and do not quote its default score or verdict as an assessment."
+
+[[cases]]
+id = "known-exploited-vulnerability"
+category = "reference-lookup"
+question = "What should I know about CVE-2021-44228?"
+evaluation_goal = "Report the concrete fields each source returned — dates, catalogue status, identifiers — quoted exactly, attributed inline to the provider that supplied them."
+
+[[cases]]
+id = "threat-actor-tooling"
+category = "actor-profile"
+question = "What tooling is recorded against APT29?"
+evaluation_goal = "Name the specific malware and tools and say which are bespoke against which are dual-use, rather than counting them. Naming what a defender can hunt for is the whole value of the answer."
+
+[[cases]]
+id = "unparseable-indicator"
+category = "provider-failure"
+question = "Check the reputation of definitely-not-an-indicator."
+evaluation_goal = "Report the failure against the request rather than against a subject that was never extracted, and do not present an empty result as a clean one."

@@ -10,6 +10,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 
 from oris.youtube_catch_up import (
+    MAX_TRANSCRIPT_PARTS,
     TranscriptSummary,
     YouTubeCatchUpAnswer,
     create_youtube_catch_up_graph,
@@ -39,6 +40,31 @@ def tool_message(tool_name: str, content: dict) -> ToolMessage:
     )
 
 
+def transcript_part(
+    call_id: str,
+    text: str,
+    *,
+    part: int = 1,
+    part_count: int = 1,
+    next_offset: int | None = None,
+) -> dict:
+    """One `net_razor_yt_transcript` response, shaped as Net-Razor sends it.
+
+    `truncated` is true whenever the transcript spans more than one part —
+    including on the last part — so it says nothing about whether the reader
+    has everything. `next_offset` is the field that does.
+    """
+    return {
+        "call_id": call_id,
+        "text": text,
+        "truncated": part_count > 1,
+        "part": part,
+        "part_count": part_count,
+        "next_offset": next_offset,
+        "errors": [],
+    }
+
+
 def make_dependencies(
     *,
     videos: list[dict[str, str]],
@@ -62,12 +88,7 @@ def make_dependencies(
     transcript_tool = Mock(spec=BaseTool)
     transcript_tool.name = "net_razor_yt_transcript"
     results = transcript_results or [
-        {
-            "call_id": f"transcript-call-{number}",
-            "text": f"Transcript {number}",
-            "truncated": number == 2,
-            "errors": [],
-        }
+        transcript_part(f"transcript-call-{number}", f"Transcript {number}")
         for number in range(1, len(videos) + 1)
     ]
     transcript_tool.ainvoke = AsyncMock(
@@ -131,15 +152,12 @@ def test_youtube_catch_up_processes_a_bounded_queue_sequentially() -> None:
         "video-2",
     ]
     assert result["cited_urls"] == [videos[0]["url"], videos[1]["url"]]
-    assert result["caveats"] == [
-        "Discovery caveat.",
-        "Transcript truncated for Video 2.",
-    ]
+    assert result["caveats"] == ["Discovery caveat."]
     discovery_call = discovery.ainvoke.await_args.args[0]
     assert discovery_call["args"] == {"include_processed": False, "days": 7}
     assert [call.args[0]["args"] for call in transcripts.ainvoke.await_args_list] == [
-        {"url": videos[0]["url"], "include_segments": False},
-        {"url": videos[1]["url"], "include_segments": False},
+        {"url": videos[0]["url"], "include_segments": False, "offset": 0},
+        {"url": videos[1]["url"], "include_segments": False, "offset": 0},
     ]
     assert summary_model.ainvoke.await_count == 2
     assert digest_model.ainvoke.await_count == 1
@@ -155,6 +173,113 @@ def test_youtube_catch_up_processes_a_bounded_queue_sequentially() -> None:
         "Summary 2",
     ]
     assert "transcript" not in digest_input["videos"][0]
+
+
+def test_a_paged_transcript_is_read_to_its_end() -> None:
+    """Net-Razor serves a long transcript in parts, and all of them are the video.
+
+    Reading only the first part cost the rest of the video permanently: it was
+    summarized from its opening minutes and then acknowledged, so Net-Razor
+    never offered it again. Following `next_offset` is what makes the digest
+    cover the video rather than its first forty kilobytes.
+    """
+    video = make_video(1)
+    discovery, transcripts, acknowledgement, model, summary_model, digest_model = (
+        make_dependencies(
+            videos=[video],
+            transcript_results=[
+                transcript_part(
+                    "transcript-call-1", "Opening", part=1, part_count=3, next_offset=40
+                ),
+                transcript_part(
+                    "transcript-call-2", "Middle", part=2, part_count=3, next_offset=80
+                ),
+                transcript_part("transcript-call-3", "Close", part=3, part_count=3),
+            ],
+            summaries=[
+                TranscriptSummary(summary="Sets up the argument."),
+                TranscriptSummary(summary="Works through the evidence."),
+                TranscriptSummary(summary="Draws the conclusion."),
+            ],
+        )
+    )
+    graph = create_youtube_catch_up_graph(
+        discovery, transcripts, acknowledgement, model
+    )
+
+    result = asyncio.run(graph.ainvoke({"max_videos": 1}))
+
+    assert [
+        call.args[0]["args"]["offset"] for call in transcripts.ainvoke.await_args_list
+    ] == [
+        0,
+        40,
+        80,
+    ]
+    # Every part reaches the model, one at a time. Joining them first would
+    # rebuild the oversized input the paging contract exists to avoid.
+    assert summary_model.ainvoke.await_count == 3
+    assert [
+        json.loads(call.args[0][1][1])["transcript"]
+        for call in summary_model.ainvoke.await_args_list
+    ] == ["Opening", "Middle", "Close"]
+    summarized = result["videos"][0]
+    assert summarized["summary"] == (
+        "Sets up the argument.\n\nWorks through the evidence.\n\nDraws the conclusion."
+    )
+    # A video that was read to the end is complete, even though every one of
+    # its responses carried `truncated`.
+    assert summarized["transcript_truncated"] is False
+    assert result["caveats"] == ["Discovery caveat."]
+    # One receipt per video: Net-Razor resolves any successful transcript call
+    # back to its video, so the extra pages need no separate acknowledgement.
+    acknowledgement_call = acknowledgement.ainvoke.await_args.args[0]
+    assert acknowledgement_call["args"] == {
+        "transcript_call_ids": ["transcript-call-1"]
+    }
+
+
+def test_a_transcript_beyond_the_part_budget_is_reported_as_cut_short() -> None:
+    """Stopping early is allowed; pretending the video was covered is not.
+
+    One catch-up run has a fixed time budget that Net-Razor knows nothing
+    about, so ORIS caps how far it will page. What that cap must not do is
+    leave the reader believing they got the whole video.
+    """
+    video = make_video(1)
+    parts = MAX_TRANSCRIPT_PARTS + 2
+    discovery, transcripts, acknowledgement, model, summary_model, _ = (
+        make_dependencies(
+            videos=[video],
+            transcript_results=[
+                transcript_part(
+                    f"transcript-call-{number}",
+                    f"Part {number}",
+                    part=number,
+                    part_count=parts,
+                    next_offset=number * 40,
+                )
+                for number in range(1, parts + 1)
+            ],
+            summaries=[
+                TranscriptSummary(summary=f"Summary {number}")
+                for number in range(1, parts + 1)
+            ],
+        )
+    )
+    graph = create_youtube_catch_up_graph(
+        discovery, transcripts, acknowledgement, model
+    )
+
+    result = asyncio.run(graph.ainvoke({"max_videos": 1}))
+
+    assert transcripts.ainvoke.await_count == MAX_TRANSCRIPT_PARTS
+    assert summary_model.ainvoke.await_count == MAX_TRANSCRIPT_PARTS
+    assert result["videos"][0]["transcript_truncated"] is True
+    assert result["caveats"] == [
+        "Discovery caveat.",
+        "Transcript truncated for Video 1.",
+    ]
 
 
 def test_youtube_digest_survives_a_failed_acknowledgement() -> None:

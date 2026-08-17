@@ -95,6 +95,11 @@ services then found.
 - MCP standardizes tool transport, not capability semantics. Fixed specialists
   depend on ORIS-owned capability boundaries; provider-specific tool names,
   arguments, and result mapping belong in adapters.
+- One MCP response is not necessarily the whole result. Where a tool returns a
+  continuation field, the specialist follows it to the end, caps the run with an
+  ORIS-owned budget the provider cannot know, and reports plainly when that cap
+  stopped it short. Paged evidence is processed a page at a time; joining the
+  pages first rebuilds the oversized input the paging exists to prevent.
 - Scheduled jobs invoke a named specialist directly; they do not use an
   interactive chat session or the conversational router.
 - Public graph state uses ORIS-owned types. A specialist may retain a

@@ -990,3 +990,41 @@ Deterministic baseline: 247 passing, 17 skipped, clean lint and formatting.
 
 Deterministic baseline: 257 passing, 17 skipped, clean lint and formatting.
 All 17 live contracts passing against real services.
+
+### Reading a paged MCP result to its end — 2026-08-17
+
+- **YouTube Catch-up read the first page of a transcript and called it the
+  video.** Net-Razor serves a long transcript in parts of about 40 KB and
+  reports `part`, `part_count`, `offset`, `next_offset`, and `truncated`;
+  ORIS read one response, noted "transcript truncated" as a caveat, summarized
+  that part, and then acknowledged the video back to Net-Razor. Acknowledgement
+  removes it from the queue, so the rest of a long video was lost permanently.
+  Nothing failed and nothing looked wrong — the digest was simply built from the
+  opening minutes.
+- **`truncated` never meant what it was being read to mean.** On that tool it
+  says only that the transcript spans more than one part, and it is set on the
+  final part too. `next_offset` is the field that says whether anything is still
+  unread. The video is now reported truncated when parts remained and ORIS
+  stopped, not when the provider split the response.
+- **Each part is summarized on its own rather than concatenated.** Keeping one
+  part in context is the reason Net-Razor pages at all; joining the parts and
+  summarizing once would rebuild exactly the oversized input the paging avoids.
+  Parts after the first are served from Net-Razor's local storage, so following
+  the chain costs nothing upstream.
+- **Three parts per video is an ORIS budget, not a provider limit.** Net-Razor
+  cannot know how many model calls one catch-up run can afford, and the run has
+  a fixed 900-second timeout. Three parts covers roughly two and a quarter hours
+  of speech. A video past that is summarized from what was read and reported
+  truncated. The worst case triples the summary calls a run can make, and its
+  interaction with the run timeout is unmeasured against real long videos.
+- Net-Razor's other two tools in ORIS's allowlist do not page: `net_razor_research`
+  returns every source's results in one response bounded by
+  `max_results_per_source`, and `net_razor_yt_new_videos` returns a compact
+  queue. Community Research needed no change.
+- The two new tests protect the offset chain being followed to its end and the
+  part budget stopping honestly rather than silently. Both are deterministic
+  tool-call contracts against a scripted double. The existing test had driven
+  truncation with a single-part response carrying `truncated: true`, a shape
+  Net-Razor never emits; its double now speaks the real contract.
+
+Deterministic baseline: 259 passing, 17 skipped, clean lint and formatting.

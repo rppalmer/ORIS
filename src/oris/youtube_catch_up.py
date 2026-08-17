@@ -22,6 +22,17 @@ DEFAULT_MAX_VIDEOS = 5
 MAX_VIDEOS = 10
 SUMMARY_TIMEOUT_SECONDS = 900
 
+MAX_TRANSCRIPT_PARTS = 3
+"""How many parts of one video's transcript a single run will read.
+
+Net-Razor serves a long transcript in parts of about 40 KB, so three covers
+roughly two and a quarter hours of speech and nearly every video in practice.
+This is an orchestration budget rather than a provider limit: Net-Razor cannot
+know how many model calls one catch-up run can afford, and the run as a whole
+has a fixed timeout. A video that exceeds it is summarised from the parts that
+were read and reported as truncated.
+"""
+
 
 class TranscriptSummary(BaseModel):
     """Structured summary of one supplied transcript."""
@@ -89,6 +100,18 @@ class YouTubeCatchUpState(TypedDict):
     cited_urls: NotRequired[list[str]]
 
 
+def _structured_content(result: object) -> dict[str, Any]:
+    """Unwrap the structured JSON the official MCP adapter attaches."""
+    if not isinstance(result, ToolMessage):
+        raise TypeError("Net-Razor did not return a LangChain ToolMessage")
+    if not isinstance(result.artifact, dict):
+        raise ValueError("Net-Razor did not return structured JSON")
+    content = result.artifact.get("structured_content")
+    if not isinstance(content, dict):
+        raise ValueError("Net-Razor did not return structured JSON")
+    return content
+
+
 def create_youtube_catch_up_preparation_graph(
     discovery_tool: BaseTool,
     transcript_tool: BaseTool,
@@ -123,21 +146,16 @@ def create_youtube_catch_up_preparation_graph(
         if "days" in state:
             tool_args["days"] = state["days"]
 
-        result = await discovery_tool.ainvoke(
-            {
-                "type": "tool_call",
-                "id": str(uuid4()),
-                "name": discovery_tool.name,
-                "args": tool_args,
-            }
+        discovery_result = _structured_content(
+            await discovery_tool.ainvoke(
+                {
+                    "type": "tool_call",
+                    "id": str(uuid4()),
+                    "name": discovery_tool.name,
+                    "args": tool_args,
+                }
+            )
         )
-        if not isinstance(result, ToolMessage):
-            raise TypeError("Net-Razor did not return a LangChain ToolMessage")
-        if not isinstance(result.artifact, dict):
-            raise ValueError("Net-Razor did not return structured JSON")
-        discovery_result = result.artifact.get("structured_content")
-        if not isinstance(discovery_result, dict):
-            raise ValueError("Net-Razor did not return structured JSON")
 
         videos = discovery_result.get("videos")
         if not isinstance(videos, list):
@@ -154,6 +172,52 @@ def create_youtube_catch_up_preparation_graph(
             "caveats": caveats,
         }
 
+    async def read_transcript_part(url: str, offset: int) -> dict[str, Any]:
+        return _structured_content(
+            await transcript_tool.ainvoke(
+                {
+                    "type": "tool_call",
+                    "id": str(uuid4()),
+                    "name": transcript_tool.name,
+                    "args": {
+                        "url": url,
+                        "include_segments": False,
+                        "offset": offset,
+                    },
+                }
+            )
+        )
+
+    async def summarize_part(video: dict[str, Any], part: dict[str, Any]) -> str:
+        """Summarize one part of a transcript, never the whole of a long one.
+
+        Keeping a single part in context is the reason Net-Razor pages at all.
+        Joining the parts first and summarizing once would rebuild exactly the
+        oversized input the paging contract exists to avoid.
+        """
+        response = await summary_model.ainvoke(
+            [
+                ("system", VIDEO_SUMMARY_SYSTEM_PROMPT),
+                (
+                    "human",
+                    json.dumps(
+                        {
+                            "title": video["title"],
+                            "channel": video["channel_title"],
+                            "published_at": video["published_at"],
+                            "transcript_part": part.get("part"),
+                            "transcript_part_count": part.get("part_count"),
+                            "transcript": part["text"],
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                ),
+            ],
+            max_completion_tokens=256,
+        )
+        return response.summary
+
     async def summarize_videos(
         state: YouTubeCatchUpState,
     ) -> dict[str, object]:
@@ -165,60 +229,65 @@ def create_youtube_catch_up_preparation_graph(
             if not isinstance(video, dict):
                 raise ValueError("Net-Razor returned an invalid video entry")
 
-            result = await transcript_tool.ainvoke(
-                {
-                    "type": "tool_call",
-                    "id": str(uuid4()),
-                    "name": transcript_tool.name,
-                    "args": {
-                        "url": video["url"],
-                        "include_segments": False,
-                    },
-                }
-            )
-            if not isinstance(result, ToolMessage):
-                raise TypeError("Net-Razor did not return a LangChain ToolMessage")
-            if not isinstance(result.artifact, dict):
-                raise ValueError("Net-Razor did not return structured JSON")
-            transcript_result = result.artifact.get("structured_content")
-            if not isinstance(transcript_result, dict):
-                raise ValueError("Net-Razor did not return structured JSON")
+            # A long transcript arrives in parts, and reading only the first
+            # one lost the rest of the video for good: it was summarized from
+            # its opening minutes and then marked processed, so it never came
+            # back in the queue. Follow `next_offset` to the end instead. Parts
+            # after the first are served from Net-Razor's local storage, so
+            # paging costs nothing upstream.
+            part_summaries: list[str] = []
+            transcript_call_id = ""
+            unreadable: str | None = None
+            offset: int | None = 0
 
-            transcript = transcript_result.get("text")
-            if transcript_result.get("errors") or not isinstance(transcript, str):
-                caveats.append(f"Transcript unavailable for {video['title']}.")
-                continue
-            if not transcript.strip():
-                caveats.append(f"Transcript empty for {video['title']}.")
-                continue
+            while offset is not None and len(part_summaries) < MAX_TRANSCRIPT_PARTS:
+                part = await read_transcript_part(video["url"], offset)
+                text = part.get("text")
+                if part.get("errors") or not isinstance(text, str):
+                    unreadable = (
+                        f"Transcript unavailable for {video['title']}."
+                        if not part_summaries
+                        else f"Transcript incomplete for {video['title']}: "
+                        f"Net-Razor did not return part {len(part_summaries) + 1}."
+                    )
+                    break
+                if not text.strip():
+                    unreadable = (
+                        f"Transcript empty for {video['title']}."
+                        if not part_summaries
+                        else f"Transcript incomplete for {video['title']}: "
+                        f"part {len(part_summaries) + 1} was empty."
+                    )
+                    break
 
-            transcript_call_id = transcript_result.get("call_id")
-            if not isinstance(transcript_call_id, str) or not transcript_call_id:
-                raise ValueError("Net-Razor did not return a transcript call ID")
+                if not part_summaries:
+                    # One acknowledgement per video: Net-Razor resolves any
+                    # successful transcript call back to its video, so the
+                    # first part's receipt marks the whole video processed.
+                    transcript_call_id = part.get("call_id")
+                    if (
+                        not isinstance(transcript_call_id, str)
+                        or not transcript_call_id
+                    ):
+                        raise ValueError(
+                            "Net-Razor did not return a transcript call ID"
+                        )
 
-            truncated = transcript_result.get("truncated") is True
-            if truncated:
+                part_summaries.append(await summarize_part(video, part))
+                next_offset = part.get("next_offset")
+                offset = next_offset if isinstance(next_offset, int) else None
+
+            # `truncated` on a response only says the transcript came in more
+            # than one part, and it is set on the final part too. The video is
+            # genuinely cut short only when parts remained and we stopped.
+            truncated = offset is not None
+            if unreadable is not None:
+                caveats.append(unreadable)
+            elif truncated:
                 caveats.append(f"Transcript truncated for {video['title']}.")
-            response = await summary_model.ainvoke(
-                [
-                    ("system", VIDEO_SUMMARY_SYSTEM_PROMPT),
-                    (
-                        "human",
-                        json.dumps(
-                            {
-                                "title": video["title"],
-                                "channel": video["channel_title"],
-                                "published_at": video["published_at"],
-                                "transcript_truncated": truncated,
-                                "transcript": transcript,
-                            },
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                    ),
-                ],
-                max_completion_tokens=256,
-            )
+            if not part_summaries:
+                continue
+
             summaries.append(
                 {
                     "video_id": video["video_id"],
@@ -226,7 +295,7 @@ def create_youtube_catch_up_preparation_graph(
                     "channel": video["channel_title"],
                     "published_at": video["published_at"],
                     "url": video["url"],
-                    "summary": response.summary,
+                    "summary": "\n\n".join(part_summaries),
                     "transcript_truncated": truncated,
                 }
             )

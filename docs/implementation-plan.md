@@ -118,18 +118,12 @@ This is the work that changes what an investigation actually tells the user.
 Nothing else on this roadmap moves that number.
 
 The eleven system prompts were reviewed together on 2026-08-16. Findings are
-listed below, worst first. Only the first needs no measurement; the rest change
-what an answer says and want a before-and-after on fixed questions, which makes
-the evaluation-coverage item a prerequisite rather than a follow-up.
+listed below, worst first. The one that needed no measurement — telling every
+synthesis prompt the current date — is done and recorded in the history. Each
+remaining item changes what an answer says and wants a before-and-after on
+fixed questions, which makes the evaluation-coverage item a prerequisite rather
+than a follow-up.
 
-- [ ] **Give every synthesis prompt the current date.** Only the search planner
-  is told it. Web Research, Threat Intel, Local Knowledge, Community Research,
-  and direct chat all synthesize without knowing what day it is, so none can
-  weigh whether a source is current and direct chat falls back on its training
-  cutoff. Observed: a Web Research answer cited a White House page of unclear
-  vintage alongside genuine current reporting, with no basis to rank them.
-  Cheap, broad, and safe to do without measurement — it supplies information the
-  model demonstrably lacks.
 - [ ] **Raise Web Research's ceiling and give it Threat Intel's specificity.**
   Its entire length rule is "Write no more than three sentences", for the
   specialist that reads up to five web sources. Its token budget allows roughly

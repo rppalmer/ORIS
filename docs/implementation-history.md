@@ -991,6 +991,33 @@ Deterministic baseline: 247 passing, 17 skipped, clean lint and formatting.
 Deterministic baseline: 257 passing, 17 skipped, clean lint and formatting.
 All 17 live contracts passing against real services.
 
+### Telling every synthesis prompt what day it is — 2026-08-17
+
+- **Only the search planner knew the date.** Web Research, Threat Intel, Local
+  Knowledge, Community Research, and direct chat all synthesized without it, so
+  a specialist asked to judge whether evidence is current had nothing to judge
+  it against, and direct chat answered as of its training cutoff with no way to
+  know it was doing so. Observed before the change: a Web Research answer placed
+  a page of unknown vintage beside genuine current reporting and ranked them
+  the same.
+- The date is appended per call rather than folded into the packaged prompt at
+  import, because the scheduler and a terminal session are long-running
+  processes that outlive the day they started on.
+- The planner keeps supplying the date in its human turn, where its prompt is
+  written to expect it, and now takes the wording from the same helper so the
+  line has one definition. Its wire format is unchanged, which its existing test
+  asserts byte for byte.
+- YouTube Catch-up was deliberately left out: both its prompts already receive
+  each video's `published_at`, which is the only date judgement they make.
+- No new tests. The invariant — the composed system message carries today's date
+  — was added to the message-inspection assertion each specialist's existing
+  test already makes. It is deterministic because ORIS builds that message
+  itself, and it names no example date, so it holds on any day the suite runs.
+  Whether knowing the date *improves* an answer is semantic and belongs to the
+  evaluation set instead.
+
+Deterministic baseline: 257 passing, 17 skipped, clean lint and formatting.
+
 ### Reading a paged MCP result to its end — 2026-08-17
 
 - **YouTube Catch-up read the first page of a transcript and called it the

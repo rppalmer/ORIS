@@ -190,16 +190,32 @@ than a follow-up.
       window is ORIS's default, not Net-Razor's. `source-disagreement`, whose
       whole goal is to say which source carried which view, cannot meet it
       until this is decided.
-  - **Local Knowledge retrieval is returning the wrong documents, and two cases
-    caught it.** The archive holds 29 documents — 23 chat, 6 scheduled
-    `weekday-ai-news` reports. `cross-report-comparison` asks what topics recur
-    across everything archived; retrieval returned one document and the answer
-    said "there is only one document". `retained-decision` asks what was decided
-    about ORIS scheduling; six documents contain "schedul" and retrieval
-    returned one about threat actors using dynamic DNS. These are the most
-    valuable cases in the run and the fix is in the Local Knowledge planner or
-    its search, not in the case file. Only `citation-collision` is genuinely
-    inert: no archived document contains "langgraph" or "checkpoint" at all.
+  - **Local Knowledge: two real defects found and fixed, and three cases that
+    cannot answer.** Both defects are fixed as of 2026-08-18 and neither changed
+    a case verdict, because the cases that exposed them are unanswerable for
+    unrelated reasons. The defects were worth fixing on their own:
+    - The archive indexed exact word forms. Six documents said "scheduled" and
+      a search for "schedules" reached none of them; OR-matching then filled
+      the gap with unrelated documents sharing a common word. Now stemmed with
+      FTS5's `porter` tokenizer, and existing archives re-index themselves once
+      on open. A direct search for "ORIS schedules jobs" went from returning
+      dynamic-DNS threat chats to returning the scheduled reports.
+    - Retrieval requested exactly one document whenever the planner chose
+      newest ordering. That rule belongs in the system prompt, which already
+      states it, and at retrieval it silently applied to every recency-flavoured
+      question. Both orders retrieve five now, and the recurring-report case
+      still answers from the newest alone, which proves the prompt was carrying
+      it.
+    - Three of five cases still cannot answer, and the reasons are not
+      retrieval. `retained-decision` assumes a decision about ORIS scheduling
+      was archived; no chat document mentions scheduling at all, so the correct
+      answer is that the archive has nothing. `citation-collision` needs an
+      archived document about LangGraph checkpointing and none exists.
+      `cross-report-comparison` asks what recurs across everything archived,
+      which has no search term — the planner reduced it to the literal word
+      "topics". A lexical archive cannot answer an aggregate question about
+      itself, and that is a scope decision rather than a bug. All three want
+      rewriting against what the archive actually holds.
   - **`absent-subject` proved the "say so" item below.** Its goal forbids a bare
     one-line dead end and asks what would put the subject in the archive. The
     answer was "I couldn't find relevant information in the local archive."

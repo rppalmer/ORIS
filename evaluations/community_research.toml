@@ -1,31 +1,38 @@
-version = 1
+version = 2
 specialist = "community_research"
 
 # X and Hacker News change by the week, so no case here asserts a fact. What is
 # stable is the shape: which sources answered, whether the answer separates them
 # instead of averaging them, and whether every URL it cites was actually
 # supplied. Those hold whatever the discussion happens to be that day.
+#
+# Each question is a search topic, not a sentence. This specialist never sees a
+# question in production: the router strips the request down to a bare topic
+# before handing it over, because the topic goes straight to X and Hacker News
+# as the search term. The first version of this file asked full questions, and
+# every case returned zero results because Algolia was searching for the literal
+# sentence. Keep these short enough to be typed into a search box.
 
 [[cases]]
 id = "active-technical-topic"
 category = "well-covered-topic"
-question = "What are people saying about LangGraph?"
+question = "LangGraph"
 evaluation_goal = "Produce concise bullets grounded in the returned posts, citing only supplied canonical URLs."
 
 [[cases]]
 id = "source-disagreement"
 category = "conflicting-signals"
-question = "What is the reaction to local model hosting versus hosted APIs?"
+question = "local LLM hosting"
 evaluation_goal = "Where X and Hacker News differ, say which source carried which view rather than merging them into one consensus."
 
 [[cases]]
 id = "obscure-topic"
 category = "insufficient-evidence"
-question = "What is being discussed about the ORIS research assistant project?"
+question = "ORIS research assistant"
 evaluation_goal = "Report that the sources returned nothing usable, with an empty citation list, and no invented discussion."
 
 [[cases]]
 id = "provider-caveats"
 category = "partial-failure"
-question = "What is the current discussion around CVE disclosure timelines?"
+question = "CVE disclosure"
 evaluation_goal = "If Net-Razor reports a source error or an empty source, say so in the answer rather than presenting a partial fan-out as complete coverage."

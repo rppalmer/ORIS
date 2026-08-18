@@ -169,11 +169,27 @@ than a follow-up.
     reported against the request and that is what the error says. The summary
     block at the top of every report is the first thing anyone reads and it is
     misleading. Either drop it or make it a recorded human verdict.
-  - **Community Research's cases do not exercise the production path.** All four
-    returned zero evidence. Net-Razor's log shows the whole English question
-    going to Algolia as the search term. In production the router condenses the
-    request to a short topic first; the runner feeds `question` straight into
-    `topic`. The four `question` values need to be topics. Net-Razor is fine.
+  - **Community Research's cases did not exercise the production path.** Fixed
+    2026-08-18: all four returned zero evidence because the whole English
+    question was going to Algolia and X as the search term, where production
+    sends a router-condensed topic. The cases are topics now, and the re-run
+    exposed two real defects the empty results had been hiding:
+    - **An obscure topic crashes the specialist.** `obscure-topic` raised
+      `ValueError: The community research answer must include at least one
+      cited URL`. The prompt says "If there is no usable evidence, return an
+      empty cited_urls list"; the validator refuses an empty list whenever
+      Net-Razor returned any URL at all. Those are different tests. The model
+      judged the returned posts irrelevant, which is what it was asked to do,
+      and the run died for it. Ask about anything nobody is discussing and
+      Community Research fails instead of saying so.
+    - **Hacker News never contributes, so this is a one-source specialist in
+      practice.** Every citation in the re-run was an x.com URL. ORIS sends
+      `days: 1`, and a one-day window on Hacker News for a niche technical
+      topic is almost always empty — HN holds 274 LangGraph stories, roughly
+      one of them inside any given 24 hours, while X posts constantly. The
+      window is ORIS's default, not Net-Razor's. `source-disagreement`, whose
+      whole goal is to say which source carried which view, cannot meet it
+      until this is decided.
   - **Local Knowledge retrieval is returning the wrong documents, and two cases
     caught it.** The archive holds 29 documents — 23 chat, 6 scheduled
     `weekday-ai-news` reports. `cross-report-comparison` asks what topics recur

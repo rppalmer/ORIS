@@ -220,15 +220,6 @@ than a follow-up.
   See [web-evidence-mcp-plan.md](web-evidence-mcp-plan.md) for the tool
   contracts, safety boundaries, and build phases. Keep `playwright-stealth`
   optional and disabled by default.
-- [ ] Take the ORIS side of Net-Razor's Whisper transcription when that tool
-  exists. Videos without captions are lost today. Net-Razor would own the whole
-  audio pipeline; ORIS calls one blocking tool per video on the scheduled path
-  only, then collects the transcript exactly as it does now. Blocked on a
-  Net-Razor measurement of how many videos are actually being lost, and on two
-  contract answers listed in the plan. Do not land the refactors early — most of
-  them would be configuration nothing reads. See
-  [youtube-transcription-plan.md](youtube-transcription-plan.md) and the
-  handoff at [net-razor-transcription-handoff.md](net-razor-transcription-handoff.md).
 - [ ] Add a free company lookup, so the organisation behind an ASN or a domain
   can be turned into basic company facts — what it is, where it is registered,
   roughly how big, who owns it. Crunchbase is the shape; the free part is the
@@ -343,6 +334,18 @@ answers to questions that keep getting asked again.
   `uvx` runs the collector as a child and left an orphan holding the port after
   a stop. Scheduler health does not depend on it, and a run never fails because
   the collector is absent.
+- **Whisper transcription for caption-less YouTube videos** (measured
+  2026-08-18). Net-Razor was going to gain local Whisper transcription so videos
+  with no captions stopped being lost. The condition for building it was how
+  many videos are actually lost, and Net-Razor's audit history holds four
+  caption failures in total, roughly half of them the same video from one
+  channel. The agreed threshold was that a handful from a single channel means
+  drop it, so it is parked. The sample is development traffic across three
+  active weeks, not steady operation, so re-run the count after a month of the
+  scheduled catch-up job actually running; single digits then makes this
+  permanent. The full design and Net-Razor's five contract answers are kept in
+  [youtube-transcription-plan.md](youtube-transcription-plan.md) — do not
+  re-derive them.
 - **No node-level timeouts on the search path** (2026-08-13). LangGraph refuses
   a `timeout=` on a synchronous node, so the foundation review's recommendation
   was not implementable as written. The deadline lives in the provider client

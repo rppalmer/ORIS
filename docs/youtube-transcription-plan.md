@@ -1,9 +1,26 @@
 # YouTube transcription — the ORIS side
 
-- Status: Planned, not started. Blocked on a Net-Razor measurement.
+- Status: **Parked on a measurement, 2026-08-18.** Not being built. Do not start
+  this without re-running the count described under "The gate".
 - Written: 2026-08-18
-- Contract it changes: [youtube-catch-up-contract.md](youtube-catch-up-contract.md)
-- Handoff for the Net-Razor side: [net-razor-transcription-handoff.md](net-razor-transcription-handoff.md)
+- Contract it would change: [youtube-catch-up-contract.md](youtube-catch-up-contract.md)
+
+## The gate, and why this is parked
+
+The question was how many videos are actually being lost to missing captions.
+Net-Razor counted: **four caption failures in its entire audit history**, and
+about half of those look like the same video from one channel.
+
+The threshold agreed in advance was that a handful from a single channel means
+drop it. That is what the data says, so this is not being built.
+
+One caveat on the number. It came from development traffic, not steady nightly
+operation — three active weeks with gaps between them. Re-run the count after a
+month of the scheduled catch-up job actually running. If it is still in single
+digits, this stays parked permanently.
+
+Everything below is the design, kept because the analysis was done and the
+answers from Net-Razor are worth not losing. It is not a work item.
 
 ## What is changing
 
@@ -56,63 +73,65 @@ These are project-wide and apply to every task below.
   is.
 - No new runtime dependency. Verified: nothing below needs one.
 
-## What ORIS needs from Net-Razor
+## What Net-Razor confirmed
 
-One of these is a confirmation rather than new work. The other two are real.
+All four were answered on 2026-08-18. Recorded here because they are the parts
+that would be expensive to re-derive.
 
-### 1. A stable contract for "this video has no captions"
+### 1. The transcript error strings are contract
 
-Discovery cannot answer this and should not be made to. `yt_new_videos` builds
-its queue from channel feeds and never touches a transcript, so putting an
-availability flag on a discovery entry would mean probing every video before
-returning the queue.
+`transcripts_disabled` and `no_transcript_found` come from a mapping table, so
+they stay stable even if the upstream transcript library renames its exceptions.
+ORIS can branch on them safely.
 
-It is already answered somewhere better. When `yt_transcript` cannot get
-captions it returns an ordinary response whose `errors[0].type` is
-`transcripts_disabled` or `no_transcript_found` — distinct from
-`video_unavailable`, `invalid_video_url`, and `request_failed`. ORIS reads that
-field and branches on it.
+Also confirmed: keeping caption availability off `yt_new_videos` is right. That
+tool builds its queue from channel feeds and never touches a transcript, so a
+flag there would force a probe of every video before the queue could return.
 
-That is consuming Net-Razor's error classification, not duplicating it.
-Duplicating would be ORIS re-deriving the category from exception types or from
-message text. What ORIS needs is only the promise that those two values are a
-published contract rather than an internal detail free to be renamed.
+### 2. The transcription tool returns an acknowledgement, not text
 
-So: no change, just confirmation.
+Failures come back as ordinary `errors` entries, the same shape every other tool
+uses. ORIS collects text through `yt_transcript` as it does today.
 
-### 2. What the transcription tool returns
+### 3. The stored-transcript lookup also filters on language code
 
-ORIS needs two things from the acknowledgement, both as data rather than prose:
+This is the answer that matters most, and it corrects something this plan
+originally got wrong.
 
-- Whether a transcript now exists. A status or a boolean, not an error string to
-  be pattern-matched.
-- When it does not, a short human-readable reason ORIS can copy into a caveat
-  verbatim. Net-Razor already records why; ORIS only repeats it.
+`stored_transcript()` does read the `raw` table by `(source='yt',
+source_id=video_id)` — but a stored transcript is then **rejected unless its
+language code satisfies the request**. A Whisper payload written with a null or
+non-standard language code would be invisible to `yt_transcript`, which would go
+back to YouTube and fail again with the same caption error.
 
-A `ServiceErrorItem` in the existing `errors` list would satisfy both, and would
-match every other tool's shape.
+Silently. The video would look exactly like one that was never transcribed, and
+the transcription call would appear to have succeeded. If this is ever built,
+this is the integration detail most likely to break it, and the one worth a
+deliberate test rather than an assumption.
 
-Anything else in the response — duration, model size, timings — ORIS ignores.
+### 4. Use `source_backend` for provenance, not `is_generated`
 
-### 3. Where the Whisper transcript gets stored
+Net-Razor agreed that Whisper transcripts should be distinguishable, and that
+the original brief was wrong to say otherwise.
 
-`yt_transcript` already serves a repeat or paged call from `stored_transcript()`,
-which reads the `raw` table by `(source='yt', source_id=video_id)` and accepts
-any payload carrying `segments`. If Whisper output is written in that same shape,
-ORIS's collection step works with no change whatsoever — which is the property
-the whole design depends on.
+The correction: `is_generated` already means "YouTube auto-captions versus
+human-uploaded", which is a different question and must not be overloaded. The
+new value goes on `source_backend`, today always `"yt-api"`.
 
-Worth confirming explicitly, because it is the difference between "steps 3 and 4
-need no changes" being true and being nearly true.
+### 5. Timing: the ORIS timeout sits above Net-Razor's cap, not below it
 
-### 4. One request: say which backend produced the transcript
+There is no measured worst case, because none has been measured.
 
-The transcript response already carries `source_backend`, currently always
-`"yt-api"`, and `is_generated`, which distinguishes YouTube's own auto-captions
-from human ones. A Whisper transcript should carry a different `source_backend`
-value.
+If this is built, Net-Razor enforces its own transcription cap and returns a
+timeout error. So ORIS's read timeout for that tool must sit **above** that cap,
+high enough never to fire. The failure then arrives as a normal error response
+that ORIS turns into a caveat, rather than as a transport-level timeout it has
+to interpret.
 
-The reason is in the last section of this plan. It costs one string.
+That inverts what "Change 1" below was reaching for. The MCP timeout is not the
+bound on transcription work; it is a backstop that should never be reached, and
+Net-Razor owns the real limit. The LangGraph node timeout is still ORIS's own
+concern, because it protects the scheduler slot rather than the call.
 
 ## What changes in ORIS
 
@@ -155,6 +174,11 @@ transcript fetch that hangs on YouTube would sit there for fifteen minutes
 instead of two, and could exhaust the node timeout that protects the rest of the
 run. Two clients cost nothing at rest, because the stdio process spawns per call
 either way.
+
+The long value is chosen to sit above Net-Razor's own transcription cap rather
+than to bound the work — see answer 5 above. It should never fire. When
+transcription takes too long, Net-Razor returns a timeout error and ORIS treats
+it like any other failed video.
 
 Interactive keeps one client at 120 seconds and never sees the second.
 
@@ -243,59 +267,48 @@ tens of minutes, so a job whose cron fires more often than its worst case will
 have firings skipped by `max_instances=1`. For a daily job this is harmless. It
 should be written down rather than discovered.
 
-## One recommendation the brief argues against
+## The one place the brief was overruled
 
-The brief says nothing marks a transcript as machine-made, and that steps 3 and
-4 need no changes. That is right for how the transcript is *collected* — by then
-it is an ordinary row in an ordinary store.
+The brief said nothing should mark a transcript as machine-made. Both projects
+now agree that was wrong.
 
-But a Whisper transcript of a technical talk gets names, acronyms, and product
+A Whisper transcript of a technical talk gets names, acronyms, and product
 versions wrong in exactly the places an investigation cares about. The digest
 then states those as fact, cited to the video, with nothing distinguishing them
 from a transcript the speaker's own captions produced.
 
-The mechanism already exists. Every transcript response carries `source_backend`,
-today always `"yt-api"`. A Whisper transcript carrying a different value means
-ORIS can set one boolean on the summarised video and add a caveat naming the
-machine-transcribed ones. No new field, no change to how anything is fetched or
-summarised.
+The mechanism is `source_backend`, which every transcript response already
+carries and which is always `"yt-api"` today. A different value there lets ORIS
+set one boolean on the summarised video and add a caveat naming the
+machine-transcribed ones. No new field, and no change to how anything is fetched
+or summarised.
 
-Recommended. It is a call to make deliberately rather than something to slip in,
-and it is the one item here that needs both projects to agree.
+Not `is_generated` — that field already answers a different question.
 
-## Sequencing
+## If this is ever unparked
 
-Nothing here gets built yet.
+Do not start from the roadmap. Start by re-running the count in "The gate", then
+read "What Net-Razor confirmed", particularly the language-code trap in answer 3.
 
-The Net-Razor tool does not exist, and whether it gets built is gated on a
-measurement: how many videos are actually being lost to missing captions.
-Net-Razor already records every caption failure with its video ID, so that is
-one query.
+The build order would be:
 
-It is tempting to land the refactors now — the timeout parameter, the builder
-split, the budget field — since none of them depend on the new tool's schema.
-Do not. Two of the three would be configuration and parameters that nothing
-reads, which is the speculative extensibility the simplicity gate rules out.
-They are cheap to do later and the plan is written down here.
-
-When the gate clears, build in this order. Each step leaves the tree working and
-tested.
-
-1. **Split the builders.** Pure refactor, no behaviour change. Existing tests
-   must pass untouched; add one proving the interactive tool set is exactly the
-   three-tool allowlist.
+1. **Split the interactive and scheduled builders.** Pure refactor, no behaviour
+   change. Existing tests pass untouched; add one proving the interactive tool
+   set is exactly the three-tool allowlist.
 2. **Parameterise the timeout and add the optional loader.** Test that a missing
    transcription tool yields `None` rather than raising, and that the three
    required tools still raise when absent.
 3. **Add the budget** to the schedule model and the graph input. Test that it is
    rejected outside its bounds and that zero means no transcription calls.
-4. **Add the transcription node.** This is the one that needs the real tool.
-   Test the budget ceiling, one call per video, a failed video becoming a caveat
-   while its neighbours proceed, and no transcription calls at all when the tool
-   is `None`.
-5. **Update the contract**, and record the outcome in the implementation
-   history.
+4. **Add the transcription node.** The only step needing the real tool. Test the
+   budget ceiling, one call per video, a failed video becoming a caveat while its
+   neighbours proceed, and no transcription calls when the tool is `None`.
+5. **Update the contract**, and record the outcome in the implementation history.
 
 Steps 1 to 3 are deterministic and belong in pytest. Whether Whisper transcripts
-produce usable summaries is a question for the evaluation set, not a blocking
-assertion — and it is the thing to actually look at once a real run exists.
+produce usable summaries belongs in the evaluation set, and is the thing to
+actually look at once a real run exists.
+
+Nothing here should be landed early. Two of the three refactors would be
+parameters and configuration that nothing reads, which is the speculative
+extensibility the simplicity gate rules out.

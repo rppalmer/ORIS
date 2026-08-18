@@ -158,6 +158,39 @@ than a follow-up.
   one, and it answers from up to five archive documents each truncated at 3,000
   characters. The other six use six different conventions; that is worth one
   pass to make deliberate.
+- [ ] **Fix what the first evaluation run exposed** (run 2026-08-18, seventeen
+  cases across four specialists, reports in `artifacts/evaluations/`). The cases
+  were run for the first time and earned their place immediately, though mostly
+  by catching problems in themselves rather than in the prompts. Worst first:
+  - **The reported status is orthogonal to the evaluation goal.** Sixteen of
+    seventeen cases "passed"; passing only means the graph returned without
+    raising. The one marked failed — Threat Intel's `unparseable-indicator` —
+    arguably satisfied its goal, because the goal asked for the failure to be
+    reported against the request and that is what the error says. The summary
+    block at the top of every report is the first thing anyone reads and it is
+    misleading. Either drop it or make it a recorded human verdict.
+  - **Community Research's cases do not exercise the production path.** All four
+    returned zero evidence. Net-Razor's log shows the whole English question
+    going to Algolia as the search term. In production the router condenses the
+    request to a short topic first; the runner feeds `question` straight into
+    `topic`. The four `question` values need to be topics. Net-Razor is fine.
+  - **Three of five Local Knowledge cases are inert.** `citation-collision` and
+    `cross-report-comparison` both need several archive documents and the
+    archive returned one, so they cannot fail. `retained-decision` retrieved a
+    document about threat actors and dynamic DNS in answer to a question about
+    ORIS scheduling.
+  - **`absent-subject` proved the "say so" item below.** Its goal forbids a bare
+    one-line dead end and asks what would put the subject in the archive. The
+    answer was "I couldn't find relevant information in the local archive."
+  - **Web Research's time-sensitive case is already stale.** It expects Python
+    3.12.13 and March 3 2026; the answer said 3.12.14 on August 12 2026, citing
+    endoflife.date while python.org sat uncited. A case with a hard-coded
+    expected fact rots, and nothing notices.
+  - **Threat Intel drops MaxMind's ASN attribution**, which is the separate todo
+    below. The benign-address answer named Google LLC and AS15169 with no
+    provider attached, then attributed only coordinates to MaxMind.
+  - Web Research answers ran 52 to 77 words against a budget of roughly 380,
+    which is the length item below, now measured.
 - [ ] **Make the evaluation sets precise enough to settle a prompt change.**
   Partly done: Local Knowledge, Community Research, and Threat Intel now have
   versioned case files, and one runner drives all four answering specialists

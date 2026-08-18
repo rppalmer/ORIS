@@ -220,6 +220,14 @@ than a follow-up.
   See [web-evidence-mcp-plan.md](web-evidence-mcp-plan.md) for the tool
   contracts, safety boundaries, and build phases. Keep `playwright-stealth`
   optional and disabled by default.
+- [ ] Take the ORIS side of Net-Razor's Whisper transcription when that tool
+  exists. Videos without captions are lost today. Net-Razor would own the whole
+  audio pipeline; ORIS calls one blocking tool per video on the scheduled path
+  only, then collects the transcript exactly as it does now. Blocked on a
+  Net-Razor measurement of how many videos are actually being lost, and on two
+  contract answers listed in the plan. Do not land the refactors early — most of
+  them would be configuration nothing reads. See
+  [youtube-transcription-plan.md](youtube-transcription-plan.md).
 - [ ] Add a free company lookup, so the organisation behind an ASN or a domain
   can be turned into basic company facts — what it is, where it is registered,
   roughly how big, who owns it. Crunchbase is the shape; the free part is the

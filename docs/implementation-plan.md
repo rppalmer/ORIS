@@ -194,6 +194,12 @@ than a follow-up.
   stopped, and restarted from there. The service and its `orisctl phoenix`
   command exist as of 2026-08-16, so this is now a thin surface over code that
   is already tested; scheduler health must still not depend on Phoenix health.
+- [ ] Make chat text copyable and pasteable. Selecting an answer to copy it,
+  and pasting a URL or an indicator into the input line, are the two things a
+  chat window is expected to do. Check what each front end already gives for
+  free — a plain terminal session hands selection to the terminal emulator,
+  while the `textual` interface captures the mouse and takes that away — so the
+  work is probably only on the tabbed interface.
 - [ ] Decide whether a long turn needs a cancel key. Per-step status now names
   the running graph node, which was the larger half of the complaint; whether
   the remaining wait is worth interrupting is a question for real use.
@@ -214,6 +220,18 @@ than a follow-up.
   See [web-evidence-mcp-plan.md](web-evidence-mcp-plan.md) for the tool
   contracts, safety boundaries, and build phases. Keep `playwright-stealth`
   optional and disabled by default.
+- [ ] Add a free company lookup, so the organisation behind an ASN or a domain
+  can be turned into basic company facts — what it is, where it is registered,
+  roughly how big, who owns it. Crunchbase is the shape; the free part is the
+  hard part, so the first step is choosing a provider (OpenCorporates,
+  Wikidata, a national register) and finding out what it gives without paying.
+  This is a new evidence capability and belongs in an MCP server, not in ORIS.
+- [ ] Report the AS name and owning organisation whenever MaxMind data is used.
+  ThreatSyft's `maxmind_ip_lookup` already returns `asn` and `organization`
+  alongside the geolocation, so the data is there; what is missing is that it
+  reliably reaches the answer. Confirm whether the loss is in the Threat Intel
+  prompt or in what gets kept, then fix it there. This pairs with the company
+  lookup above: the AS organisation is the name that lookup would be given.
 - [ ] When a real second backend exists, introduce the smallest ORIS-owned
   adapter needed to preserve the existing specialist contract. Do not add
   provider-selection configuration before two implementations exist.
@@ -328,9 +346,9 @@ and everything has been exercised against live services.
 
 Take "Answer quality" next. It is the only work on this roadmap that changes
 what an investigation actually tells you; everything else changes what ORIS can
-reach or how comfortable it is to drive. Within it, the current date goes in
-first because it needs no measurement, and the evaluation cases go in second
-because nothing after them can be judged without a before-and-after.
+reach or how comfortable it is to drive. The current date is done. The
+evaluation cases are next, because nothing after them can be judged without a
+before-and-after, and the four case files have not been run even once yet.
 
 Provider adapters remain contingent on a real second implementation, and
 dynamic MCP exploration remains unapproved.

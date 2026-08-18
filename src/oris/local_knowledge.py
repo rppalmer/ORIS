@@ -133,13 +133,18 @@ def create_local_knowledge_graph(
     def retrieve_knowledge(
         state: LocalKnowledgeState,
     ) -> dict[str, tuple[KnowledgeDocument, ...]]:
-        result_limit = 1 if state["sort_order"] == "newest" else 5
+        # Both orders retrieve the same number of documents. Recency changes
+        # which one is source 1, and the system prompt is what says to answer a
+        # recurring-report question from the newest of them. Retrieving one
+        # instead applied that rule to every question the planner tagged as
+        # recency-sensitive, and a question with several relevant documents got
+        # whichever single one happened to be most recent.
         return {
             "sources": repository.search(
                 state["search_query"],
                 source_type=state["source_type"],
                 sort_order=state["sort_order"],
-                limit=result_limit,
+                limit=5,
             )
         }
 

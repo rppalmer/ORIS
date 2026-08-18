@@ -105,8 +105,16 @@ def test_local_knowledge_returns_a_fixed_message_without_matches() -> None:
     model.invoke.assert_not_called()
 
 
-def test_local_knowledge_newest_plan_retrieves_one_document() -> None:
-    """A newest plan requests only the single newest matching document."""
+def test_local_knowledge_newest_plan_still_retrieves_several_documents() -> None:
+    """Recency ordering changes which document comes first, not how many arrive.
+
+    This used to request exactly one document, to keep a recurring-report
+    question answered from the newest run rather than blended across several.
+    The system prompt already says that, and enforcing it here instead applied
+    it to every question the planner reads as recency-sensitive: a real archive
+    answered "what has been decided about how ORIS schedules its own jobs" from
+    one unrelated chat, because one was all it was allowed to see.
+    """
     document = make_document()
     repository = Mock(spec=KnowledgeRepository)
     repository.search.return_value = (document,)
@@ -127,7 +135,7 @@ def test_local_knowledge_newest_plan_retrieves_one_document() -> None:
         "weekday AI news",
         source_type="scheduled_run",
         sort_order="newest",
-        limit=1,
+        limit=5,
     )
 
 

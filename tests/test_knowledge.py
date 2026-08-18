@@ -187,3 +187,69 @@ def test_a_recall_answer_is_not_archived_back_into_the_archive(tmp_path) -> None
 
     assert archived is False
     assert repository.count_by_source_ref("session-1") == 0
+
+
+def test_search_matches_a_different_word_form(tmp_path) -> None:
+    """Retrieval matches on word form, not on the exact token that was stored.
+
+    A person asking about "schedules" means the same thing as a report that
+    says "scheduled", and an archive that answers one but not the other is
+    not usable. Without stemming a real archive returned nothing for the word
+    the user typed, then filled the gap with unrelated documents that happened
+    to share a common word.
+    """
+    repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
+    repository.add(
+        make_document("1", "The scheduled research job runs each weekday morning.")
+    )
+
+    for query in ("schedules", "scheduling", "schedule"):
+        documents = repository.search(query)
+        assert [document.document_id for document in documents] == ["1"], query
+
+
+def test_an_archive_built_without_stemming_is_rebuilt(tmp_path) -> None:
+    """An existing archive is re-indexed rather than left on the old tokenizer.
+
+    The table is created with IF NOT EXISTS, so changing the tokenizer alone
+    leaves every archive that already exists on the old one — silently, with
+    the code claiming one behaviour and the data providing another.
+    """
+    database_path = tmp_path / "knowledge.sqlite"
+    repository = KnowledgeRepository(database_path)
+    repository.add(make_document("1", "The scheduled research job ran."))
+
+    _rebuild_without_stemming(database_path)
+
+    documents = KnowledgeRepository(database_path).search("schedules")
+    assert [document.document_id for document in documents] == ["1"]
+
+
+def _rebuild_without_stemming(database_path) -> None:
+    """Recreate the archive the way it was built before stemming was added."""
+    import sqlite3
+    from contextlib import closing
+
+    with closing(sqlite3.connect(database_path)) as connection:
+        rows = connection.execute(
+            "SELECT document_id, source_type, source_ref, created_at, title, content"
+            " FROM knowledge_documents"
+        ).fetchall()
+        connection.execute("DROP TABLE knowledge_documents")
+        connection.execute(
+            """
+            CREATE VIRTUAL TABLE knowledge_documents USING fts5(
+                document_id UNINDEXED,
+                source_type UNINDEXED,
+                source_ref UNINDEXED,
+                created_at UNINDEXED,
+                title,
+                content,
+                tokenize = 'unicode61'
+            )
+            """
+        )
+        connection.executemany(
+            "INSERT INTO knowledge_documents VALUES (?, ?, ?, ?, ?, ?)", rows
+        )
+        connection.commit()

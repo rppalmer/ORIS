@@ -39,6 +39,53 @@ class KnowledgeDocument(BaseModel):
     content: NonEmptyString
 
 
+# `porter` stems before indexing, so "schedules" finds a report that says
+# "scheduled". Without it the archive matched exact word forms only: six
+# documents said "scheduled" and a question about "schedules" reached none of
+# them, then OR-matching filled the answer with unrelated documents that shared
+# a common word. `unicode61` still does the character folding underneath.
+KNOWLEDGE_TOKENIZER = "porter unicode61"
+
+CREATE_KNOWLEDGE_DOCUMENTS = f"""
+    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_documents USING fts5(
+        document_id UNINDEXED,
+        source_type UNINDEXED,
+        source_ref UNINDEXED,
+        created_at UNINDEXED,
+        title,
+        content,
+        tokenize = '{KNOWLEDGE_TOKENIZER}'
+    )
+"""
+
+
+def _restem_existing_archive(connection: sqlite3.Connection) -> None:
+    """Re-index an archive created before stemming was added.
+
+    The table is created with IF NOT EXISTS, so changing the tokenizer alone
+    would leave every archive that already exists on the old one — the code
+    claiming one behaviour while the data quietly provided another. FTS5 keeps
+    the document text in the table itself, so re-indexing is a read, a drop and
+    a re-insert inside one transaction. An archive is a few hundred documents.
+    """
+    definition = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'knowledge_documents'"
+    ).fetchone()
+    if definition is None or KNOWLEDGE_TOKENIZER in definition[0]:
+        return
+
+    rows = connection.execute(
+        "SELECT document_id, source_type, source_ref, created_at, title, content"
+        " FROM knowledge_documents"
+    ).fetchall()
+    connection.execute("DROP TABLE knowledge_documents")
+    connection.execute(CREATE_KNOWLEDGE_DOCUMENTS)
+    connection.executemany(
+        "INSERT INTO knowledge_documents VALUES (?, ?, ?, ?, ?, ?)", rows
+    )
+    connection.commit()
+
+
 class KnowledgeRepository:
     """Persist and search knowledge documents with SQLite full-text search."""
 
@@ -58,19 +105,8 @@ class KnowledgeRepository:
         if not self._schema_ready:
             self.database_path.parent.mkdir(parents=True, exist_ok=True)
             with closing(sqlite3.connect(self.database_path)) as connection:
-                connection.execute(
-                    """
-                    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_documents USING fts5(
-                        document_id UNINDEXED,
-                        source_type UNINDEXED,
-                        source_ref UNINDEXED,
-                        created_at UNINDEXED,
-                        title,
-                        content,
-                        tokenize = 'unicode61'
-                    )
-                    """
-                )
+                connection.execute(CREATE_KNOWLEDGE_DOCUMENTS)
+                _restem_existing_archive(connection)
             self._schema_ready = True
         return sqlite3.connect(self.database_path)
 

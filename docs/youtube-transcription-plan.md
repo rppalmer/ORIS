@@ -3,6 +3,7 @@
 - Status: Planned, not started. Blocked on a Net-Razor measurement.
 - Written: 2026-08-18
 - Contract it changes: [youtube-catch-up-contract.md](youtube-catch-up-contract.md)
+- Handoff for the Net-Razor side: [net-razor-transcription-handoff.md](net-razor-transcription-handoff.md)
 
 ## What is changing
 
@@ -55,42 +56,63 @@ These are project-wide and apply to every task below.
   is.
 - No new runtime dependency. Verified: nothing below needs one.
 
-## Two gaps in Net-Razor's side
+## What ORIS needs from Net-Razor
 
-Report these rather than working around them. The first one blocks the design.
+One of these is a confirmation rather than new work. The other two are real.
 
-### 1. How does ORIS know a video has no captions?
+### 1. A stable contract for "this video has no captions"
 
-Today's discovery response gives ORIS six fields per video — channel ID, channel
-title, video ID, URL, title, published time. None of them says whether captions
-exist. ORIS finds out only by calling the transcript tool and getting an error
-back.
+Discovery cannot answer this and should not be made to. `yt_new_videos` builds
+its queue from channel feeds and never touches a transcript, so putting an
+availability flag on a discovery entry would mean probing every video before
+returning the queue.
 
-That leaves two shapes, and only one of them is acceptable:
+It is already answered somewhere better. When `yt_transcript` cannot get
+captions it returns an ordinary response whose `errors[0].type` is
+`transcripts_disabled` or `no_transcript_found` — distinct from
+`video_unavailable`, `invalid_video_url`, and `request_failed`. ORIS reads that
+field and branches on it.
 
-- **Discovery flags it.** Each entry carries a stable named field meaning "no
-  captions" — say `transcript_available: false`. ORIS filters on that field and
-  transcribes only those videos. One field, no wasted calls.
-- **ORIS infers it from a failed transcript call.** This costs a wasted call per
-  caption-less video, and worse, it forces ORIS to tell "captions are disabled"
-  apart from "YouTube timed out" and "the video is private" by reading
-  Net-Razor's errors. That is Net-Razor's error classification, which ORIS is
-  explicitly not allowed to duplicate.
+That is consuming Net-Razor's error classification, not duplicating it.
+Duplicating would be ORIS re-deriving the category from exception types or from
+message text. What ORIS needs is only the promise that those two values are a
+published contract rather than an internal detail free to be renamed.
 
-So ORIS needs the discovery field. It must be present whether or not the
-transcription flag is on, because ORIS reads it in both cases — with the flag
-off it is simply the reason a video is skipped.
+So: no change, just confirmation.
 
-### 2. What does the transcription acknowledgement contain?
+### 2. What the transcription tool returns
 
-ORIS needs two things from it, and needs them as data rather than prose:
+ORIS needs two things from the acknowledgement, both as data rather than prose:
 
 - Whether a transcript now exists. A status or a boolean, not an error string to
   be pattern-matched.
 - When it does not, a short human-readable reason ORIS can copy into a caveat
-  verbatim. Net-Razor already records why; ORIS just repeats it.
+  verbatim. Net-Razor already records why; ORIS only repeats it.
 
-Anything else in that response — duration, model used, timings — ORIS ignores.
+A `ServiceErrorItem` in the existing `errors` list would satisfy both, and would
+match every other tool's shape.
+
+Anything else in the response — duration, model size, timings — ORIS ignores.
+
+### 3. Where the Whisper transcript gets stored
+
+`yt_transcript` already serves a repeat or paged call from `stored_transcript()`,
+which reads the `raw` table by `(source='yt', source_id=video_id)` and accepts
+any payload carrying `segments`. If Whisper output is written in that same shape,
+ORIS's collection step works with no change whatsoever — which is the property
+the whole design depends on.
+
+Worth confirming explicitly, because it is the difference between "steps 3 and 4
+need no changes" being true and being nearly true.
+
+### 4. One request: say which backend produced the transcript
+
+The transcript response already carries `source_backend`, currently always
+`"yt-api"`, and `is_generated`, which distinguishes YouTube's own auto-captions
+from human ones. A Whisper transcript should carry a different `source_backend`
+value.
+
+The reason is in the last section of this plan. It costs one string.
 
 ## What changes in ORIS
 
@@ -152,29 +174,40 @@ beside it as an optional fourth, and the ordering check in
 
 ### Change 3: a new graph node that transcribes, with its own budget
 
-Add one node between `discover_videos` and `summarize_videos`. It reads the
-discovery entries, keeps the ones flagged as caption-less, and calls the
-transcription tool once per video, sequentially, up to the run's budget. Each
-call is wrapped so a failure adds a caveat and moves to the next video.
+Add one node between `discover_videos` and `summarize_videos`. For each
+discovered video, in queue order, it calls `net_razor_yt_transcript` once and
+looks at the result:
+
+- Text came back. Nothing to do. The fetch is now in Net-Razor's store, so the
+  summarising node's own fetch is served locally.
+- The error type is `transcripts_disabled` or `no_transcript_found`, and budget
+  remains. Call the transcription tool for that video, then move on.
+- Anything else, or the budget is spent. Add a caveat and move on.
 
 It writes nothing into the summary path. When it finishes, `summarize_videos`
-runs exactly as it does now and fetches transcripts for every video in the
-queue. A video that transcribed successfully now has one. A video that failed
-still does not, and produces the existing "Transcript unavailable" caveat with
-no new code. That is the reason this belongs in its own node rather than inside
-the summarising loop — it needs no new failure handling at all.
+runs exactly as it does now. A video that transcribed successfully has a
+transcript. One that failed still does not, and produces the existing
+"Transcript unavailable" caveat with no new code. That is why this belongs in
+its own node rather than inside the summarising loop: it needs no new failure
+handling at all.
 
-The other reason is the timeout. `SUMMARY_TIMEOUT_SECONDS` is 900 seconds on
-`summarize_videos`, and it exists because a hung scheduled run holds its
-`max_instances=1` slot and silently kills every later firing. Three
-transcriptions at ten minutes each would blow straight through it. Putting
-transcription in a separate node lets that node carry its own generous timeout
-while the summarising node keeps the 900 seconds it was measured for.
+The cost is one extra MCP round-trip per video. It is smaller than it looks.
+For a video with captions, this node performs the fetch that used to happen in
+the summarising node, and the later one is served from local storage — so the
+number of calls that leave the machine is unchanged. For a caption-less video,
+this is the call that discovers the problem, which is work either way.
+
+The other reason for a separate node is the timeout. `SUMMARY_TIMEOUT_SECONDS`
+is 900 seconds on `summarize_videos`, and it exists because a hung scheduled run
+holds its `max_instances=1` slot and silently kills every later firing. Three
+transcriptions at ten minutes each would go straight through it. A separate node
+carries its own generous bound while the summarising node keeps the 900 seconds
+it was measured for.
 
 **This was not in the brief and is worth calling out:** the node timeout is a
 real ORIS-side change, not just the MCP one. Its value should be derived from
-the budget — the number of videos times a per-video ceiling — rather than picked
-as a round number, so raising the budget cannot silently outrun it.
+the budget — videos times a per-video ceiling — rather than picked as a round
+number, so raising the budget cannot silently outrun it.
 
 ### Change 4: the per-run transcription budget
 
@@ -213,19 +246,22 @@ should be written down rather than discovered.
 ## One recommendation the brief argues against
 
 The brief says nothing marks a transcript as machine-made, and that steps 3 and
-4 need no changes. That is right for how the transcript is *collected* — it is
-an ordinary row in an ordinary table by then.
+4 need no changes. That is right for how the transcript is *collected* — by then
+it is an ordinary row in an ordinary store.
 
-But ORIS knows which videos it transcribed, because it made the calls. And a
-Whisper transcript of a technical talk gets names, acronyms, and product
+But a Whisper transcript of a technical talk gets names, acronyms, and product
 versions wrong in exactly the places an investigation cares about. The digest
-then states those as fact, cited to the video.
+then states those as fact, cited to the video, with nothing distinguishing them
+from a transcript the speaker's own captions produced.
 
-Carrying one boolean on each summarised video, and a caveat naming the machine-
-transcribed ones, costs almost nothing and keeps the report honest about how
-good its evidence is. It does not change how transcripts are fetched or
-summarised. Recommended, but it is a call to make deliberately rather than
-something to slip in.
+The mechanism already exists. Every transcript response carries `source_backend`,
+today always `"yt-api"`. A Whisper transcript carrying a different value means
+ORIS can set one boolean on the summarised video and add a caveat naming the
+machine-transcribed ones. No new field, no change to how anything is fetched or
+summarised.
+
+Recommended. It is a call to make deliberately rather than something to slip in,
+and it is the one item here that needs both projects to agree.
 
 ## Sequencing
 

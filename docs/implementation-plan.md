@@ -227,7 +227,8 @@ than a follow-up.
   Net-Razor measurement of how many videos are actually being lost, and on two
   contract answers listed in the plan. Do not land the refactors early — most of
   them would be configuration nothing reads. See
-  [youtube-transcription-plan.md](youtube-transcription-plan.md).
+  [youtube-transcription-plan.md](youtube-transcription-plan.md) and the
+  handoff at [net-razor-transcription-handoff.md](net-razor-transcription-handoff.md).
 - [ ] Add a free company lookup, so the organisation behind an ASN or a domain
   can be turned into basic company facts — what it is, where it is registered,
   roughly how big, who owns it. Crunchbase is the shape; the free part is the

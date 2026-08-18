@@ -174,11 +174,16 @@ than a follow-up.
     going to Algolia as the search term. In production the router condenses the
     request to a short topic first; the runner feeds `question` straight into
     `topic`. The four `question` values need to be topics. Net-Razor is fine.
-  - **Three of five Local Knowledge cases are inert.** `citation-collision` and
-    `cross-report-comparison` both need several archive documents and the
-    archive returned one, so they cannot fail. `retained-decision` retrieved a
-    document about threat actors and dynamic DNS in answer to a question about
-    ORIS scheduling.
+  - **Local Knowledge retrieval is returning the wrong documents, and two cases
+    caught it.** The archive holds 29 documents — 23 chat, 6 scheduled
+    `weekday-ai-news` reports. `cross-report-comparison` asks what topics recur
+    across everything archived; retrieval returned one document and the answer
+    said "there is only one document". `retained-decision` asks what was decided
+    about ORIS scheduling; six documents contain "schedul" and retrieval
+    returned one about threat actors using dynamic DNS. These are the most
+    valuable cases in the run and the fix is in the Local Knowledge planner or
+    its search, not in the case file. Only `citation-collision` is genuinely
+    inert: no archived document contains "langgraph" or "checkpoint" at all.
   - **`absent-subject` proved the "say so" item below.** Its goal forbids a bare
     one-line dead end and asks what would put the subject in the archive. The
     answer was "I couldn't find relevant information in the local archive."

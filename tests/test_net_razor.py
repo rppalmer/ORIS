@@ -1,6 +1,7 @@
 """Tests for the constrained official Net-Razor MCP connection."""
 
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -8,7 +9,9 @@ import pytest
 
 from oris.net_razor import (
     NET_RAZOR_SERVER_NAME,
+    NET_RAZOR_TRANSCRIPTION_CEILING,
     READ_TIMEOUT,
+    WHISPER_READ_TIMEOUT,
     create_net_razor_client,
     load_community_research_tools,
     load_youtube_catch_up_tools,
@@ -97,3 +100,39 @@ def test_load_youtube_catch_up_tools_keeps_only_ordered_allowlist(
 
     assert tools == (discovery_tool, transcript_tool, acknowledgement_tool)
     client.get_tools.assert_awaited_once_with(server_name=NET_RAZOR_SERVER_NAME)
+
+
+def test_create_net_razor_client_accepts_a_longer_read_timeout(tmp_path: Path) -> None:
+    """One tool can be given its own deadline without moving everyone else's.
+
+    Podcast transcription runs for minutes while every other Net-Razor call is
+    expected back in seconds. The MCP session timeout is set when the client is
+    built and the official adapter never passes a per-call override, so a
+    separate deadline means a separate client.
+    """
+    python_executable = tmp_path / "net-razor" / ".venv" / "bin" / "python"
+    python_executable.parent.mkdir(parents=True)
+    python_executable.write_text("test executable", encoding="utf-8")
+
+    client = create_net_razor_client(
+        python_executable,
+        read_timeout=WHISPER_READ_TIMEOUT,
+    )
+
+    session_kwargs = client.connections[NET_RAZOR_SERVER_NAME]["session_kwargs"]
+    assert session_kwargs == {"read_timeout_seconds": WHISPER_READ_TIMEOUT}
+    assert create_net_razor_client(python_executable).connections[
+        NET_RAZOR_SERVER_NAME
+    ]["session_kwargs"] == {"read_timeout_seconds": READ_TIMEOUT}
+
+
+def test_the_whisper_deadline_clears_net_razors_own_ceiling() -> None:
+    """ORIS waits longer than Net-Razor can legitimately take, so it never wins.
+
+    Net-Razor bounds a transcription in three stages — a 30s feed fetch, a 300s
+    audio download and a 900s transcriber subprocess — and gives up at 1230s
+    with a classified error naming what failed. If ORIS's transport deadline
+    fired first it would replace that error with a dead session, discarding the
+    one description of the failure anybody has.
+    """
+    assert WHISPER_READ_TIMEOUT > timedelta(seconds=NET_RAZOR_TRANSCRIPTION_CEILING)

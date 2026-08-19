@@ -3,7 +3,8 @@
 - Status: Planned, not started. Awaiting approval to build.
 - Written: 2026-08-18
 - Net-Razor: podcast source merged on `main` (`55ee11e`)
-- Sibling contract: [youtube-catch-up-contract.md](youtube-catch-up-contract.md)
+- Own contract, to be written. Deliberately not an addition to
+  [youtube-catch-up-contract.md](youtube-catch-up-contract.md).
 
 ## Why this exists
 
@@ -12,7 +13,14 @@ URLs, and a streaming model that exposes no file. Podcast RSS has none of that:
 a plain GET of a URL the publisher advertises. Spoken content now arrives
 through podcasts, and eight feeds are configured.
 
-YouTube Catch-up stays exactly as it is. Nothing in this plan touches it.
+**This is a candidate replacement for YouTube Catch-up, not a sibling.** Google
+keeps making collection harder, the best plan anyone came up with was
+inconsistent at its best and would need constant maintenance at its worst.
+Podcasts with Whisper are the bet on a better path to the same data.
+
+So YouTube Catch-up stays running for now, but nothing here is designed with it
+in mind, and it may be deleted outright once podcasts prove out. That single
+fact drives more of this design than any other — see "Built for a clean break".
 
 This also kills the parked YouTube Whisper work outright rather than leaving it
 waiting for a re-count. See the last section.
@@ -238,43 +246,85 @@ causes that firing to be skipped in silence. Measured cost is about five minutes
 a night, so this is comfortable — but the budget and the cron interval are now
 related numbers, and nothing in the code says so.
 
-## How a user reaches each catch-up
+## How a user reaches podcast catch-up
 
-Decided 2026-08-19: **slash commands for both, keeping the routing lines.**
+**`/podcasts` only. No `/videos`.**
 
-YouTube Catch-up is router-only today, selected by one line about configured
-channels. A second catch-up destination makes a bare "catch me up" genuinely
-ambiguous, and the router picks exactly one destination.
+This reverses half of the 2026-08-19 decision, which was made before podcasts
+were understood as a replacement rather than a sibling.
 
-So both get a command, following the `/research`, `/community`, `/recall`
-precedent: a deterministic override for the case where the router cannot
-reasonably guess.
+The original reasoning was sound on its own terms: two catch-up destinations
+make a bare "catch me up" ambiguous, so both should get a deterministic
+override. But `/videos` would be a new command for a specialist that may be
+deleted — work thrown away, and a change to YouTube's reachability motivated
+entirely by podcasts, which is exactly the coupling this plan is trying to
+avoid.
 
-- `/podcasts` — catch up on the configured feeds.
-- `/videos` — catch up on the configured YouTube channels.
+So:
 
-Both routing lines stay, so "catch up on my podcasts" still works without the
-command. This is the one part of the plan that touches YouTube Catch-up, and it
-touches only how it is reached: `/videos` is a new entry in the shared command
-table, not a change to the specialist, its graph, or its contract.
+- `/podcasts` is added. It is the deterministic override, and it is the one that
+  survives whatever happens to YouTube.
+- YouTube keeps its existing router-only access, unchanged.
+- Both routing lines exist, so "catch up on my podcasts" and "catch up on my
+  videos" each work in words.
+- A bare "catch me up" stays a coin flip while both exist. That is a temporary
+  cost of a temporary overlap, and it disappears on its own — either YouTube is
+  deleted and podcasts are the only answer, or it stays and the ambiguity is
+  worth one more command then.
 
-Neither command takes an argument. Both specialists take their scope from
-Net-Razor's configured feeds and channels, not from the request.
+`/podcasts` takes no argument. The specialist takes its scope from Net-Razor's
+configured feeds, not from the request.
 
-## Deliberate duplication, stated so it is a choice
+With this, the podcast work touches YouTube Catch-up nowhere at all.
+
+## Built for a clean break
 
 Podcast Catch-up will duplicate most of YouTube Catch-up: the paging loop, the
 per-page summarising, the digest and citation validation, the acknowledgement
 wrapper, the scheduled job runner, and the report formatter. The differences are
 field names, one extra tool, one extra output field, and the timeout.
 
-Extracting a shared spoken-content specialist now would mean changing YouTube
-Catch-up, which the brief rules out, and would mean designing the abstraction
-against exactly one working example and one unwritten one.
+**Do not factor any of it out.** YouTube may be deleted, and sharing code with
+something scheduled for deletion turns that deletion into an untangling. The
+duplication is the cheaper side of the trade, and it is permanent rather than a
+merge deferred to later.
 
-So: build it standalone. Revisit the extraction once both have run in
-production for a while and the real differences are known rather than guessed.
-Recording it here so it reads as a decision rather than an oversight.
+Net-Razor reached the same conclusion independently. Its
+`stored_podcast_transcript` carries the note: *"Deliberately separate from
+`stored_transcript`, which is YouTube's. The two barely differ, but YouTube may
+be removed once podcasts prove out, and sharing would turn that removal into an
+untangling rather than a deletion."* Both sides of the boundary are now built on
+the same assumption.
+
+### The acceptance test
+
+Deleting these, and nothing else, must leave every podcast test passing:
+
+- `src/oris/youtube_catch_up.py` and `tests/test_youtube_catch_up.py`
+- the two YouTube prompt files
+- `YOUTUBE_CATCH_UP_TOOL_NAMES` and `load_youtube_catch_up_tools`
+- the YouTube builders in `web_research_app.py`
+- `YouTubeCatchUpScheduledJob`, its dispatch branch, and its report formatter
+- the `youtube_catch_up` router destination, its routing line, and its rows in
+  the command and label tables
+
+If that deletion needs one edit inside a podcast file, the separation failed.
+
+### The import boundary
+
+`podcast_catch_up.py` imports **nothing** from `youtube_catch_up.py`. Not the
+`_structured_content` helper, not a state type, not a constant. Copy what is
+needed.
+
+It also gets its **own prompt files** — `podcast_episode_summary_system.txt` and
+`podcast_catch_up_system.txt`. Pointing at the YouTube prompts would be the
+quietest possible entanglement and the easiest to miss.
+
+Shared infrastructure is fine and is not what this rule is about: the MCP
+connection module, the prompt loader, the knowledge repository, configuration,
+and the chat and scheduler wiring are common ground that both plug into. What
+must not be shared is anything describing how spoken content is fetched,
+paged, summarised, or reported.
 
 ## Sequencing
 

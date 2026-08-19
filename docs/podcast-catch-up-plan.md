@@ -34,29 +34,36 @@ Read from the merged source, not assumed:
 - Both transcript tools return `call_id` at the top level, which is the receipt
   `podcast_mark_processed` takes.
 
-## One gap: the timeout numbers collide
+## One gap: ORIS's read timeout has to clear two of Net-Razor's, not one
 
-The brief says raise ORIS's read timeout to about 15 minutes. Net-Razor's own
-`podcast_whisper_timeout_seconds` defaults to **900 seconds — exactly 15
-minutes**.
+The brief says raise ORIS's read timeout to about 15 minutes. That is below the
+worst case Net-Razor can legitimately take, because one Whisper call has **two**
+independent timeouts and they run in sequence:
 
-Setting ORIS to the same value makes the outcome a race. If ORIS's transport
-timeout fires first, the run gets a dead MCP session instead of a
-`transcription_timeout` error with `retriable: true` and a message worth putting
-in a caveat. Net-Razor did the work of classifying that failure and ORIS would
-throw it away by a few milliseconds of luck.
+- `podcast_audio_timeout_seconds` — **300s**, the audio download.
+- `podcast_whisper_timeout_seconds` — **900s**, wrapping only the transcriber
+  subprocess. The download is not inside it.
 
-ORIS's read timeout must sit meaningfully **above** Net-Razor's cap so it never
-fires. **1080 seconds (18 minutes)** against Net-Razor's 900 gives three minutes
-of margin for process start, audio download, and MCP framing.
+So one call can legitimately run for **1200 seconds — twenty minutes** — plus
+subprocess start and MCP framing, before Net-Razor itself gives up.
 
-This is the same lesson Net-Razor gave during the YouTube Whisper review: their
-cap is the real limit, and ORIS's timeout is a backstop that should never be
-reached.
+At a 15-minute read timeout ORIS would abandon calls Net-Razor is still working
+on correctly. Worse than slow: the run gets a dead MCP session instead of a
+classified `transcription_timeout` or download error carrying `retriable` and a
+message worth putting in a caveat. Net-Razor did the work of classifying that
+failure and ORIS would throw it away.
 
-**What to confirm:** that 900 is the value actually running here, since it is a
-configurable default. If it is raised, ORIS's 1080 has to move with it. This is
-the one number in the design that two projects have to agree on.
+**ORIS should use 1380 seconds (23 minutes)**, clearing 1200 with three minutes
+of margin. The principle is the one Net-Razor gave during the YouTube Whisper
+review: their caps are the real limits, and ORIS's timeout is a backstop that
+should never fire.
+
+An earlier draft of this plan said 1080 seconds. That was wrong — it cleared the
+transcription cap but not the download sitting in front of it.
+
+**What to confirm:** that 300 and 900 are the values actually running here. Both
+are configurable, and if either moves, ORIS's 1380 moves with it. This is the
+one number two projects have to keep in step.
 
 ## The flow
 

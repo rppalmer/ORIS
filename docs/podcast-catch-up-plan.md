@@ -238,28 +238,28 @@ causes that firing to be skipped in silence. Measured cost is about five minutes
 a night, so this is comfortable — but the budget and the cron interval are now
 related numbers, and nothing in the code says so.
 
-## The question I cannot answer alone
+## How a user reaches each catch-up
 
-**How does the router tell "catch up on podcasts" from "catch up on videos"?**
+Decided 2026-08-19: **slash commands for both, keeping the routing lines.**
 
-YouTube Catch-up has no slash command. It is router-only, selected by a single
-line in the routing prompt about catching up on configured channels. Adding a
-second catch-up destination makes a bare "catch me up" genuinely ambiguous, and
-the router picks exactly one destination.
+YouTube Catch-up is router-only today, selected by one line about configured
+channels. A second catch-up destination makes a bare "catch me up" genuinely
+ambiguous, and the router picks exactly one destination.
 
-Three options:
+So both get a command, following the `/research`, `/community`, `/recall`
+precedent: a deterministic override for the case where the router cannot
+reasonably guess.
 
-1. **Routing lines only.** Add a podcast line and rely on the user saying
-   "podcasts" or "videos". Cheapest. Leaves the bare phrasing a coin flip.
-2. **Explicit slash commands** for both, keeping the routing lines. Follows the
-   `/research`, `/community`, `/recall` precedent, and gives a deterministic
-   override where the router is genuinely uncertain. My recommendation.
-3. **One catch-up destination covering both.** Rejected — it doubles the work
-   and the cost of every casual request, and the scheduled paths need to stay
-   separately budgeted anyway.
+- `/podcasts` — catch up on the configured feeds.
+- `/videos` — catch up on the configured YouTube channels.
 
-I would take option 2, but adding a slash command changes the advertised command
-set, which is a user-facing decision rather than an implementation detail.
+Both routing lines stay, so "catch up on my podcasts" still works without the
+command. This is the one part of the plan that touches YouTube Catch-up, and it
+touches only how it is reached: `/videos` is a new entry in the shared command
+table, not a change to the specialist, its graph, or its contract.
+
+Neither command takes an argument. Both specialists take their scope from
+Net-Razor's configured feeds and channels, not from the request.
 
 ## Deliberate duplication, stated so it is a choice
 

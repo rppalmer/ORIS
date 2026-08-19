@@ -1,5 +1,7 @@
 """LangGraph development entry point for the Web Research specialist."""
 
+from pathlib import Path
+
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -13,7 +15,13 @@ from oris.local_knowledge import create_local_knowledge_graph
 from oris.model import create_chat_model
 from oris.net_razor import (
     load_community_research_tools,
+    load_podcast_catch_up_tools,
+    load_podcast_transcription_tool,
     load_youtube_catch_up_tools,
+)
+from oris.podcast_catch_up import (
+    create_acknowledging_podcast_catch_up_graph,
+    create_podcast_catch_up_preparation_graph,
 )
 from oris.tavily import TavilyWebSearch, create_tavily_search
 from oris.threat_intel import create_threat_intel_graph
@@ -90,6 +98,56 @@ async def build_youtube_catch_up_graph() -> CompiledStateGraph:
     )
 
 
+def _net_razor_executable() -> Path:
+    """The configured Net-Razor interpreter, or a clear reason it is unusable."""
+    python_executable = settings.net_razor_python_executable
+    if python_executable is None:
+        raise ValueError("NET_RAZOR_PYTHON_EXECUTABLE is required for Net-Razor")
+    return python_executable
+
+
+async def build_podcast_catch_up_preparation() -> tuple[CompiledStateGraph, BaseTool]:
+    """Build the scheduled podcast graph, which alone holds transcription.
+
+    Transcription arrives from a second MCP client carrying a much longer
+    deadline. It is loaded here and nowhere else: the interactive builder below
+    never asks for it, so no chat turn can start work that blocks for minutes.
+    """
+    python_executable = _net_razor_executable()
+    (
+        discovery_tool,
+        transcript_tool,
+        acknowledgement_tool,
+    ) = await load_podcast_catch_up_tools(python_executable)
+    transcription_tool = await load_podcast_transcription_tool(python_executable)
+    preparation_graph = create_podcast_catch_up_preparation_graph(
+        discovery_tool,
+        transcript_tool,
+        model,
+        transcription_tool=transcription_tool,
+    )
+    return preparation_graph, acknowledgement_tool
+
+
+async def build_podcast_catch_up_graph() -> CompiledStateGraph:
+    """Compile Podcast Catch-up for chat, without transcription."""
+    python_executable = _net_razor_executable()
+    (
+        discovery_tool,
+        transcript_tool,
+        acknowledgement_tool,
+    ) = await load_podcast_catch_up_tools(python_executable)
+    preparation_graph = create_podcast_catch_up_preparation_graph(
+        discovery_tool,
+        transcript_tool,
+        model,
+    )
+    return create_acknowledging_podcast_catch_up_graph(
+        preparation_graph,
+        acknowledgement_tool,
+    )
+
+
 async def build_threat_intel_graph() -> CompiledStateGraph:
     """Load the approved ThreatSyft tools and compile Threat Intel."""
     python_executable = settings.threatsyft_python_executable
@@ -120,6 +178,7 @@ async def build_oris_graph(
         checkpointer=checkpointer,
         max_history_tokens=settings.local_llm_max_history_tokens,
         threat_intel_graph=LazyMCPSpecialist(build_threat_intel_graph),
+        podcast_catch_up_graph=LazyMCPSpecialist(build_podcast_catch_up_graph),
     )
 
 

@@ -183,3 +183,26 @@ search_category = "news"
 
     with pytest.raises(ValidationError, match="web_research"):
         load_schedule_config(schedule_file)
+
+
+def test_a_podcast_job_states_its_own_run_budget(tmp_path) -> None:
+    """A podcast job's cost is visible in the file rather than in the code."""
+    schedule_file = tmp_path / "schedules.toml"
+    schedule_file.write_text(
+        'timezone = "America/Detroit"\n\n'
+        "[[jobs]]\n"
+        'id = "nightly-podcasts"\n'
+        "enabled = true\n"
+        'cron = "0 6 * * *"\n'
+        'task = "podcast_catch_up"\n'
+        "days = 1\n"
+        "max_episodes = 5\n",
+        encoding="utf-8",
+    )
+
+    config = load_schedule_config(schedule_file)
+
+    job = config.jobs[0]
+    assert job.task == "podcast_catch_up"
+    assert job.days == 1
+    assert job.max_episodes == 5

@@ -35,6 +35,11 @@ SLASH_COMMANDS = {
         "<question>",
         "Search your archive of past chats and reports.",
     ),
+    "/podcasts": (
+        "podcast_catch_up",
+        "",
+        "Catch up on new episodes from your configured feeds.",
+    ),
     "/threat": (
         "threat_intel",
         "[report] [enrich|ref] <target>",
@@ -61,6 +66,7 @@ EXIT_COMMANDS = ("/exit", "/quit")
 
 WORKING_LABELS = {
     "web_research": "Web Research",
+    "podcast_catch_up": "Podcast Catch-up",
     "community_research": "Community Research",
     "local_knowledge": "Local Knowledge",
     "threat_intel": "Threat Intel",
@@ -72,6 +78,9 @@ DEFAULT_WORKING_LABEL = "Thinking"
 # node with no entry still gets a sensible label, which means adding one to a
 # specialist costs nothing and never shows a blank step.
 PHASE_LABELS = {
+    "discover_episodes": "checking your feeds",
+    "obtain_transcripts": "fetching and transcribing",
+    "summarize_episodes": "summarising each episode",
     "plan_investigation": "choosing what to look up",
     "extract_indicators": "reading the request",
     "collect_evidence": "querying providers",

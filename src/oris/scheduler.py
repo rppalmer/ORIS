@@ -70,6 +70,7 @@ def main() -> None:
     timezone = ZoneInfo(config.timezone)
 
     from oris.web_research_app import (
+        build_podcast_catch_up_preparation,
         build_youtube_catch_up_preparation,
         knowledge_repository,
         web_research_graph,
@@ -82,6 +83,7 @@ def main() -> None:
             knowledge_repository,
             current_date=datetime.now(timezone).date(),
             build_youtube_catch_up=build_youtube_catch_up_preparation,
+            build_podcast_catch_up=build_podcast_catch_up_preparation,
         )
         logger.info("Scheduled run succeeded: %s", record.report_path)
 

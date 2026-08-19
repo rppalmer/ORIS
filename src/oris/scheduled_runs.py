@@ -14,9 +14,14 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from oris.knowledge import KnowledgeDocument, KnowledgeRepository
+from oris.podcast_catch_up import (
+    PreparedPodcastCatchUpOutput,
+    acknowledge_podcast_catch_up,
+)
 from oris.schedules import (
     ConfiguredScheduledJob,
     JobId,
+    PodcastCatchUpScheduledJob,
     WebResearchScheduledJob,
     YouTubeCatchUpScheduledJob,
     load_schedule_config,
@@ -60,7 +65,16 @@ class YouTubeCatchUpScheduledRunRecord(ScheduledRunRecordBase):
     max_videos: int
 
 
+class PodcastCatchUpScheduledRunRecord(ScheduledRunRecordBase):
+    """Durable history for one scheduled Podcast Catch-up attempt."""
+
+    task: Literal["podcast_catch_up"]
+    days: int
+    max_episodes: int
+
+
 YouTubeCatchUpBuilder = Callable[[], Awaitable[tuple[CompiledStateGraph, BaseTool]]]
+PodcastCatchUpBuilder = Callable[[], Awaitable[tuple[CompiledStateGraph, BaseTool]]]
 
 
 def _write_text_atomically(path: Path, content: str) -> None:
@@ -335,6 +349,7 @@ def run_scheduled_job(
     current_date: date,
     artifact_root: Path = Path("artifacts/scheduled"),
     build_youtube_catch_up: YouTubeCatchUpBuilder | None = None,
+    build_podcast_catch_up: PodcastCatchUpBuilder | None = None,
 ) -> ScheduledRunRecordBase:
     """Run one configured job through its fixed specialist path."""
     if isinstance(job, WebResearchScheduledJob):
@@ -344,6 +359,17 @@ def run_scheduled_job(
             knowledge_repository,
             current_date=current_date,
             artifact_root=artifact_root,
+        )
+    if isinstance(job, PodcastCatchUpScheduledJob):
+        if build_podcast_catch_up is None:
+            raise ValueError("Podcast Catch-up dependencies are not configured")
+        return asyncio.run(
+            run_scheduled_podcast_catch_up_job(
+                job,
+                build_podcast_catch_up,
+                knowledge_repository,
+                artifact_root=artifact_root,
+            )
         )
     if build_youtube_catch_up is None:
         raise ValueError("YouTube Catch-up dependencies are not configured")
@@ -377,6 +403,7 @@ def main() -> None:
         parser.error(f"Scheduled job is disabled: {args.job_id}")
 
     from oris.web_research_app import (
+        build_podcast_catch_up_preparation,
         build_youtube_catch_up_preparation,
         knowledge_repository,
         web_research_graph,
@@ -389,5 +416,141 @@ def main() -> None:
         knowledge_repository,
         current_date=current_date,
         build_youtube_catch_up=build_youtube_catch_up_preparation,
+        build_podcast_catch_up=build_podcast_catch_up_preparation,
     )
     print(f"Scheduled run succeeded: {record.report_path}")
+
+
+def _format_podcast_catch_up_report(
+    job: PodcastCatchUpScheduledJob,
+    run_id: UUID,
+    result: PreparedPodcastCatchUpOutput,
+) -> str:
+    """Format one validated Podcast Catch-up result as Markdown.
+
+    Every episode states where its transcript came from. A machine transcript
+    gets names, acronyms, and version numbers wrong, and a reader who cannot
+    tell which episodes were machine-transcribed will weigh a mangled product
+    name exactly as heavily as one the publisher wrote down.
+    """
+    episode_sections = []
+    for episode in result["episodes"]:
+        transcript_status = (
+            "truncated" if episode["transcript_truncated"] else "complete"
+        )
+        episode_sections.append(
+            f"### [{episode['title']}]({episode['url']})\n\n"
+            f"- Show: {episode['show']}\n"
+            f"- Published: `{episode['published_at']}`\n"
+            f"- Transcript: `{episode['transcript_backend']}`, `{transcript_status}`\n\n"
+            f"{episode['summary']}"
+        )
+    episodes = "\n\n".join(episode_sections) or "No episodes were summarized."
+
+    titles_by_url = {episode["url"]: episode["title"] for episode in result["episodes"]}
+    sources = (
+        "\n".join(
+            f"{number}. [{titles_by_url.get(url, url)}]({url})"
+            for number, url in enumerate(result["cited_urls"], start=1)
+        )
+        or "No sources were cited."
+    )
+    caveats = "\n".join(f"- {caveat}" for caveat in result["caveats"]) or "None."
+
+    return (
+        f"# Scheduled podcast catch-up: {job.id}\n\n"
+        f"- Run ID: `{run_id}`\n"
+        f"- Lookback: `{job.days}` days\n"
+        f"- Maximum episodes: `{job.max_episodes}`\n\n"
+        f"## Digest\n\n{result['answer']}\n\n"
+        f"## Episodes\n\n{episodes}\n\n"
+        f"## Sources\n\n{sources}\n\n"
+        f"## Caveats\n\n{caveats}\n"
+    )
+
+
+async def run_scheduled_podcast_catch_up_job(
+    job: PodcastCatchUpScheduledJob,
+    build_podcast_catch_up: PodcastCatchUpBuilder,
+    knowledge_repository: KnowledgeRepository,
+    *,
+    artifact_root: Path = Path("artifacts/scheduled"),
+) -> PodcastCatchUpScheduledRunRecord:
+    """Run one podcast job, persist its report, then acknowledge its episodes."""
+    if not job.enabled:
+        raise ValueError(f"Scheduled job is disabled: {job.id}")
+
+    run_id = uuid4()
+    started_at = datetime.now(UTC)
+    run_stem = f"{started_at:%Y%m%dT%H%M%SZ}-{run_id}"
+    job_directory = artifact_root / job.id
+    record_path = job_directory / f"{run_stem}.json"
+    report_path = job_directory / f"{run_stem}.md"
+    relative_report_path = Path(job.id) / report_path.name
+
+    record = PodcastCatchUpScheduledRunRecord(
+        job_id=job.id,
+        run_id=run_id,
+        task=job.task,
+        days=job.days,
+        max_episodes=job.max_episodes,
+        started_at=started_at,
+        status="running",
+    )
+    _write_run_record(record_path, record)
+
+    retained_record = record
+    phase = "building Podcast Catch-up"
+    try:
+        preparation_graph, acknowledgement_tool = await build_podcast_catch_up()
+        phase = "preparing Podcast Catch-up"
+        result = await preparation_graph.ainvoke(
+            {"days": job.days, "max_episodes": job.max_episodes}
+        )
+
+        phase = "formatting podcast report"
+        report = _format_podcast_catch_up_report(job, run_id, result)
+        phase = "writing podcast report"
+        _write_text_atomically(report_path, report)
+
+        retained_record = record.model_copy(
+            update={"report_path": str(relative_report_path)}
+        )
+        phase = "recording podcast report path"
+        _write_run_record(record_path, retained_record)
+
+        phase = "indexing podcast report"
+        knowledge_repository.add(
+            KnowledgeDocument(
+                document_id=str(run_id),
+                source_type="scheduled_run",
+                source_ref=str(relative_report_path),
+                created_at=datetime.now(UTC),
+                title=f"Scheduled podcast catch-up: {job.id}",
+                content=report,
+            )
+        )
+
+        phase = "acknowledging podcast episodes"
+        await acknowledge_podcast_catch_up(
+            acknowledgement_tool,
+            result["transcript_call_ids"],
+        )
+    except Exception as error:
+        if retained_record.report_path is None:
+            report_path.unlink(missing_ok=True)
+        failed_record = retained_record.model_copy(
+            update={
+                "finished_at": datetime.now(UTC),
+                "status": "failed",
+                "error": f"{phase}: {type(error).__name__}: {error}",
+            }
+        )
+        _write_run_record(record_path, failed_record)
+        raise
+
+    succeeded_record = retained_record.model_copy(
+        update={"finished_at": datetime.now(UTC), "status": "succeeded"}
+    )
+    _write_run_record(record_path, succeeded_record)
+    return succeeded_record

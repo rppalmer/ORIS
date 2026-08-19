@@ -30,6 +30,7 @@ RouterMode = Literal[
     "chat",
     "community_research",
     "local_knowledge",
+    "podcast_catch_up",
     "web_research",
     "youtube_catch_up",
 ]
@@ -48,6 +49,7 @@ NODE_BY_SELECTED_MODE: dict[str, str] = {
     "chat": "direct_chat",
     "community_research": "community_research",
     "local_knowledge": "local_knowledge",
+    "podcast_catch_up": "podcast_catch_up",
     "web_research": "web_research",
     "youtube_catch_up": "youtube_catch_up",
     "threat_intel": "threat_intel",
@@ -61,6 +63,7 @@ FAILED_COMPONENT_NAMES = {
     "web_research": "Web Research",
     "community_research": "Community Research",
     "youtube_catch_up": "YouTube Catch-up",
+    "podcast_catch_up": "Podcast Catch-up",
     "threat_intel": "Threat Intel",
 }
 
@@ -258,6 +261,7 @@ def create_oris_graph(
     checkpointer: BaseCheckpointSaver | None = None,
     max_history_tokens: int = DEFAULT_MAX_HISTORY_TOKENS,
     threat_intel_graph: AsyncSpecialistGraph | None = None,
+    podcast_catch_up_graph: AsyncSpecialistGraph | None = None,
 ) -> CompiledStateGraph:
     """Create a chat graph with explicit specialist request paths."""
     routing_model = model.with_structured_output(
@@ -352,6 +356,31 @@ def create_oris_graph(
             content = f"{content}\n\nCaveats:\n{caveat_list}"
         return {"messages": [AIMessage(content=content)]}
 
+    async def run_podcast_catch_up(
+        _state: ORISState,
+    ) -> dict[str, list[AIMessage]]:
+        """Answer from the configured feeds, without transcription.
+
+        The graph reached from here never holds the transcription tool, so a
+        chat turn cannot start work that blocks for minutes. An episode with no
+        published transcript becomes a caveat here and is picked up by the
+        scheduled job, which does hold it.
+        """
+        if podcast_catch_up_graph is None:
+            raise ValueError("Podcast Catch-up is not configured")
+        result = await podcast_catch_up_graph.ainvoke({})
+        source_links = "\n".join(
+            f"[{number}]({url})"
+            for number, url in enumerate(result["cited_urls"], start=1)
+        )
+        caveat_list = "\n".join(f"- {caveat}" for caveat in result["caveats"])
+        content = result["answer"]
+        if source_links:
+            content = f"{content}\n\nEpisodes:\n{source_links}"
+        if caveat_list:
+            content = f"{content}\n\nCaveats:\n{caveat_list}"
+        return {"messages": [AIMessage(content=content)]}
+
     async def run_threat_intel(
         state: ORISState,
         config: RunnableConfig,
@@ -403,6 +432,7 @@ def create_oris_graph(
         ("web_research", run_web_research),
         ("community_research", run_community_research),
         ("youtube_catch_up", run_youtube_catch_up),
+        ("podcast_catch_up", run_podcast_catch_up),
         ("threat_intel", run_threat_intel),
     ):
         builder.add_node(node_name, action, error_handler=close_failed_request)

@@ -54,8 +54,24 @@ class YouTubeCatchUpScheduledJob(ScheduledJob):
     max_videos: int
 
 
+class PodcastCatchUpScheduledJob(ScheduledJob):
+    """One scheduled Podcast Catch-up job.
+
+    `max_episodes` is an ORIS budget rather than a Net-Razor one: Net-Razor caps
+    per feed and cannot know what a single run can afford. It is stated here so
+    the cost of a run is visible in the schedule file and in its history, and
+    because it and the cron interval are related — a run that transcribes its
+    whole budget can last a long time, and a job still running when its next
+    firing is due has that firing skipped in silence.
+    """
+
+    task: Literal["podcast_catch_up"]
+    days: int
+    max_episodes: int
+
+
 ConfiguredScheduledJob = Annotated[
-    WebResearchScheduledJob | YouTubeCatchUpScheduledJob,
+    WebResearchScheduledJob | YouTubeCatchUpScheduledJob | PodcastCatchUpScheduledJob,
     Field(discriminator="task"),
 ]
 

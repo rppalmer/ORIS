@@ -434,3 +434,44 @@ def test_a_feed_that_could_not_be_read_is_reported() -> None:
     result = asyncio.run(graph.ainvoke({}))
 
     assert any("gone.xml" in caveat for caveat in result["caveats"])
+
+
+def test_the_scheduled_report_says_where_each_transcript_came_from() -> None:
+    """A reader who cannot tell weighs a mangled name as heavily as a written one."""
+    from uuid import UUID
+
+    from oris.scheduled_runs import _format_podcast_catch_up_report
+    from oris.schedules import PodcastCatchUpScheduledJob
+
+    job = PodcastCatchUpScheduledJob(
+        id="nightly-podcasts",
+        enabled=True,
+        cron="0 6 * * *",
+        task="podcast_catch_up",
+        days=1,
+        max_episodes=5,
+    )
+    result = {
+        "answer": "Two shows covered the same release.",
+        "cited_urls": ["https://example.com/episode-1"],
+        "episodes": [
+            {
+                "episode_id": "episode-1",
+                "title": "Episode 1",
+                "show": "Example Show",
+                "published_at": "2026-08-01T12:00:00+00:00",
+                "url": "https://example.com/episode-1",
+                "summary": "Summary 1",
+                "transcript_backend": "whisper",
+                "transcript_truncated": False,
+            }
+        ],
+        "caveats": ["Episode 1 was machine-transcribed."],
+        "transcript_call_ids": ["receipt-1"],
+    }
+
+    report = _format_podcast_catch_up_report(job, UUID(int=1), result)
+
+    assert "- Transcript: `whisper`, `complete`" in report
+    assert "machine-transcribed" in report
+    assert "receipt-1" not in report

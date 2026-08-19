@@ -514,6 +514,7 @@ def test_router_cannot_select_threat_intel() -> None:
         "chat",
         "community_research",
         "local_knowledge",
+        "podcast_catch_up",
         "web_research",
         "youtube_catch_up",
     }

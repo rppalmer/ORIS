@@ -1,0 +1,436 @@
+"""Tests for the fixed Podcast Catch-up graph.
+
+Deliberately shares no fixtures with the YouTube tests. Podcast Catch-up is a
+candidate replacement for that specialist rather than a sibling, and removing
+YouTube should be a deletion rather than an untangling.
+"""
+
+import asyncio
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool
+
+from oris.podcast_catch_up import (
+    PodcastCatchUpAnswer,
+    TranscriptSummary,
+    create_podcast_catch_up_graph,
+    create_podcast_catch_up_preparation_graph,
+)
+
+
+def make_episode(number: int) -> dict:
+    """One Net-Razor discovery item, in its generic evidence shape.
+
+    The field names matter and are not the obvious ones: the transcript tools
+    take an episode ID and a feed URL, which arrive here as `source_id` and
+    `query_used`.
+    """
+    return {
+        "source": "podcast",
+        "source_backend": "podcast-rss",
+        "source_id": f"episode-{number}",
+        "item_type": "episode",
+        "canonical_url": f"https://example.com/episode-{number}",
+        "title": f"Episode {number}",
+        "text": "The publisher's description.",
+        "author": {
+            "handle": "https://feeds.example.com/show.xml",
+            "display_name": "Example Show",
+        },
+        "published_at": f"2026-08-0{number}T12:00:00+00:00",
+        "query_used": "https://feeds.example.com/show.xml",
+    }
+
+
+def tool_message(tool_name: str, content: dict) -> ToolMessage:
+    """Wrap structured MCP content as the official adapter does."""
+    return ToolMessage(
+        content="Net-Razor returned structured data.",
+        artifact={"structured_content": content},
+        tool_call_id=f"{tool_name}-call",
+        name=tool_name,
+    )
+
+
+def transcript_page(
+    call_id: str,
+    text: str,
+    *,
+    backend: str = "publisher",
+    part: int = 1,
+    part_count: int = 1,
+    next_offset: int | None = None,
+) -> dict:
+    """One successful transcript response, shaped as Net-Razor sends it."""
+    return {
+        "call_id": call_id,
+        "source_backend": backend,
+        "text": text,
+        "truncated": part_count > 1,
+        "part": part,
+        "part_count": part_count,
+        "next_offset": next_offset,
+        "from_cache": False,
+        "errors": [],
+    }
+
+
+def transcript_error(error_type: str, *, retriable: bool = False) -> dict:
+    """One handled transcript failure, carrying Net-Razor's classification."""
+    return {
+        "call_id": "error-call",
+        "source_backend": "publisher",
+        "text": None,
+        "truncated": False,
+        "part": 0,
+        "part_count": 0,
+        "next_offset": None,
+        "from_cache": False,
+        "errors": [
+            {
+                "type": error_type,
+                "message": f"Net-Razor reported {error_type}.",
+                "retriable": retriable,
+            }
+        ],
+    }
+
+
+def make_tools(*, episodes: list[dict], transcript_pages: list[dict]) -> dict:
+    """Create controlled doubles for the podcast tools."""
+    discovery_tool = Mock(spec=BaseTool)
+    discovery_tool.name = "net_razor_podcast_new_episodes"
+    discovery_tool.ainvoke = AsyncMock(
+        return_value=tool_message(
+            discovery_tool.name, {"items": episodes, "errors": []}
+        )
+    )
+
+    transcript_tool = Mock(spec=BaseTool)
+    transcript_tool.name = "net_razor_podcast_transcript"
+    transcript_tool.ainvoke = AsyncMock(
+        side_effect=[
+            tool_message(transcript_tool.name, page) for page in transcript_pages
+        ]
+    )
+
+    transcription_tool = Mock(spec=BaseTool)
+    transcription_tool.name = "net_razor_podcast_whisper_transcript"
+
+    acknowledgement_tool = Mock(spec=BaseTool)
+    acknowledgement_tool.name = "net_razor_podcast_mark_processed"
+    acknowledgement_tool.ainvoke = AsyncMock(
+        return_value=tool_message(acknowledgement_tool.name, {"errors": []})
+    )
+    return {
+        "discovery": discovery_tool,
+        "transcript": transcript_tool,
+        "transcription": transcription_tool,
+        "acknowledgement": acknowledgement_tool,
+    }
+
+
+def make_model(*, summaries: int = 1) -> Mock:
+    """A model double returning fixed structured summaries and one digest."""
+    model = Mock(spec=BaseChatModel)
+    summary_model = AsyncMock()
+    summary_model.ainvoke.side_effect = [
+        TranscriptSummary(summary=f"Summary {number}")
+        for number in range(1, summaries + 2)
+    ]
+    digest_model = AsyncMock()
+    digest_model.ainvoke.return_value = PodcastCatchUpAnswer(
+        answer="Combined digest.",
+        cited_urls=("https://example.com/episode-1",),
+    )
+    model.with_structured_output.side_effect = [summary_model, digest_model]
+    return model
+
+
+def transcription_args(tool: Mock) -> list[dict]:
+    """The arguments every transcription call was made with."""
+    return [call.args[0]["args"] for call in tool.ainvoke.await_args_list]
+
+
+def test_a_published_transcript_is_never_replaced_by_transcription() -> None:
+    """An episode with a publisher transcript is never sent to Whisper.
+
+    Net-Razor's store is first-writer-wins, so transcribing an episode whose
+    publisher transcript was never fetched forecloses that better version
+    permanently. The published one usually identifies who is speaking and
+    machine transcription never does, so the ordering is not an optimisation.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "Published words."),
+            transcript_page("call-1", "Published words."),
+        ],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    tools["transcription"].ainvoke.assert_not_awaited()
+    assert result["episodes"][0]["transcript_backend"] == "publisher"
+
+
+def test_transcription_runs_only_when_no_transcript_was_published() -> None:
+    """`no_transcript_found` is the one error that leads to transcription."""
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_error("no_transcript_found"),
+            transcript_page("call-1", "Machine words.", backend="whisper"),
+        ],
+    )
+    tools["transcription"].ainvoke = AsyncMock(
+        return_value=tool_message(
+            tools["transcription"].name,
+            transcript_page("whisper-call", "Machine words.", backend="whisper"),
+        )
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    assert transcription_args(tools["transcription"]) == [
+        {
+            "episode_id": "episode-1",
+            "feed_url": "https://feeds.example.com/show.xml",
+            "offset": 0,
+        }
+    ]
+    assert result["episodes"][0]["transcript_backend"] == "whisper"
+
+
+@pytest.mark.parametrize(
+    "error_type", ["not_configured", "whisper_unavailable", "audio_unavailable"]
+)
+def test_any_other_error_is_a_caveat_rather_than_a_transcription(
+    error_type: str,
+) -> None:
+    """Only Net-Razor's own classification decides, and only one value acts."""
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[transcript_error(error_type)],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    tools["transcription"].ainvoke.assert_not_awaited()
+    assert result["episodes"] == []
+    assert any(error_type in caveat for caveat in result["caveats"])
+
+
+def test_a_later_page_failing_does_not_reach_for_transcription() -> None:
+    """The transcription decision is made on the first page and only there.
+
+    Page one succeeding means a transcript exists. Falling back to Whisper for
+    a later page would trade a published transcript away to recover one page.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "Opening words.", part_count=2, next_offset=100),
+            transcript_page("call-1", "Opening words.", part_count=2, next_offset=100),
+            transcript_error("request_failed"),
+        ],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(summaries=2),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    tools["transcription"].ainvoke.assert_not_awaited()
+    assert result["episodes"][0]["transcript_backend"] == "publisher"
+    assert any("incomplete" in caveat for caveat in result["caveats"])
+
+
+def test_without_transcription_a_missing_transcript_is_only_a_caveat() -> None:
+    """The interactive graph degrades rather than blocking on a slow tool.
+
+    It is built without the transcription tool at all, which is also what
+    happens on any path where Net-Razor has transcription switched off.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[transcript_error("no_transcript_found")],
+    )
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    assert result["episodes"] == []
+    assert any("publishes no transcript" in caveat for caveat in result["caveats"])
+    tools["acknowledgement"].ainvoke.assert_not_awaited()
+
+
+def test_the_run_budget_bounds_the_queue_before_any_transcript_call() -> None:
+    """Net-Razor caps per feed; how much one run costs is orchestration's call."""
+    tools = make_tools(
+        episodes=[make_episode(number) for number in (1, 2, 3)],
+        transcript_pages=[
+            transcript_page("call-1", "First words."),
+            transcript_page("call-1", "First words."),
+        ],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({"max_episodes": 1}))
+
+    assert [episode["episode_id"] for episode in result["episodes"]] == ["episode-1"]
+    assert tools["transcript"].ainvoke.await_count == 2
+
+
+def test_an_out_of_range_budget_is_refused_before_any_external_call() -> None:
+    """The budget is checked before Net-Razor is contacted at all."""
+    tools = make_tools(episodes=[make_episode(1)], transcript_pages=[])
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+    )
+
+    with pytest.raises(ValueError, match="max_episodes must be between 1 and 10"):
+        asyncio.run(graph.ainvoke({"max_episodes": 11}))
+
+    tools["discovery"].ainvoke.assert_not_awaited()
+
+
+def test_a_machine_transcribed_episode_says_so_in_its_caveats() -> None:
+    """A digest that cannot tell repeats Whisper's mistakes as fact.
+
+    Whisper gets names, acronyms, and version numbers wrong, which is precisely
+    the detail an investigation repeats and attributes to the episode.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_error("no_transcript_found"),
+            transcript_page("call-1", "Machine words.", backend="whisper"),
+        ],
+    )
+    tools["transcription"].ainvoke = AsyncMock(
+        return_value=tool_message(
+            tools["transcription"].name,
+            transcript_page("whisper-call", "Machine words.", backend="whisper"),
+        )
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    assert any("machine-transcribed" in caveat for caveat in result["caveats"])
+
+
+def test_the_show_and_episode_come_from_net_razors_own_fields() -> None:
+    """Titles, shows, and URLs come from the provider, not from the model."""
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "Words."),
+            transcript_page("call-1", "Words."),
+        ],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+    )
+
+    episode = asyncio.run(graph.ainvoke({}))["episodes"][0]
+
+    assert episode["show"] == "Example Show"
+    assert episode["title"] == "Episode 1"
+    assert episode["url"] == "https://example.com/episode-1"
+    assert episode["episode_id"] == "episode-1"
+
+
+def test_acknowledgement_passes_receipts_under_the_name_net_razor_expects() -> None:
+    """The acknowledgement argument is `call_ids`, not YouTube's name for it."""
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("receipt-1", "Words."),
+            transcript_page("receipt-1", "Words."),
+        ],
+    )
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+    )
+
+    asyncio.run(graph.ainvoke({}))
+
+    acknowledgement = tools["acknowledgement"].ainvoke.await_args.args[0]
+    assert acknowledgement["args"] == {"call_ids": ["receipt-1"]}
+
+
+def test_a_feed_that_could_not_be_read_is_reported() -> None:
+    """A run covering six of eight feeds must not look like one covering all eight."""
+    tools = make_tools(episodes=[make_episode(1)], transcript_pages=[])
+    tools["discovery"].ainvoke = AsyncMock(
+        return_value=tool_message(
+            tools["discovery"].name,
+            {
+                "items": [],
+                "errors": [
+                    {
+                        "type": "feed_unavailable",
+                        "message": "Could not read https://feeds.example.com/gone.xml",
+                        "retriable": True,
+                    }
+                ],
+            },
+        )
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    assert any("gone.xml" in caveat for caveat in result["caveats"])

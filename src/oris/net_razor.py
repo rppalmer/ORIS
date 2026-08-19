@@ -40,6 +40,27 @@ YOUTUBE_CATCH_UP_TOOL_NAMES = (
     "net_razor_yt_mark_processed",
 )
 
+PODCAST_CATCH_UP_TOOL_NAMES = (
+    "net_razor_podcast_new_episodes",
+    "net_razor_podcast_transcript",
+    "net_razor_podcast_mark_processed",
+)
+"""The tools both podcast graphs hold. Transcription is deliberately not here.
+
+Podcast Catch-up is a candidate replacement for YouTube Catch-up rather than a
+sibling, so nothing here is shared with the YouTube names above. If YouTube is
+removed, its tuple and its loader are deleted and this is untouched.
+"""
+
+PODCAST_TRANSCRIPTION_TOOL_NAME = "net_razor_podcast_whisper_transcript"
+"""Loaded separately, for the scheduled graph only.
+
+Separate for two reasons. It needs `WHISPER_READ_TIMEOUT`, which is a property
+of the client rather than the call. And a person typing into a chat must not be
+able to start work that blocks for minutes, which is guaranteed by the
+interactive graph never holding the tool.
+"""
+
 
 def create_net_razor_client(
     python_executable: Path,
@@ -76,9 +97,11 @@ def create_net_razor_client(
 async def _load_tools(
     python_executable: Path,
     tool_names: tuple[str, ...],
+    *,
+    read_timeout: timedelta = READ_TIMEOUT,
 ) -> tuple[BaseTool, ...]:
     """Load an ordered allowlist from the official MCP adapter."""
-    client = create_net_razor_client(python_executable)
+    client = create_net_razor_client(python_executable, read_timeout=read_timeout)
     available_tools = await client.get_tools(server_name=NET_RAZOR_SERVER_NAME)
     tools_by_name = {tool.name: tool for tool in available_tools}
     missing_tools = [name for name in tool_names if name not in tools_by_name]
@@ -101,3 +124,25 @@ async def load_youtube_catch_up_tools(
 ) -> tuple[BaseTool, ...]:
     """Load only the MCP tools approved for YouTube Catch-up."""
     return await _load_tools(python_executable, YOUTUBE_CATCH_UP_TOOL_NAMES)
+
+
+async def load_podcast_catch_up_tools(
+    python_executable: Path,
+) -> tuple[BaseTool, ...]:
+    """Load the podcast tools that answer in seconds."""
+    return await _load_tools(python_executable, PODCAST_CATCH_UP_TOOL_NAMES)
+
+
+async def load_podcast_transcription_tool(python_executable: Path) -> BaseTool:
+    """Load podcast transcription alone, on its own longer deadline.
+
+    Always present: with transcription switched off in Net-Razor the tool still
+    exists and returns a `not_configured` error, so its absence is a genuine
+    fault rather than a supported configuration.
+    """
+    tools = await _load_tools(
+        python_executable,
+        (PODCAST_TRANSCRIPTION_TOOL_NAME,),
+        read_timeout=WHISPER_READ_TIMEOUT,
+    )
+    return tools[0]

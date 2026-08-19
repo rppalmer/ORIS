@@ -14,6 +14,8 @@ from oris.net_razor import (
     WHISPER_READ_TIMEOUT,
     create_net_razor_client,
     load_community_research_tools,
+    load_podcast_catch_up_tools,
+    load_podcast_transcription_tool,
     load_youtube_catch_up_tools,
 )
 
@@ -136,3 +138,74 @@ def test_the_whisper_deadline_clears_net_razors_own_ceiling() -> None:
     one description of the failure anybody has.
     """
     assert WHISPER_READ_TIMEOUT > timedelta(seconds=NET_RAZOR_TRANSCRIPTION_CEILING)
+
+
+def _podcast_tools() -> dict[str, Mock]:
+    """Doubles for every podcast tool Net-Razor exposes, plus one it must not."""
+    names = (
+        "net_razor_podcast_new_episodes",
+        "net_razor_podcast_transcript",
+        "net_razor_podcast_mark_processed",
+        "net_razor_podcast_whisper_transcript",
+        "net_razor_research",
+    )
+    tools = {}
+    for name in names:
+        tool = Mock(name=name)
+        tool.name = name
+        tools[name] = tool
+    return tools
+
+
+def _patched_client(tools: dict[str, Mock]) -> Mock:
+    client = Mock()
+    client.get_tools = AsyncMock(return_value=list(tools.values()))
+    return client
+
+
+def test_interactive_podcast_tools_exclude_transcription(tmp_path: Path) -> None:
+    """The interactive graph cannot reach transcription, because it never holds it.
+
+    A transcription call blocks for minutes. Nobody typing into a chat should be
+    able to start one, and the reliable way to guarantee that is for the tool to
+    be absent from that graph rather than merely unused by it.
+    """
+    python_executable = tmp_path / "python"
+    python_executable.write_text("test executable", encoding="utf-8")
+    tools = _podcast_tools()
+
+    with patch(
+        "oris.net_razor.create_net_razor_client",
+        return_value=_patched_client(tools),
+    ):
+        loaded = asyncio.run(load_podcast_catch_up_tools(python_executable))
+
+    assert [tool.name for tool in loaded] == [
+        "net_razor_podcast_new_episodes",
+        "net_razor_podcast_transcript",
+        "net_razor_podcast_mark_processed",
+    ]
+
+
+def test_transcription_is_loaded_alone_on_its_own_deadline(tmp_path: Path) -> None:
+    """Transcription arrives from a second client carrying the longer deadline.
+
+    Loading it beside the other three would give all of them 23 minutes, and a
+    feed fetch that hangs would then sit for 23 minutes inside a scheduled run
+    instead of failing in two.
+    """
+    python_executable = tmp_path / "python"
+    python_executable.write_text("test executable", encoding="utf-8")
+    tools = _podcast_tools()
+
+    with patch(
+        "oris.net_razor.create_net_razor_client",
+        return_value=_patched_client(tools),
+    ) as create_client:
+        tool = asyncio.run(load_podcast_transcription_tool(python_executable))
+
+    assert tool.name == "net_razor_podcast_whisper_transcript"
+    create_client.assert_called_once_with(
+        python_executable,
+        read_timeout=WHISPER_READ_TIMEOUT,
+    )

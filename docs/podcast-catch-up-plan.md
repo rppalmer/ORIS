@@ -34,36 +34,88 @@ Read from the merged source, not assumed:
 - Both transcript tools return `call_id` at the top level, which is the receipt
   `podcast_mark_processed` takes.
 
-## One gap: ORIS's read timeout has to clear two of Net-Razor's, not one
+## The timeout: 1380 seconds, tracking Net-Razor's 1230
 
-The brief says raise ORIS's read timeout to about 15 minutes. That is below the
-worst case Net-Razor can legitimately take, because one Whisper call has **two**
-independent timeouts and they run in sequence:
+Reviewed with Net-Razor on 2026-08-19 and settled.
 
-- `podcast_audio_timeout_seconds` — **300s**, the audio download.
-- `podcast_whisper_timeout_seconds` — **900s**, wrapping only the transcriber
-  subprocess. The download is not inside it.
+The brief's "about 15 minutes" was below what Net-Razor can legitimately take.
+One `podcast_whisper_transcript` call passes through **three** caps in sequence:
 
-So one call can legitimately run for **1200 seconds — twenty minutes** — plus
-subprocess start and MCP framing, before Net-Razor itself gives up.
+| Stage | Cap |
+| --- | --- |
+| Feed fetch, to find the audio URL | 30s |
+| Audio download | 300s |
+| Transcription subprocess | 900s |
+| **Worst case** | **1230s (20.5 min)** |
 
-At a 15-minute read timeout ORIS would abandon calls Net-Razor is still working
-on correctly. Worse than slow: the run gets a dead MCP session instead of a
-classified `transcription_timeout` or download error carrying `retriable` and a
-message worth putting in a caveat. Net-Razor did the work of classifying that
-failure and ORIS would throw it away.
+ORIS uses **1380 seconds (23 minutes)**, clearing that by 150 seconds. The
+principle is Net-Razor's from the YouTube review: their caps are the real
+limits, and ORIS's read timeout is a backstop that should never fire. At 15
+minutes ORIS would have abandoned calls that were still working correctly, and
+traded a classified `transcription_timeout` for a dead MCP session.
 
-**ORIS should use 1380 seconds (23 minutes)**, clearing 1200 with three minutes
-of margin. The principle is the one Net-Razor gave during the YouTube Whisper
-review: their caps are the real limits, and ORIS's timeout is a backstop that
-should never fire.
+Two corrections landed on the way here, both worth remembering:
 
-An earlier draft of this plan said 1080 seconds. That was wrong — it cleared the
-transcription cap but not the download sitting in front of it.
+- An earlier draft of this plan said 1080s. That cleared the transcription cap
+  but not the download in front of it.
+- The three-cap total was not a real ceiling until Net-Razor fixed it. The
+  download had no total bound — httpx limits the gap between chunks, not the
+  whole transfer — so a server trickling bytes slowly could have streamed a
+  large episode for hours without tripping anything. It is now wrapped in a
+  genuine budget.
 
-**What to confirm:** that 300 and 900 are the values actually running here. Both
-are configurable, and if either moves, ORIS's 1380 moves with it. This is the
-one number two projects have to keep in step.
+**1230 is the number to track.** If any of the three values moves, Net-Razor
+treats it as a contract change and says so.
+
+## What Net-Razor confirmed
+
+All four questions answered on 2026-08-19. Two were bugs on their side, now
+fixed on `main`.
+
+### The store is first-writer-wins, and the brief was wrong
+
+Confirmed: both tools read the store before doing any work. Calling Whisper on
+an episode that already has a publisher transcript returns the publisher's,
+spends no CPU, and overwrites nothing — `source_backend` still says `publisher`.
+
+So the danger is not clobbering stored data. It is **ordering on a fresh
+episode**: whichever tool runs first stores its result, and every later call
+returns that one. Calling Whisper first forecloses ever fetching the publisher's
+better version.
+
+That makes this plan's rule — publisher transcript first, Whisper only on
+`no_transcript_found`, decided once on the first page — necessary and
+sufficient. Net-Razor's README, architecture notes, and design spec have been
+corrected, and the misleading "a Whisper transcript supersedes a publisher one"
+wording is gone.
+
+### Paging uses the ordinary transcript tool
+
+Page one with Whisper, then page on with `podcast_transcript`. `source_backend`
+keeps reporting `whisper`, because the backend is stored alongside the
+transcript rather than inferred from which tool asked.
+
+Paging with the Whisper tool would also be safe — it checks the store first too
+— but `podcast_transcript` says what is meant.
+
+### Acknowledgement does not care which tool produced the transcript
+
+Both tools write an item keyed by episode ID, and `podcast_mark_processed`
+resolves a call ID through that item.
+
+One detail that simplifies ORIS: **a call that returned an error produces no
+item**, so a failed call ID cannot be acknowledged. It comes back as
+`unknown_call_id` without affecting the others in the batch. ORIS therefore does
+not need to carefully filter receipts before acknowledging — collecting only
+successful ones stays the intent, but a mistake there is harmless rather than
+silently marking a failed episode processed.
+
+### These are pinned by tests
+
+Net-Razor added four tests covering exactly the behaviours above, so none of
+them can drift silently: Whisper returning a stored publisher transcript,
+acknowledgement accepting a call ID from either tool, paging keeping the
+`whisper` backend, and the download's total budget.
 
 ## The flow
 

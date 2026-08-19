@@ -404,8 +404,11 @@ answers to questions that keep getting asked again.
   `uvx` runs the collector as a child and left an orphan holding the port after
   a stop. Scheduler health does not depend on it, and a run never fails because
   the collector is absent.
-- **Whisper transcription for caption-less YouTube videos** (measured
-  2026-08-18). Net-Razor was going to gain local Whisper transcription so videos
+- **Whisper transcription for caption-less YouTube videos** (dead 2026-08-18).
+  Superseded before it started: YouTube audio can no longer be downloaded at
+  all, so there is no measurement that would revive this. Spoken content moved
+  to podcasts — see [podcast-catch-up-plan.md](podcast-catch-up-plan.md). The
+  original reasoning, kept because four of its findings carried over: Net-Razor was going to gain local Whisper transcription so videos
   with no captions stopped being lost. The condition for building it was how
   many videos are actually lost, and Net-Razor's audit history holds four
   caption failures in total, roughly half of them the same video from one

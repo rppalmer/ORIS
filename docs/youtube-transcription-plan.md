@@ -1,7 +1,11 @@
 # YouTube transcription — the ORIS side
 
-- Status: **Parked on a measurement, 2026-08-18.** Not being built. Do not start
-  this without re-running the count described under "The gate".
+- Status: **Dead, 2026-08-18.** Not parked — dead. YouTube audio can no longer
+  be downloaded (proof-of-origin tokens, scrambled URLs, and a streaming model
+  that exposes no file), so the pipeline this plan describes cannot be built at
+  any measurement. Spoken content moved to podcasts instead; see
+  [podcast-catch-up-plan.md](podcast-catch-up-plan.md), which carries the four
+  findings from this one that still apply.
 - Written: 2026-08-18
 - Contract it would change: [youtube-catch-up-contract.md](youtube-catch-up-contract.md)
 

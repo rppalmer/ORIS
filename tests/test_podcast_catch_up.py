@@ -538,3 +538,72 @@ def test_a_digest_citing_something_never_supplied_still_fails() -> None:
 
     with pytest.raises(ValueError, match="cited unavailable URLs"):
         asyncio.run(graph.ainvoke({}))
+
+
+def make_episode_for(feed: str, show: str, number: int) -> dict:
+    """One discovery item belonging to a named feed."""
+    episode = make_episode(number)
+    episode["query_used"] = feed
+    episode["author"] = {"handle": feed, "display_name": show}
+    episode["source_id"] = f"{show}-{number}"
+    return episode
+
+
+def test_a_prolific_feed_cannot_crowd_out_the_others() -> None:
+    """The budget is spread across feeds, not spent on whoever posts most.
+
+    Observed against the real feeds: a daily show took six of eight slots and
+    the weekly shows never appeared. Net-Razor caps per feed, and taking the
+    newest N globally threw that fairness away — raising the budget only admits
+    more of the same show before reaching anyone else.
+    """
+    episodes = [
+        make_episode_for("feed-daily", "Daily Show", 1),
+        make_episode_for("feed-daily", "Daily Show", 2),
+        make_episode_for("feed-daily", "Daily Show", 3),
+        make_episode_for("feed-weekly", "Weekly Show", 1),
+        make_episode_for("feed-rare", "Rare Show", 1),
+    ]
+    tools = make_tools(episodes=episodes, transcript_pages=[])
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], make_model()
+    )
+
+    assert _selected(graph, tools, max_episodes=3) == [
+        "Daily Show-1",
+        "Weekly Show-1",
+        "Rare Show-1",
+    ]
+
+
+def test_round_robin_falls_back_to_a_feed_with_more_left() -> None:
+    """A budget larger than the number of feeds keeps going round."""
+    episodes = [
+        make_episode_for("feed-daily", "Daily Show", 1),
+        make_episode_for("feed-daily", "Daily Show", 2),
+        make_episode_for("feed-daily", "Daily Show", 3),
+        make_episode_for("feed-weekly", "Weekly Show", 1),
+    ]
+    tools = make_tools(episodes=episodes, transcript_pages=[])
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], make_model()
+    )
+
+    assert _selected(graph, tools, max_episodes=4) == [
+        "Daily Show-1",
+        "Weekly Show-1",
+        "Daily Show-2",
+        "Daily Show-3",
+    ]
+
+
+def _selected(graph, tools, *, max_episodes: int) -> list[str]:
+    """The episode IDs the graph chose to work on, in order."""
+    from oris.podcast_catch_up import select_episodes
+
+    discovered = tools["discovery"].ainvoke.return_value.artifact[
+        "structured_content"
+    ]["items"]
+    return [
+        episode["source_id"] for episode in select_episodes(discovered, max_episodes)
+    ]

@@ -61,7 +61,12 @@ feed rather than per run.
 1. Validate `max_episodes` before any external call.
 2. Call `net_razor_podcast_new_episodes` once with `include_processed=false`,
    and `days` only when supplied.
-3. Keep the first `max_episodes` entries.
+3. Select `max_episodes` entries by taking one from each feed before a second
+   from any, keeping each feed's newest-first order. Net-Razor caps per feed,
+   and taking the newest N globally discards that: measured on 2026-08-25, a
+   show publishing daily took six of eight slots and two weekly shows never
+   appeared. Raising the budget does not help — it admits more of the same show
+   before reaching anyone else.
 4. For each episode in order, call `net_razor_podcast_transcript` for page one.
 5. **If and only if** that page reports `errors[0].type == "no_transcript_found"`,
    and transcription is available, call `net_razor_podcast_whisper_transcript`

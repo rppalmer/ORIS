@@ -143,6 +143,45 @@ def _first_error_type(page: dict[str, Any]) -> str | None:
     return first.get("type") if isinstance(first, dict) else None
 
 
+def select_episodes(
+    episodes: list[dict[str, Any]],
+    max_episodes: int,
+) -> list[dict[str, Any]]:
+    """Spread the run budget across feeds instead of spending it newest-first.
+
+    Net-Razor caps how many episodes each feed contributes, and flattening
+    everything into one newest-first list threw that fairness away. Measured
+    against the real feeds on 2026-08-25: a show publishing daily took six of
+    eight slots and two weekly shows never appeared at all. Raising the budget
+    does not help, because it only admits more of the same show before reaching
+    anyone else.
+
+    So take one episode from each feed before a second from any, keeping each
+    feed's own newest-first order and the order the feeds arrived in. A feed
+    that runs out drops away and the rest keep going round, so a budget larger
+    than the number of feeds still fills.
+    """
+    by_feed: dict[str, list[dict[str, Any]]] = {}
+    for episode in episodes:
+        if not isinstance(episode, dict):
+            raise ValueError("Net-Razor returned an invalid episode entry")
+        by_feed.setdefault(episode["query_used"], []).append(episode)
+
+    selected: list[dict[str, Any]] = []
+    while len(selected) < max_episodes:
+        took_one = False
+        for queue in by_feed.values():
+            if not queue:
+                continue
+            selected.append(queue.pop(0))
+            took_one = True
+            if len(selected) == max_episodes:
+                break
+        if not took_one:
+            break
+    return selected
+
+
 def _episode_reference(episode: dict[str, Any]) -> dict[str, str]:
     """Map one discovery item onto the arguments the transcript tools take.
 
@@ -240,7 +279,7 @@ def create_podcast_catch_up_preparation_graph(
         ]
         return {
             "max_episodes": max_episodes,
-            "discovered_episodes": episodes[:max_episodes],
+            "discovered_episodes": select_episodes(episodes, max_episodes),
             "caveats": caveats,
         }
 

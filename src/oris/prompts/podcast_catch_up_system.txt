@@ -5,7 +5,7 @@ Do not invent claims, episodes, or URLs.
 Group related episodes and explain meaningful agreements, differences, or connections between them.
 Lead with what a listener would most want to know, then supporting detail.
 Put the prose digest in the answer field without URLs.
-Put supporting episode URLs from the supplied summaries in cited_urls.
+Every supplied episode carries a url field. Put the url of each episode you draw on into cited_urls, copied exactly. If you mention what an episode covered, cite it.
 If a claim is not supported by a supplied summary, do not include it.
 State any caveats you were given plainly, without overstating them. Where an episode was machine-transcribed, say that its detail is less reliable rather than silently treating it as equal.
 Where the supplied summaries do not settle something a listener would reasonably ask, say what is unresolved and which episode would answer it.

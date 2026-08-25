@@ -475,3 +475,66 @@ def test_the_scheduled_report_says_where_each_transcript_came_from() -> None:
     assert "- Transcript: `whisper`, `complete`" in report
     assert "machine-transcribed" in report
     assert "receipt-1" not in report
+
+
+def test_an_uncited_digest_survives_as_a_caveat() -> None:
+    """A finished digest is not thrown away for citing nothing.
+
+    Unlike Web Research, where an uncited claim is unverifiable because the
+    sources exist nowhere else, the podcast report lists every episode and its
+    canonical URL in its own section. So an uncited digest is still traceable,
+    and failing the run would cost a whole night's digest to protect something
+    the report already provides. Observed against the real feeds: the model
+    wrote a good cross-cutting digest and cited nothing, and the run died.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "Words."),
+            transcript_page("call-1", "Words."),
+        ],
+    )
+    model = make_model()
+    uncited = PodcastCatchUpAnswer(answer="A digest that cites nothing.", cited_urls=())
+    model.with_structured_output.side_effect = None
+    summary_model = AsyncMock()
+    summary_model.ainvoke.side_effect = [TranscriptSummary(summary="Summary 1")]
+    digest_model = AsyncMock()
+    digest_model.ainvoke.return_value = uncited
+    model.with_structured_output.side_effect = [summary_model, digest_model]
+
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], model
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    assert result["answer"] == "A digest that cites nothing."
+    assert result["cited_urls"] == []
+    assert any("cites no episode" in caveat for caveat in result["caveats"])
+
+
+def test_a_digest_citing_something_never_supplied_still_fails() -> None:
+    """Inventing a URL is fabrication and stays fatal."""
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "Words."),
+            transcript_page("call-1", "Words."),
+        ],
+    )
+    model = make_model()
+    summary_model = AsyncMock()
+    summary_model.ainvoke.side_effect = [TranscriptSummary(summary="Summary 1")]
+    digest_model = AsyncMock()
+    digest_model.ainvoke.return_value = PodcastCatchUpAnswer(
+        answer="A digest.", cited_urls=("https://example.com/never-supplied",)
+    )
+    model.with_structured_output.side_effect = [summary_model, digest_model]
+
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], model
+    )
+
+    with pytest.raises(ValueError, match="cited unavailable URLs"):
+        asyncio.run(graph.ainvoke({}))

@@ -462,6 +462,18 @@ def create_podcast_catch_up_preparation_graph(
         }
 
     def validate_citations(state: PodcastCatchUpState) -> dict:
+        """Reject an invented citation; report a missing one and keep going.
+
+        The two failures are not equal. Citing a URL that was never supplied is
+        fabrication and stays fatal. Citing nothing is a formatting miss, and
+        the report already lists every episode with its canonical URL in its
+        own section, so the digest remains traceable without it. Failing there
+        would discard a finished digest — a whole night's, for a scheduled run
+        — to protect something the reader already has.
+
+        Web Research is deliberately stricter: its sources exist nowhere else
+        in the output, so an uncited claim there cannot be checked at all.
+        """
         available_urls = {episode["url"] for episode in state["episodes"]}
         cited_urls = set(state["cited_urls"])
         unsupported_urls = sorted(cited_urls - available_urls)
@@ -470,7 +482,13 @@ def create_podcast_catch_up_preparation_graph(
                 f"The podcast digest cited unavailable URLs: {unsupported_urls}"
             )
         if available_urls and not cited_urls:
-            raise ValueError("The podcast digest must include at least one cited URL")
+            return {
+                "caveats": [
+                    *state["caveats"],
+                    "The digest cites no episode; see the episode list below "
+                    "for what it was built from.",
+                ]
+            }
         return {}
 
     builder = StateGraph(

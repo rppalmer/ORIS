@@ -130,8 +130,20 @@ added to Local Knowledge. Call IDs stay in internal state until acknowledgement
 and never appear in chat, reports, or the archive.
 
 Every `cited_urls` entry must match the canonical URL of a successfully
-summarized episode. A digest with at least one summary requires at least one
-cited URL.
+summarized episode. Citing a URL that was never supplied is fabrication and
+fails the run.
+
+A digest that cites **nothing** does not fail. It is reported as a caveat and
+the digest is kept. The two failures are not equal: the report already lists
+every episode with its canonical URL in its own section, so an uncited digest
+remains traceable, and failing there would discard a whole night's digest to
+protect something the reader already has. Web Research is deliberately stricter
+because its sources exist nowhere else in its output.
+
+This resolves for podcasts the asymmetry the roadmap records as undecided for
+Community Research and YouTube Catch-up. Observed 2026-08-25 against the real
+feeds: the model wrote a good cross-cutting digest, cited nothing, and the run
+died.
 
 ## Scheduled job contract
 

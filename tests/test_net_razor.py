@@ -137,7 +137,7 @@ def test_the_whisper_deadline_clears_net_razors_own_ceiling() -> None:
     fired first it would replace that error with a dead session, discarding the
     one description of the failure anybody has.
     """
-    assert WHISPER_READ_TIMEOUT > timedelta(seconds=NET_RAZOR_TRANSCRIPTION_CEILING)
+    assert timedelta(seconds=NET_RAZOR_TRANSCRIPTION_CEILING) < WHISPER_READ_TIMEOUT
 
 
 def _podcast_tools() -> dict[str, Mock]:

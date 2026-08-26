@@ -14,13 +14,19 @@ respect to external systems.
 
 ## What is built
 
-- A constrained LangGraph router selects one of five fixed paths: direct chat,
-  Web Research, Community Research, YouTube Catch-up, or Local Knowledge.
+- A constrained LangGraph router selects one of six fixed paths: direct chat,
+  Web Research, Community Research, YouTube Catch-up, Podcast Catch-up, or Local
+  Knowledge.
 - Web Research performs one bounded Tavily search and returns a cited answer.
 - Community Research uses the local Net-Razor MCP server to collect bounded X
   and Hacker News evidence.
 - YouTube Catch-up uses Net-Razor to discover recent videos, retrieves and
   summarizes transcripts one at a time, and produces a cited digest.
+- Podcast Catch-up uses Net-Razor to discover recent episodes from configured
+  feeds, prefers the publisher's own transcript, and falls back to local Whisper
+  transcription on the scheduled path only. Every episode says which it was,
+  because machine transcription mangles the names and version numbers a digest
+  then repeats as fact.
 - Threat Intel runs bounded defensive ThreatSyft lookups behind the explicit
   `/threat` command and stores the full evidence for every run. The router never
   selects it, because enrichment sends indicators to third-party providers.
@@ -42,7 +48,10 @@ development MacBook or move to the Mac mini without source-code changes.
 - An accessible oMLX server with a compatible instruction model loaded
 - A Tavily API key
 - A local [Net-Razor](https://github.com/rppalmer/net-razor) checkout for
-  Community Research and YouTube Catch-up
+  Community Research, YouTube Catch-up, and Podcast Catch-up
+- `ffmpeg` on `PATH` and Apple Silicon, for podcast transcription only. Without
+  them Net-Razor reports `not_configured` and episodes with no published
+  transcript become caveats.
 
 Net-Razor and Phoenix are optional if their related capabilities are not used.
 The Tavily setting is currently part of the required application configuration.
@@ -88,6 +97,87 @@ configuration; the last four exist to point an installation at directories it
 already has. A leading `~` is expanded. Exported activity is always written to
 `~/.oris/artifacts/exports` and does not follow `ORIS_THREAT_REPORT_DIR`.
 
+## Installing on another machine
+
+The same application runs on the development MacBook or the Mac mini through
+configuration only. Nothing below is a code change.
+
+```shell
+brew install uv ffmpeg
+
+mkdir -p ~/Projects && cd ~/Projects
+git clone https://github.com/rppalmer/net-razor.git
+git clone https://github.com/rppalmer/ORIS.git
+
+cd ~/Projects/net-razor && uv sync --extra whisper
+cd ~/Projects/ORIS && uv sync --extra tui
+```
+
+`uv` fetches the pinned Python. `ffmpeg` and the `whisper` extra are only needed
+for podcast transcription, and the extra is Apple Silicon only.
+
+Configuration lives outside both checkouts and is not in git, so copy it across:
+
+```shell
+# from the machine that already works
+scp ~/.oris/.env              <host>:~/.oris/.env
+scp ~/.net-razor/.env         <host>:~/.net-razor/.env
+scp ~/.net-razor/podcasts.txt <host>:~/.net-razor/
+scp ~/.net-razor/channels.txt <host>:~/.net-razor/
+
+# on the new machine
+mkdir -p ~/.oris ~/.net-razor
+chmod 600 ~/.oris/.env ~/.net-razor/.env
+```
+
+Three settings in `~/.oris/.env` are machine-specific and must be checked:
+
+| Setting | What to do |
+| --- | --- |
+| `NET_RAZOR_PYTHON_EXECUTABLE` | Repoint at the new checkout's `.venv/bin/python`. It must be absolute; a relative path is rejected at startup. |
+| `THREATSYFT_PYTHON_EXECUTABLE`, `THREATSYFT_ROOT` | Repoint or remove. Threat Intel then does not resolve; nothing else is affected. |
+| `LOCAL_LLM_BASE_URL` | Point at `http://127.0.0.1:8000/v1` when oMLX runs on the same machine. A model call has no retry, so removing the network hop removes a way for a whole run to fail. |
+
+Verify cheapest first:
+
+```shell
+cd ~/Projects/ORIS
+uv run pytest -q
+uv run oris
+```
+
+Then `/podcasts linux unplugged` — or any configured show. It exercises
+discovery, the transcript path, paging, and the digest against one episode
+without transcribing anything, so a broken install fails in seconds rather than
+minutes. Follow it with a bare `/podcasts` for the full catch-up.
+
+### What does not come with the code
+
+Everything ORIS knows lives in `~/.oris` on the machine it runs on. A new
+install starts empty, and from that moment the two machines diverge.
+
+- `~/.oris/data/` — conversations and the `/recall` archive.
+- `~/.net-razor/data/` — every cached transcript and the list of episodes
+  already acknowledged. Copying it means the new machine does not re-transcribe
+  work already done.
+
+Copy them only as a deliberate decision about which machine is the system of
+record, not as part of routine setup.
+
+### Remote use
+
+There is no server and nothing to connect to. Both front ends are terminal
+programs talking to a local SQLite database, so working on another machine means
+an SSH session:
+
+```shell
+ssh <host> -t 'tmux new -A -s oris'
+cd ~/Projects/ORIS && uv run oris-tui
+```
+
+`textual` renders fully over SSH. `tmux new -A` reattaches to the same session
+each time, so a dropped connection does not kill a long turn.
+
 ## Use the assistant
 
 Start the command-line interface from the project root:
@@ -105,6 +195,11 @@ you want an explicit path:
 - `/research <question>` — search the open web with Tavily.
 - `/community <topic>` — research the previous day on X and Hacker News.
 - `/recall <question>` — search earlier successful chats and scheduled reports.
+- `/podcasts` — catch up on new episodes from every configured feed. One
+  episode per feed before a second from any, so a show that publishes daily
+  cannot crowd out one that publishes weekly.
+- `/podcasts <show>` — the newest episode of one configured show, summarised on
+  its own. Matched on the show's name, so no feed URL is needed.
 - `/threat report <anything>` — return the collected evidence pivoted by field
   instead of a written summary. No model call, so nothing is lost to summarising.
   Composes with the keywords below: `/threat report enrich <ip>`.
@@ -162,7 +257,24 @@ automatically inserted into a new session's context.
 
 `schedules.toml` is the single source of truth for recurring jobs. It currently
 contains an enabled weekday Web Research job. The scheduler also supports
-bounded YouTube Catch-up jobs; their channel list remains in Net-Razor.
+bounded YouTube Catch-up and Podcast Catch-up jobs; their channel and feed lists
+remain in Net-Razor.
+
+```toml
+[[jobs]]
+id = "nightly-podcasts"
+enabled = true
+cron = "0 6 * * *"
+task = "podcast_catch_up"
+days = 1
+max_episodes = 5
+```
+
+`max_episodes` and `cron` are related numbers. Only a scheduled run transcribes,
+and a run that transcribes its whole budget can take a long time; a job still
+running when its next firing is due has that firing skipped in silence. A
+scheduled run also acknowledges its episodes, which is one-way — they leave the
+queue and do not come back.
 
 Run one enabled job immediately by its configured ID:
 

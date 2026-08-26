@@ -1,6 +1,7 @@
 """Tests for the local searchable knowledge repository."""
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -253,3 +254,42 @@ def _rebuild_without_stemming(database_path) -> None:
             "INSERT INTO knowledge_documents VALUES (?, ?, ?, ?, ?, ?)", rows
         )
         connection.commit()
+
+
+def test_a_turn_with_no_typed_question_is_still_archived(tmp_path: Path) -> None:
+    """`/podcasts` alone is a real request, and the archive has to name it.
+
+    An archive document must have a title, and this turn has no question to
+    take one from. Empty failed validation, so the turn went unarchived and the
+    exception surfaced after the answer was already on screen — which took the
+    terminal interface down with it until that path was guarded.
+    """
+    repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
+
+    archived = repository.add_exchange(
+        thread_id="thread-1",
+        request="",
+        answer="Three shows covered this week.",
+        selected_mode="podcast_catch_up",
+    )
+
+    assert archived
+    # Named after the specialist, which is also the only word that makes such a
+    # turn findable later: "podcast" appears nowhere else in it.
+    found = repository.search("podcast")
+    assert [document.title for document in found] == ["Podcast Catch-up"]
+
+
+def test_a_typed_question_still_titles_its_own_turn(tmp_path: Path) -> None:
+    """The fallback applies only when there is nothing to fall back from."""
+    repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
+
+    repository.add_exchange(
+        thread_id="thread-1",
+        request="What did LINUX Unplugged cover?",
+        answer="The release slipped.",
+        selected_mode="podcast_catch_up",
+    )
+
+    found = repository.search("LINUX")
+    assert [document.title for document in found] == ["What did LINUX Unplugged cover?"]

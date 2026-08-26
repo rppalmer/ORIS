@@ -10,6 +10,8 @@ from uuid import uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, StringConstraints
 
+from oris.commands import working_label
+
 NonEmptyString = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1),
@@ -157,14 +159,22 @@ class KnowledgeRepository:
         """
         if selected_mode == "local_knowledge":
             return False
+        # `/podcasts` is the one command that means something with no argument,
+        # so a turn can reach here with nothing typed into it. An archive
+        # document must have a title, and an empty one failed validation: the
+        # turn went unarchived and — until the interface guarded itself — took
+        # the whole interface down with it, after the answer was already on
+        # screen. Naming the specialist is also what makes such a turn findable
+        # later, since "podcast" appears nowhere else in it.
+        asked = request.strip() or working_label(selected_mode)
         self.add(
             KnowledgeDocument(
                 document_id=str(uuid4()),
                 source_type="chat",
                 source_ref=thread_id,
                 created_at=datetime.now(UTC),
-                title=request,
-                content=f"User:\n{request}\n\nORIS:\n{answer}",
+                title=asked,
+                content=f"User:\n{asked}\n\nORIS:\n{answer}",
             )
         )
         return True

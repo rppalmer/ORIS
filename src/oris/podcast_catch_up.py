@@ -39,24 +39,24 @@ Every other error type is terminal for that episode. Branching on the published
 an error message means would be rebuilding it.
 """
 
-MAX_TRANSCRIPT_PARTS = 13
-"""How many parts of one episode's transcript a single run will read.
+MAX_TRANSCRIPT_PARTS_PER_RUN = 60
+"""How many transcript parts one run will read across all its episodes.
 
-Derived from the longest show the feeds carry rather than from one sample.
-Net-Razor serves about 12,000 characters per part, and measured transcripts run
-near 50,000 characters per hour of speech, so a three-hour episode — the longest
-of the configured shows — needs about thirteen parts.
+An episode is read to its end. What is bounded is the run, which is the thing
+the budget was always meant to protect: Net-Razor cannot know how many model
+calls one run can afford, but it cannot know that per episode either.
 
-Fitting this number to a single measurement has now failed twice. Six was set
-against an 83,368-character episode and cut it short; eight was set just above
-that same sample, and the next week's episode of the same show came in at
-103,684 characters and was cut short again. A weekly show varies by more than
-the headroom either number left.
+This used to be a per-episode page cap, and that was the wrong axis. It punished
+exactly one thing — a long episode — while short ones left the budget unused,
+and it cut the same weekly show short twice, at six pages and again at eight,
+having prevented nothing in between.
 
-This remains an orchestration budget rather than a provider limit: Net-Razor
-cannot know how many model calls one run can afford. An episode that still
-exceeds it is summarised from the parts that were read and reported as
-truncated.
+Derived from the other limits rather than from a sample. `MAX_EPISODES` is ten,
+a realistic long run averages six parts an episode, and summarising one part
+measured at about sixteen seconds, so sixty parts is roughly sixteen minutes —
+inside the summarising node's thirty-minute bound with room to spare. The
+ceiling exists at all because the alternative guard is that timeout, and it
+kills the whole digest rather than trimming one episode.
 """
 
 
@@ -412,6 +412,7 @@ def create_podcast_catch_up_preparation_graph(
         transcript_call_ids: list[str] = []
         caveats = list(state["caveats"])
         backends = state["transcript_backends"]
+        parts_remaining = MAX_TRANSCRIPT_PARTS_PER_RUN
 
         for episode in state["discovered_episodes"]:
             backend = backends.get(episode["source_id"])
@@ -429,7 +430,7 @@ def create_podcast_catch_up_preparation_graph(
             unreadable: str | None = None
             offset: int | None = 0
 
-            while offset is not None and len(part_summaries) < MAX_TRANSCRIPT_PARTS:
+            while offset is not None and parts_remaining > 0:
                 part = await read_transcript_page(transcript_tool, episode, offset)
                 text = part.get("text")
                 if _first_error_type(part) is not None or not isinstance(text, str):
@@ -461,6 +462,7 @@ def create_podcast_catch_up_preparation_graph(
                         raise ValueError("Net-Razor did not return a transcript call ID")
 
                 part_summaries.append(await summarize_part(episode, part, backend))
+                parts_remaining -= 1
                 next_offset = part.get("next_offset")
                 offset = next_offset if isinstance(next_offset, int) else None
 

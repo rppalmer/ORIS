@@ -654,3 +654,57 @@ def test_a_show_nobody_follows_says_so_without_calling_the_model() -> None:
     assert result["episodes"] == []
     assert "gardeners question time" in result["answer"]
     tools["transcript"].ainvoke.assert_not_awaited()
+
+
+def test_a_long_episode_is_read_to_its_end() -> None:
+    """Reading stops when the transcript stops, not at a fixed page count.
+
+    A per-episode page cap punished exactly one thing — a long episode — while
+    short ones left the budget unused. It cut the same weekly show short twice,
+    at six pages and again at eight, and prevented nothing.
+    """
+    pages = [
+        transcript_page("call-1", f"Part {n}.", part=n, part_count=10, next_offset=n * 100)
+        for n in range(1, 10)
+    ]
+    pages.append(transcript_page("call-1", "Part 10.", part=10, part_count=10))
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[transcript_page("call-1", "Part 1.")] + pages,
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], make_model(summaries=10)
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    assert result["episodes"][0]["transcript_truncated"] is False
+    assert not any("truncated" in c.lower() for c in result["caveats"])
+
+
+def test_the_run_stops_reading_once_its_whole_budget_is_spent() -> None:
+    """The ceiling is what one run can afford, which is a run-level fact.
+
+    It still exists, because the alternative guard is the summarising node's
+    timeout, and that kills the entire digest rather than trimming one episode.
+    """
+    from oris.podcast_catch_up import MAX_TRANSCRIPT_PARTS_PER_RUN
+
+    endless = [
+        transcript_page("call-1", f"Part {n}.", part=n, part_count=99, next_offset=n * 100)
+        for n in range(1, MAX_TRANSCRIPT_PARTS_PER_RUN + 5)
+    ]
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[transcript_page("call-1", "Part 1.", next_offset=100)] + endless,
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(summaries=MAX_TRANSCRIPT_PARTS_PER_RUN + 5),
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    assert result["episodes"][0]["transcript_truncated"] is True
+    assert any("truncated" in c.lower() for c in result["caveats"])

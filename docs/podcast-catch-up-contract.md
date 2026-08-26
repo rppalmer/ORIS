@@ -81,7 +81,15 @@ feed rather than per run.
    once for that episode. Any other error type is a caveat and the episode is
    skipped.
 6. Page each episode's transcript to its end with `net_razor_podcast_transcript`,
-   summarizing one part per model call, to a maximum of six parts.
+   summarizing one part per model call. An episode is read until Net-Razor stops
+   returning a `next_offset`. What is bounded is the run: sixty parts across all
+   its episodes, after which the remaining episodes are reported as truncated.
+
+   The ceiling is a run-level fact because that is what it was always meant to
+   protect — Net-Razor cannot know what one run can afford, and it cannot know
+   that per episode either. A per-episode cap punished only long episodes while
+   short ones left the budget unused, and it cut the same weekly show short
+   twice before this was corrected.
 7. Create one digest from the per-episode summaries, never from full transcripts.
 8. Validate all citations.
 9. Interactive use calls `net_razor_podcast_mark_processed` once with the

@@ -53,6 +53,10 @@ from oris.commands import (
     working_label,
 )
 from oris.knowledge import KnowledgeRepository
+from oris.launch_agent import LaunchAgentPaths, is_loaded
+from oris.launch_agent import restart as restart_service
+from oris.launch_agent import start as start_service
+from oris.launch_agent import stop as stop_service
 from oris.observability import (
     Span,
     SystemPrompt,
@@ -78,15 +82,40 @@ REPORT_LIMIT = 200
 # Everything that acts on the selected run. Evidence in particular has exactly
 # one home: it belongs to a run, and runs are listed on one tab only.
 ACTIVITY_ONLY_ACTIONS = frozenset(
-    {"refresh_activity", "toggle_scope", "open_prompts", "open_evidence", "export"}
+    {
+        "refresh_activity",
+        "toggle_scope",
+        "open_prompts",
+        "open_evidence",
+        "export",
+        "phoenix_toggle",
+        "phoenix_restart",
+    }
 )
 # Sessions are listed on the chat tab, so that is where one can be deleted.
 CHAT_ONLY_ACTIONS = frozenset({"delete_session"})
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 NO_TRACES = (
-    "No traces recorded. Tracing is optional: start Phoenix with "
-    "./start-phoenix.sh and set LOCAL_TRACING_ENABLED=true to record runs."
+    "No traces recorded. Tracing is optional: start Phoenix with s, and set "
+    "LOCAL_TRACING_ENABLED=true to record runs."
 )
+# The three states launchd can leave a service in, kept apart because the cure
+# differs. A stopped service starts from here; one that was never installed
+# cannot, and saying "stopped" would send someone looking for the wrong problem.
+PHOENIX_RUNNING = "running"
+PHOENIX_STOPPED = "stopped"
+PHOENIX_NOT_INSTALLED = "not installed"
+
+
+def phoenix_state(paths: LaunchAgentPaths | None) -> str:
+    """Ask launchd what state the Phoenix service is in, without acting on it."""
+    if paths is None:
+        return PHOENIX_NOT_INSTALLED
+    if not paths.installed.is_file():
+        return PHOENIX_NOT_INSTALLED
+    return PHOENIX_RUNNING if is_loaded(paths.label) else PHOENIX_STOPPED
+
+
 # Said separately because the two look identical in an empty table and call for
 # opposite responses. Naming the newest entry is what shows a collector that
 # stopped days ago while the setting stayed on — the earlier wording told the
@@ -322,6 +351,7 @@ class OrisTui(App):
     #span-detail { width: 2fr; height: 1fr; border: round $panel; padding: 0 1; }
     #span-detail > Static, #viewer > Static { height: auto; }
     #summary { height: auto; padding: 0 1; color: $text-muted; }
+    #services { height: auto; padding: 0 1; }
     """
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
@@ -333,6 +363,11 @@ class OrisTui(App):
         Binding("a", "toggle_scope", "Session/All"),
         Binding("x", "export", "Export"),
         Binding("d", "delete_session", "Delete session"),
+        # Short labels on purpose: the footer already carries eight keys at
+        # ordinary widths, and longer ones pushed this pair off the end of it.
+        # What each does is spelled out on the status line beside the state.
+        Binding("s", "phoenix_toggle", "Phoenix"),
+        Binding("r", "phoenix_restart", "Restart"),
     ]
 
     def __init__(
@@ -347,6 +382,7 @@ class OrisTui(App):
         threat_report_store: ThreatReportStore | None = None,
         export_directory: Path | None = None,
         phoenix_url: str = "",
+        phoenix_paths: LaunchAgentPaths | None = None,
     ) -> None:
         super().__init__()
         self.graph = graph
@@ -358,6 +394,7 @@ class OrisTui(App):
         self.threat_report_store = threat_report_store
         self.export_directory = export_directory
         self.phoenix_url = phoenix_url
+        self.phoenix_paths = phoenix_paths
 
         self._session_ids: list[str] = []
         self._summaries: dict[str, SessionSummary] = {}
@@ -382,6 +419,7 @@ class OrisTui(App):
                     yield PromptInput(placeholder="Ask, or /help …", id="prompt")
             with TabPane("Activity", id="activity"):
                 yield Static("", id="summary")
+                yield Static("", id="services")
                 with Horizontal():
                     yield DataTable(id="turns", cursor_type="row")
                     yield VerticalScroll(id="span-detail")
@@ -605,6 +643,7 @@ class OrisTui(App):
     # -- activity ------------------------------------------------------------
     def action_refresh_activity(self) -> None:
         """Reload the traces, which arrive after the turn that produced them."""
+        self._show_phoenix()
         self._traces = recent_traces(
             self.trace_database_path,
             TRACE_LIMIT,
@@ -789,6 +828,61 @@ class OrisTui(App):
         chat = event.pane.id == "chat"
         self.query_one("#prompt" if chat else "#turns").focus()
         self.refresh_bindings()
+
+    def _show_phoenix(self) -> None:
+        """Put the current Phoenix state on screen.
+
+        Reads launchd rather than remembering what the last action did, because
+        the service can also be started, stopped or crash outside this
+        interface, and a remembered answer would then be confidently wrong.
+        """
+        state = phoenix_state(self.phoenix_paths)
+        style = {
+            PHOENIX_RUNNING: "green",
+            PHOENIX_STOPPED: "yellow",
+            PHOENIX_NOT_INSTALLED: "dim",
+        }[state]
+        hint = "" if state == PHOENIX_NOT_INSTALLED else "   s  on/off    r  restart"
+        self.query_one("#services", Static).update(
+            Text.assemble(("Phoenix: ", "dim"), (state, style), (hint, "dim"))
+        )
+
+    def action_phoenix_toggle(self) -> None:
+        """Start Phoenix if it is stopped, stop it if it is running."""
+        state = phoenix_state(self.phoenix_paths)
+        if state == PHOENIX_NOT_INSTALLED:
+            self.notify("Phoenix is not installed. Run: orisctl phoenix install")
+            return
+        if state == PHOENIX_RUNNING:
+            self._control_phoenix(stop_service, "stop", "stopped")
+        else:
+            self._control_phoenix(start_service, "start", "started")
+
+    def action_phoenix_restart(self) -> None:
+        """Restart Phoenix, or start it if launchd is not running it."""
+        if phoenix_state(self.phoenix_paths) == PHOENIX_NOT_INSTALLED:
+            self.notify("Phoenix is not installed. Run: orisctl phoenix install")
+            return
+        self._control_phoenix(restart_service, "restart", "restarted")
+
+    @work(thread=True)
+    def _control_phoenix(self, action: Any, verb: str, done: str) -> None:
+        """Run one launchctl command off the UI thread.
+
+        `launchctl` is a subprocess and takes long enough to be noticed, so
+        calling it inline freezes the interface mid-keystroke. Failure is
+        reported and nothing else: tracing is optional, and a service that will
+        not start is not a reason for the conversation to stop working.
+        """
+        paths = self.phoenix_paths
+        assert paths is not None  # guarded by the state check in both callers
+        try:
+            action(paths)
+        except Exception as error:  # noqa: BLE001 - a dead service is not a crash
+            self.call_from_thread(self.notify, f"Phoenix would not {verb}: {error}")
+        else:
+            self.call_from_thread(self.notify, f"Phoenix {done}.")
+        self.call_from_thread(self._show_phoenix)
 
     def action_toggle_scope(self) -> None:
         """Widen the activity view to every session, or narrow it back."""
@@ -979,6 +1073,13 @@ async def _main() -> None:
             threat_report_store=threat_report_store,
             export_directory=settings.export_directory,
             phoenix_url=settings.phoenix_url,
+            # Resolved from the package rather than the working directory, so
+            # the keys work wherever the interface was started from. Only the
+            # service label and the installed plist are read here; the project
+            # paths matter to `orisctl install`, which this never does.
+            phoenix_paths=LaunchAgentPaths.from_project_root(
+                Path(__file__).resolve().parents[2], "phoenix"
+            ),
         ).run_async()
 
 

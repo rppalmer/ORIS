@@ -443,7 +443,7 @@ def test_without_traces_the_activity_tab_explains_itself(tmp_path: Path) -> None
 
     summary, conversation = _run(drive())
 
-    assert "start-phoenix.sh" in summary
+    assert "start Phoenix with s" in summary
     assert "Censys reports" in conversation
 
 
@@ -960,3 +960,148 @@ def test_the_span_detail_pane_can_be_selected(tmp_path: Path) -> None:
             return app.screen.get_selected_text() or ""
 
     assert "enrich 8.8.8.8" in _run(drive())
+
+
+def _phoenix(tmp_path: Path, *, installed: bool = True) -> SimpleNamespace:
+    """A Phoenix service description pointing at a plist under tmp_path."""
+    plist = tmp_path / "com.rppalmer.oris.phoenix.plist"
+    if installed:
+        plist.write_text("<plist/>")
+    return SimpleNamespace(label="com.rppalmer.oris.phoenix", installed=plist)
+
+
+def test_the_activity_tab_says_whether_phoenix_is_running(tmp_path: Path) -> None:
+    """An empty activity view has two very different causes.
+
+    Traces can be absent because nothing ran, or because the collector is down.
+    Those look identical in the table and call for opposite responses, so the
+    service state is shown beside it.
+    """
+
+    async def drive() -> str:
+        app, _graph, _knowledge = _build(tmp_path, traces=False)
+        app.phoenix_paths = _phoenix(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            return str(app.query_one("#services").render())
+
+    with patch("oris.tui.is_loaded", return_value=True):
+        assert "running" in _run(drive())
+
+    with patch("oris.tui.is_loaded", return_value=False):
+        assert "stopped" in _run(drive())
+
+
+def test_a_service_that_was_never_installed_is_not_called_stopped(
+    tmp_path: Path,
+) -> None:
+    """The two need different cures, so naming them the same misdirects.
+
+    A stopped service starts with one key. One that was never installed cannot,
+    and looking for why it will not start is looking for the wrong problem.
+    """
+
+    async def drive() -> tuple[str, list[str]]:
+        app, _graph, _knowledge = _build(tmp_path)
+        app.phoenix_paths = _phoenix(tmp_path, installed=False)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            shown = str(app.query_one("#services").render())
+            await pilot.press("s")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            return shown, started
+
+    started: list[str] = []
+    with patch("oris.tui.start_service", side_effect=lambda p: started.append("x")):
+        shown, attempted = _run(drive())
+
+    assert "not installed" in shown
+    assert attempted == []
+
+
+@pytest.mark.parametrize(
+    ("running", "expected"),
+    [(False, ["start"]), (True, ["stop"])],
+)
+def test_phoenix_starts_and_stops_from_the_activity_tab(
+    tmp_path: Path,
+    running: bool,
+    expected: list[str],
+) -> None:
+    """One key, and which way it goes is read from launchd rather than remembered.
+
+    The service can also be started or stopped outside this interface, so a
+    toggle that trusted its own last action would send the opposite command.
+    """
+    called: list[str] = []
+
+    async def drive() -> list[str]:
+        app, _graph, _knowledge = _build(tmp_path)
+        app.phoenix_paths = _phoenix(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            await pilot.press("s")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+        return called
+
+    with (
+        patch("oris.tui.is_loaded", return_value=running),
+        patch("oris.tui.start_service", side_effect=lambda p: called.append("start")),
+        patch("oris.tui.stop_service", side_effect=lambda p: called.append("stop")),
+    ):
+        assert _run(drive()) == expected
+
+
+def test_a_service_that_will_not_start_does_not_take_the_interface_down(
+    tmp_path: Path,
+) -> None:
+    """Tracing is optional. A dead collector must never stop the chat working."""
+
+    async def drive() -> str:
+        app, _graph, _knowledge = _build(tmp_path)
+        app.phoenix_paths = _phoenix(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            await pilot.press("s")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.press("f1")
+            await pilot.pause()
+            await _ask(app, pilot, "still working?")
+            return _text(app, "#conversation")
+
+    def explode(_paths: Any) -> None:
+        raise OSError("launchctl bootstrap failed")
+
+    with (
+        patch("oris.tui.is_loaded", return_value=False),
+        patch("oris.tui.start_service", side_effect=explode),
+    ):
+        conversation = _run(drive())
+
+    assert ANSWER in conversation
+
+
+def test_the_phoenix_keys_are_not_offered_on_the_chat_tab(tmp_path: Path) -> None:
+    """Single letters belong to the chat box while it is on screen."""
+
+    async def drive() -> tuple[bool, bool]:
+        app, _graph, _knowledge = _build(tmp_path)
+        app.phoenix_paths = _phoenix(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.pause()
+            on_chat = app.check_action("phoenix_toggle", ())
+            await pilot.press("f2")
+            await pilot.pause()
+            return bool(on_chat), bool(app.check_action("phoenix_toggle", ()))
+
+    on_chat, on_activity = _run(drive())
+
+    assert not on_chat
+    assert on_activity

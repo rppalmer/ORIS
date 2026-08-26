@@ -38,7 +38,6 @@ from textual.widgets import (
     ListItem,
     ListView,
     Markdown,
-    RichLog,
     Static,
     TabbedContent,
     TabPane,
@@ -130,6 +129,7 @@ class _JsonScreen(ModalScreen):
     CSS = """
     _JsonScreen { align: center middle; }
     #viewer { width: 90%; height: 90%; border: round $accent; padding: 0 1; }
+    #viewer > Static { height: auto; }
     """
 
     def __init__(self, title: str) -> None:
@@ -137,15 +137,24 @@ class _JsonScreen(ModalScreen):
         self.viewer_title = title
 
     def compose(self) -> ComposeResult:
-        yield RichLog(id="viewer", wrap=True, markup=False)
+        yield VerticalScroll(id="viewer")
 
     def on_mount(self) -> None:
-        log = self.query_one("#viewer", RichLog)
-        log.write(Text.assemble((self.viewer_title, "bold"), ("  esc to close", "dim")))
-        log.write("")
-        self.fill(log)
+        """Mount the whole viewer as one block of text, so it can be selected.
 
-    def fill(self, log: RichLog) -> None:
+        A log cannot be copied out of. Both of these viewers exist to show
+        something you then want somewhere else — evidence into a ticket, a
+        prompt into an editor — so being unable to lift the text out defeats
+        the point of having them.
+        """
+        heading = Text.assemble(
+            (self.viewer_title, "bold"), ("  esc to close", "dim"), "\n\n"
+        )
+        self.query_one("#viewer", VerticalScroll).mount(
+            Static(Text.assemble(heading, self.body()))
+        )
+
+    def body(self) -> Text:
         raise NotImplementedError
 
 
@@ -157,13 +166,21 @@ class EvidenceScreen(_JsonScreen):
         super().__init__(f"Evidence {document.get('report_id', '?')} · {request}")
         self.document = document
 
-    def fill(self, log: RichLog) -> None:
+    def body(self) -> Text:
+        """Highlighted JSON as `Text`, which is both coloured and selectable.
+
+        `Syntax` renders to segments that keep no character positions, so a
+        drag over one selects nothing. Asking it to highlight instead returns
+        the same colours as a `Text`, which selection can read.
+        """
         rendered = json.dumps(
             self.document.get("evidence") or {},
             indent=2,
             ensure_ascii=False,
         )
-        log.write(Syntax(rendered, "json", theme="ansi_dark", word_wrap=True))
+        return Syntax(rendered, "json", theme="ansi_dark", word_wrap=True).highlight(
+            rendered
+        )
 
 
 class PromptScreen(_JsonScreen):
@@ -173,19 +190,18 @@ class PromptScreen(_JsonScreen):
         super().__init__(f"Prompts · {request}")
         self.prompts = prompts
 
-    def fill(self, log: RichLog) -> None:
+    def body(self) -> Text:
         if not self.prompts:
-            log.write(
-                Text(
-                    "This run made no model calls, or its traces are not recorded.",
-                    style="yellow",
-                )
+            return Text(
+                "This run made no model calls, or its traces are not recorded.",
+                style="yellow",
             )
-            return
-        for prompt in self.prompts:
-            log.write(Text(prompt.span_name, style="bold cyan"))
-            log.write(Text(prompt.content))
-            log.write("")
+        return Text("\n").join(
+            Text.assemble(
+                (prompt.span_name, "bold cyan"), "\n", (prompt.content, ""), "\n"
+            )
+            for prompt in self.prompts
+        )
 
 
 class ConfirmDeleteScreen(ModalScreen[bool]):
@@ -304,6 +320,7 @@ class OrisTui(App):
        split truncates the headings that matter at ordinary widths. */
     #turns { width: 3fr; height: 1fr; }
     #span-detail { width: 2fr; height: 1fr; border: round $panel; padding: 0 1; }
+    #span-detail > Static, #viewer > Static { height: auto; }
     #summary { height: auto; padding: 0 1; color: $text-muted; }
     """
     BINDINGS = [
@@ -367,7 +384,7 @@ class OrisTui(App):
                 yield Static("", id="summary")
                 with Horizontal():
                     yield DataTable(id="turns", cursor_type="row")
-                    yield RichLog(id="span-detail", wrap=True, markup=False)
+                    yield VerticalScroll(id="span-detail")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -712,18 +729,28 @@ class OrisTui(App):
         return self._spans[trace.trace_id]
 
     def _show_spans(self, index: int | None) -> None:
-        detail = self.query_one("#span-detail", RichLog)
-        detail.clear()
+        detail = self.query_one("#span-detail", VerticalScroll)
+        detail.remove_children()
+        detail.mount(Static(self._span_detail(index)))
+
+    def _span_detail(self, index: int | None) -> Text:
+        """The selected run, as one block of selectable text.
+
+        Built as a single `Text` rather than written line by line so the whole
+        pane can be dragged across. A span name and its timing are exactly what
+        gets pasted into a note about a slow run.
+        """
         if index is None or not 0 <= index < len(self._traces):
-            detail.write(Text("Nothing to show.", style="dim"))
-            return
+            return Text("Nothing to show.", style="dim")
         trace = self._traces[index]
-        detail.write(Text(trace.request or trace.trace_id[:12], style="bold"))
-        detail.write("")
+        lines = [
+            Text(trace.request or trace.trace_id[:12], style="bold"),
+            Text(""),
+        ]
         for span in self._spans_of(trace):
             tokens = f"{span.prompt_tokens:,}" if span.prompt_tokens else "—"
             failed = span.status.upper() == "ERROR"
-            detail.write(
+            lines.append(
                 Text.assemble(
                     ("  " * span.depth, ""),
                     (span.name, "red" if failed else "cyan"),
@@ -731,19 +758,20 @@ class OrisTui(App):
                     (f" {span.elapsed_seconds:.2f}s {tokens}", ""),
                 )
             )
-        detail.write("")
+        lines.append(Text(""))
         if self._evidence_ids.get(trace.trace_id):
-            detail.write(
+            lines.append(
                 Text.assemble(
                     ("e", "bold"),
                     (f"  evidence {self._evidence_ids[trace.trace_id]}", "dim"),
                 )
             )
-        detail.write(
+        lines.append(
             Text.assemble(("p", "bold"), ("  prompts sent to the model", "dim"))
         )
         if self.phoenix_url:
-            detail.write(Text(f"Deep trace: {self.phoenix_url}", style="dim"))
+            lines.append(Text(f"Deep trace: {self.phoenix_url}", style="dim"))
+        return Text("\n").join(lines)
 
     # -- actions -------------------------------------------------------------
     def action_show_tab(self, tab: str) -> None:

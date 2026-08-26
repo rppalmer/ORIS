@@ -23,7 +23,13 @@ pytest.importorskip("textual", reason="install the optional 'tui' extra")
 
 from textual.events import MouseMove  # noqa: E402
 from textual.geometry import Region  # noqa: E402
-from textual.widgets import DataTable, ListView, Markdown, TabbedContent  # noqa: E402
+from textual.widgets import (  # noqa: E402
+    DataTable,
+    ListView,
+    Markdown,
+    Static,
+    TabbedContent,
+)
 
 from oris.knowledge import KnowledgeRepository  # noqa: E402
 from oris.sessions import list_sessions  # noqa: E402
@@ -915,3 +921,42 @@ def test_a_request_can_be_selected_too(tmp_path: Path) -> None:
             return app.screen.get_selected_text() or ""
 
     assert _run(drive()) == "enrich 8.8.8.8"
+
+
+def test_stored_evidence_can_be_selected_and_copied(tmp_path: Path) -> None:
+    """Evidence exists to be taken somewhere else, so it has to come out.
+
+    The viewer showed highlighted JSON through a widget that keeps no character
+    positions, so a drag over it selected nothing at all. Highlighting to `Text`
+    keeps the colours and makes the same characters extractable.
+    """
+
+    async def drive() -> str:
+        app, _graph, _knowledge = _build(tmp_path, evidence=True)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            await pilot.press("e")
+            await pilot.pause()
+            body = app.screen.query_one("#viewer").query_one(Static)
+            await _drag(pilot, body, (0, 2), (60, 6))
+            return app.screen.get_selected_text() or ""
+
+    selected = _run(drive())
+
+    assert "censys" in selected
+
+
+def test_the_span_detail_pane_can_be_selected(tmp_path: Path) -> None:
+    """A span name and its timing are what gets pasted into a note about a slow run."""
+
+    async def drive() -> str:
+        app, _graph, _knowledge = _build(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            body = app.screen.query_one("#span-detail").query_one(Static)
+            await _drag(pilot, body, (0, 0), (40, 3))
+            return app.screen.get_selected_text() or ""
+
+    assert "enrich 8.8.8.8" in _run(drive())

@@ -1301,8 +1301,16 @@ Deterministic baseline: 301 passing, 17 skipped, clean lint and formatting.
   `Static` for requests, errors and the command reference, Textual's `Markdown`
   widget for answers. Selection and `ctrl+c`/`cmd+c` are already bound by
   Textual, so no key handling or clipboard code was written.
-- **The Activity tab still uses a log and is untouched.** Its detail pane shows
-  spans rather than prose, and nothing about it was reported as a problem.
+- **The other three panes were fixed straight after, for the same reason.** The
+  Activity tab's span detail, the evidence viewer and the prompt viewer were all
+  logs too. Evidence and prompts exist precisely to be taken somewhere else — a
+  ticket, an editor — so being unable to lift the text out defeated the point of
+  having them. Each is now a single selectable block of text rather than a
+  widget per line, because one `Static` already selects across its own lines.
+- **The evidence viewer keeps its colours.** Rich's `Syntax` renders to segments
+  that hold no character positions, so a drag over highlighted JSON selected
+  nothing. Asking `Syntax` to *highlight* instead returns the same colouring as
+  a `Text`, which selection can read. No colour was traded away for this.
 - The test asserts on extracted text, not on widget types, and deliberately does
   not pin which character a given column lands on — that depends on padding,
   which is styling. What must hold is that a drag yields real characters from
@@ -1316,4 +1324,4 @@ Deterministic baseline: 301 passing, 17 skipped, clean lint and formatting.
   copy answers out of the conversation pane; typing a URL into the input line
   was never the problem.
 
-Deterministic baseline: 303 passing, 17 skipped, clean lint and formatting.
+Deterministic baseline: 305 passing, 17 skipped, clean lint and formatting.

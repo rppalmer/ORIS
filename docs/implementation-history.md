@@ -1476,3 +1476,35 @@ Deterministic baseline: 325 passing, 17 skipped, clean lint and formatting.
 - Net removal: 27 files, 1,810 lines deleted against 115 added.
 
 Deterministic baseline: 318 passing, 15 skipped, clean lint and formatting.
+
+### The no-transcript caveat named the wrong thing — 2026-08-26
+
+A real catch-up run came back as a wall of near-identical lines: one per
+episode, each naming the episode and then telling the reader to "ask for this
+show by name to have it transcribed."
+
+Two faults in one message.
+
+The name was wrong. Narrowing a catch-up to one show matches on the show's
+display name, which is what Net-Razor returns as the episode's author. The
+caveat printed the episode title instead, so the instruction it gave could
+never be carried out. Typing the episode title back would match no show.
+
+The repetition was wrong. Publishing no transcript is a fact about a feed, not
+about an episode. A daily show with five new episodes stated it five times and
+pushed every other caveat — the feed errors, the truncations — off the end of
+what anyone would read. The caveats are now collected per show while the
+episodes are walked and written once at the end, in first-seen order.
+
+Both branches were changed, the one where transcription is absent entirely and
+the one where chat declines to start it, because both said the same thing about
+the same feed.
+
+What this does not fix is why there was nothing to summarise. Chat deliberately
+never transcribes a whole catch-up; it uses transcripts that already exist. The
+nightly job that would create them has never been added to `schedules.toml`, so
+on feeds that publish no transcript of their own, none ever exist. That is a
+configuration gap, not a code one, and it is the reason the run was mostly
+caveats.
+
+Deterministic baseline: 319 passing, 15 skipped, clean lint and formatting.

@@ -213,7 +213,8 @@ you want an explicit path:
   report by default, optionally one provider only. Every `/threat` run stores
   its evidence, so this always works. Never sent to the model, so a large
   report costs nothing in context.
-- `/help` — show the command list.
+- `/help` — show the command list. `/help <command>` or `<command> --help`
+  narrows it to one command.
 - `/session` — show the active conversation ID.
 - `/new` — start a blank conversation without deleting older sessions.
 - `/exit` — stop the application.

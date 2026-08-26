@@ -213,7 +213,7 @@ async def run_chat(
             if parsed.name == "exit":
                 return
             if parsed.name == "help":
-                console.print(command_table())
+                console.print(command_table(parsed.argument))
             elif parsed.name == "session":
                 console.print(Text(f"Current session: {thread_id}", style="dim"))
             elif parsed.name == "new":

@@ -474,7 +474,7 @@ class OrisTui(App):
             if parsed.name == "exit":
                 self.exit()
             elif parsed.name == "help":
-                log.write(command_table())
+                log.write(command_table(parsed.argument))
             elif parsed.name == "session":
                 log.write(Text(f"Current session: {self.thread_id}", style="dim"))
             elif parsed.name == "new":

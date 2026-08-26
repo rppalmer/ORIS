@@ -118,3 +118,47 @@ def test_a_named_show_reaches_the_specialist_as_the_request() -> None:
     assert read_command("/podcasts linux unplugged") == Routed(
         "podcast_catch_up", "linux unplugged"
     )
+
+
+def test_every_command_answers_for_its_own_usage() -> None:
+    """`--help` on a command is help, never that command's argument.
+
+    `/podcasts --help` used to be read as the name of a show to catch up on,
+    which searched the feeds for a podcast called "--help" and reported that
+    nobody follows it. Any command can be asked, including the ones an
+    interface answers itself.
+    """
+    assert read_command("/podcasts --help") == SelfHandled("help", "/podcasts")
+    assert read_command("/research -h") == SelfHandled("help", "/research")
+    assert read_command("/new --help") == SelfHandled("help", "/new")
+    assert read_command("/quit --help") == SelfHandled("help", "/exit")
+
+
+def test_help_also_takes_the_command_as_its_argument() -> None:
+    """`/help /podcasts` and `/help podcasts` ask the same question."""
+    assert read_command("/help /podcasts") == SelfHandled("help", "/podcasts")
+    assert read_command("/help podcasts") == SelfHandled("help", "/podcasts")
+    assert read_command("/help nonsense") == Rejected("Unknown command: nonsense")
+
+
+def test_a_two_word_question_is_not_a_help_request() -> None:
+    """The flag only means help on something already spelled as a command.
+
+    Without the leading-slash requirement, an ordinary message that happened to
+    end in `-h` would stop being a message.
+    """
+    assert read_command("bandwidth -h") == Routed("auto", "bandwidth -h")
+
+
+def test_help_for_one_command_shows_that_command_alone(capsys) -> None:
+    """Narrowed help keeps every line the command owns and drops the rest.
+
+    `/threat` has two lines, the lookup and the evidence viewer, and someone
+    asking about `/threat` needs both.
+    """
+    Console(width=200).print(command_table("/threat"))
+    printed = capsys.readouterr().out
+
+    assert "[report] [enrich|ref] <target>" in printed
+    assert "/threat show [id] [source]" in printed
+    assert "/podcasts" not in printed

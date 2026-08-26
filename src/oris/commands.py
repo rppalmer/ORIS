@@ -74,6 +74,14 @@ SIMPLE_COMMANDS = (
 # this module was created to stop.
 EXIT_COMMANDS = ("/exit", "/quit")
 
+HELP_FLAGS = frozenset({"--help", "-h"})
+"""How a command asks for its own reference instead of running.
+
+Only the flag spellings, never a bare `help`: `/research help` is a perfectly
+good question about help, and a command that quietly refused to search for its
+own argument would be worse than one that never offered help at all.
+"""
+
 WORKING_LABELS = {
     "web_research": "Web Research",
     "podcast_catch_up": "Podcast Catch-up",
@@ -133,6 +141,22 @@ class Rejected:
     message: str
 
 
+def help_topic(name: str) -> str | None:
+    """The command whose reference `name` asks for, or None if there is none.
+
+    Accepts the name with or without its leading slash, because `/help podcasts`
+    is what people type at least as often as `/help /podcasts`.
+    """
+    command = name if name.startswith("/") else f"/{name}"
+    if command in EXIT_COMMANDS:
+        return "/exit"
+    if command in SLASH_COMMANDS:
+        return command
+    if any(entry.split()[0] == command for entry, _description in SIMPLE_COMMANDS):
+        return command
+    return None
+
+
 def read_command(query: str) -> Routed | SelfHandled | Rejected:
     """Decide what one line of input asks for.
 
@@ -149,6 +173,22 @@ def read_command(query: str) -> Routed | SelfHandled | Rejected:
         return SelfHandled("session")
     if query == "/new":
         return SelfHandled("new")
+
+    # Either spelling of "explain this one command": `/help /podcasts`, or the
+    # flag on the command itself. The leading slash is required so that an
+    # ordinary two-word message ending in `-h` is still a message.
+    words = query.split()
+    if (
+        len(words) == 2
+        and words[0].startswith("/")
+        and (words[0] == "/help" or words[1] in HELP_FLAGS)
+    ):
+        wanted = words[1] if words[0] == "/help" else words[0]
+        topic = help_topic(wanted)
+        if topic is None:
+            return Rejected(f"Unknown command: {wanted}")
+        return SelfHandled("help", topic)
+
     if query.startswith("/threat show"):
         return SelfHandled("show_evidence", query.removeprefix("/threat show").strip())
 
@@ -164,8 +204,13 @@ def read_command(query: str) -> Routed | SelfHandled | Rejected:
     return Routed("auto", query)
 
 
-def command_table() -> Table:
+def command_table(command: str = "") -> Table:
     """Build the command reference both interfaces show at startup and on `/help`.
+
+    Naming a command narrows the table to that command's own lines. `/threat`
+    has two of them, one for the lookup and one for `/threat show`, and both
+    belong in its help — which is why the filter matches on the first word
+    rather than on the whole usage string.
 
     `Text`, not `str`: usage strings are full of square brackets for optional
     arguments, and rich would read "[report]" and "[source]" as markup tags and
@@ -174,10 +219,12 @@ def command_table() -> Table:
     table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
     table.add_column(style="bold cyan", no_wrap=True)
     table.add_column(style="dim")
-    for command, (_mode, argument, description) in SLASH_COMMANDS.items():
-        table.add_row(Text(f"{command} {argument}"), Text(description))
-    for command, description in SIMPLE_COMMANDS:
-        table.add_row(Text(command), Text(description))
+    for name, (_mode, argument, description) in SLASH_COMMANDS.items():
+        if command in ("", name):
+            table.add_row(Text(f"{name} {argument}"), Text(description))
+    for usage, description in SIMPLE_COMMANDS:
+        if command in ("", usage.split()[0]):
+            table.add_row(Text(usage), Text(description))
     return table
 
 

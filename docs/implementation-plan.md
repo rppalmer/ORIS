@@ -264,12 +264,12 @@ than a follow-up.
   stopped, and restarted from there. The service and its `orisctl phoenix`
   command exist as of 2026-08-16, so this is now a thin surface over code that
   is already tested; scheduler health must still not depend on Phoenix health.
-- [ ] Make chat text copyable and pasteable. Selecting an answer to copy it,
-  and pasting a URL or an indicator into the input line, are the two things a
-  chat window is expected to do. Check what each front end already gives for
-  free — a plain terminal session hands selection to the terminal emulator,
-  while the `textual` interface captures the mouse and takes that away — so the
-  work is probably only on the tabbed interface.
+- [ ] Make chat text copyable and pasteable in the tabbed interface. Confirmed
+  on 2026-08-25 to be the only front end affected: the plain command line hands
+  selection to the terminal emulator, while `textual` captures the mouse and
+  takes that away. Also confirmed not to be a framework limit — the installed
+  Textual 8.2.8 has `ALLOW_SELECT` on every widget and `App.copy_to_clipboard`,
+  so this is wiring the interface never did, not a version to wait for.
 - [ ] Decide whether a long turn needs a cancel key. Per-step status now names
   the running graph node, which was the larger half of the complaint; whether
   the remaining wait is worth interrupting is a question for real use.

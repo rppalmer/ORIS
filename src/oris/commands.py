@@ -37,8 +37,8 @@ SLASH_COMMANDS = {
     ),
     "/podcasts": (
         "podcast_catch_up",
-        "",
-        "Catch up on new episodes from your configured feeds.",
+        "[show]",
+        "Catch up on your feeds; name one show for its newest episode alone.",
     ),
     "/threat": (
         "threat_intel",
@@ -46,6 +46,16 @@ SLASH_COMMANDS = {
         "Defensive ThreatSyft lookup; 'enrich' egresses indicators to providers.",
     ),
 }
+
+OPTIONAL_ARGUMENT_COMMANDS = frozenset({"/podcasts"})
+"""Commands that mean something on their own.
+
+Every other slash command needs a subject: `/research` without a question has
+nothing to research. Podcast Catch-up already knows what to catch up on, because
+the feeds are configured in Net-Razor, so an empty line is the ordinary way to
+use it and naming a show is the narrowing.
+"""
+
 
 # Commands an interface answers itself, without reaching the graph.
 SIMPLE_COMMANDS = (
@@ -146,7 +156,7 @@ def read_command(query: str) -> Routed | SelfHandled | Rejected:
     if command in SLASH_COMMANDS:
         mode, argument, _description = SLASH_COMMANDS[command]
         request = query.removeprefix(command).strip()
-        if not request:
+        if not request and command not in OPTIONAL_ARGUMENT_COMMANDS:
             return Rejected(f"Usage: {command} {argument}")
         return Routed(mode, request)
     if command.startswith("/"):

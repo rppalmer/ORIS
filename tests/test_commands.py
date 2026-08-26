@@ -96,3 +96,25 @@ def test_the_progress_label_names_the_specialist() -> None:
     """A spinner that says what is running is the only progress signal there is."""
     assert working_label("web_research") == "Web Research"
     assert working_label("auto") == "Thinking"
+
+
+def test_a_command_that_needs_no_argument_runs_without_one() -> None:
+    """`/podcasts` takes its scope from the configured feeds, not from the line.
+
+    Every other slash command needs something to act on, so the parser refused
+    an empty one. This command's whole point is that it already knows what to
+    catch up on.
+    """
+    assert read_command("/podcasts") == Routed("podcast_catch_up", "")
+
+
+def test_a_command_that_needs_an_argument_still_refuses_an_empty_one() -> None:
+    """The relaxation is per command, not a general loosening."""
+    assert read_command("/research") == Rejected("Usage: /research <question>")
+
+
+def test_a_named_show_reaches_the_specialist_as_the_request() -> None:
+    """`/podcasts <show>` narrows the run to one configured show."""
+    assert read_command("/podcasts linux unplugged") == Routed(
+        "podcast_catch_up", "linux unplugged"
+    )

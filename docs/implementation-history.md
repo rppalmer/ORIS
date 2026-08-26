@@ -1092,3 +1092,189 @@ Deterministic baseline: 259 passing, 17 skipped, clean lint and formatting.
   failures.
 
 Deterministic baseline: 260 passing, 17 skipped, clean lint and formatting.
+
+### What the first evaluation run found — 2026-08-18
+
+- **Running the new evaluation set for real found three defects, none of them
+  in the specialist the run was aimed at.** The set was written the day before
+  against the prompts' stated rules. Its first live run was the first time
+  anything checked those rules against real archives and real feeds.
+- **The knowledge archive matched exact word forms.** Six documents said
+  "scheduled" and a question about "schedules" reached none of them. On its own
+  that would have returned nothing, which is a visible failure. But search ORs
+  its terms together, so the miss on the important word was filled by unrelated
+  documents sharing a common one, and a question about how ORIS schedules jobs
+  came back with dynamic-DNS threat enrichment. A confident wrong answer, not an
+  empty one. Switching FTS5 to the porter tokenizer fixed it: on the real
+  archive that question now returns the five scheduled reports.
+- **Changing the tokenizer was not enough on its own.** The table is created
+  with `IF NOT EXISTS`, so every archive already on disk would have kept the old
+  tokenizer while the code claimed otherwise — the worst kind of fix, one that
+  works on a fresh machine and nowhere else. Opening an archive now re-indexes
+  it once if it was built the old way.
+- **Recency-ordered retrieval asked for exactly one document.** That existed to
+  keep a recurring-report question answered from the newest run rather than
+  blended across several. The system prompt already says exactly that, and
+  enforcing it at retrieval applied it to every question the planner read as
+  recency-sensitive. Both orders now retrieve five; recency still decides which
+  document is source 1. Verified against the real archive: the recurring-report
+  case sees five reports and still answers from the newest alone, so the prompt
+  was carrying that rule by itself.
+- **The Community Research cases measured nothing.** Every one returned zero
+  evidence, which looked like a specialist that could not find anything. The
+  cases asked full English questions, and the whole sentence was going to
+  Algolia and X as the search term. This specialist never sees a question in
+  production — the router strips the request to a bare topic first — so the file
+  was testing a path that does not exist. Rewritten as topics, the cases take 25
+  seconds instead of 3 and return real posts.
+- **I got the Local Knowledge diagnosis wrong twice before querying the
+  archive.** First "inert cases", then "a real retrieval defect", then back to
+  inert once I actually ran the queries. The two defects found on the way were
+  real and are fixed, but neither changed the verdict on those cases. The
+  evaluation set is worth running; my reading of it without evidence was not.
+- **Whisper transcription for caption-less YouTube videos was planned and then
+  killed.** The plan is kept and marked dead rather than parked. Net-Razor's
+  entire audit history held four caption failures, so there was nothing to build
+  on either side; shortly afterwards YouTube audio stopped being downloadable at
+  all, which settled it.
+
+No deterministic baseline is recorded for this entry. It was written on
+2026-08-25 from the commits, and the count at the time cannot be reconstructed
+reliably: a checkout without the `tui` extra silently collects 26 fewer tests
+rather than failing, so any number measured after the fact would be wrong in an
+invisible way.
+
+### Podcast Catch-up — 2026-08-19 to 2026-08-25
+
+Net-Razor gained a podcast source with local Whisper transcription. This is the
+ORIS side of it: a fifth specialist that discovers new episodes from configured
+feeds, gets a transcript for each, summarizes them one at a time, and produces a
+cited digest.
+
+**Why it is not built on YouTube Catch-up**
+
+- **It is a candidate replacement for YouTube Catch-up, not a sibling.**
+  Collecting from Google keeps getting harder; podcasts with Whisper are a bet
+  on a better path to the same thing. That makes the duplication between the two
+  correct and permanent rather than a merge deferred to later, because sharing
+  code with something scheduled for deletion turns that deletion into an
+  untangling. Net-Razor reached the same conclusion independently on its side.
+- **The boundary is stated as a test anyone can run.** Deleting the YouTube
+  specialist, its prompts, its tool allowlist, its builders, its job type and
+  its table rows must leave every podcast test passing. One edit needed inside a
+  podcast file means the separation failed. Podcasts have their own prompt files
+  for this reason — pointing at YouTube's would have been the quietest possible
+  entanglement.
+- **One earlier decision was reversed to hold the line.** Both catch-ups were
+  briefly given slash commands, `/podcasts` and `/videos`. `/videos` was dropped:
+  it added a command for a specialist that may be deleted, and changed YouTube's
+  reachability for reasons that were entirely about podcasts.
+
+**The transcript-ordering rule**
+
+- **A published transcript is never replaced by a machine one.** Net-Razor's
+  store is first-writer-wins, so transcribing an episode whose publisher
+  transcript was never fetched forecloses that better version permanently. The
+  published one usually identifies who is speaking and machine transcription
+  never does, so this is not an optimisation.
+- **Transcription is reachable from exactly one branch**: the first transcript
+  page came back with `no_transcript_found`. The decision is made on the first
+  page only — a later page failing means a transcript already exists, and
+  falling back there would trade it away to recover one page.
+- **Every episode reports which backend produced its transcript.** A reader who
+  cannot tell will weigh a mangled product name exactly as heavily as one the
+  publisher wrote down.
+
+**Timeouts**
+
+- **Transcription gets its own MCP client.** The session timeout is fixed when
+  the client is built and the official adapter never passes a per-call override,
+  so a separate deadline means a separate client. Sharing one would have given a
+  hanging feed fetch 23 minutes to fail in instead of two.
+- **1380 seconds is derived, not chosen.** Net-Razor bounds a transcription in
+  three stages that run in sequence — a 30-second feed fetch, a 300-second audio
+  download, and a 900-second transcriber — so 1230 seconds is the longest a call
+  can legitimately take. ORIS waits longer so its deadline never wins the race:
+  Net-Razor classifies its own failures, and a transport timeout firing first
+  would replace that description with a dead session.
+- **That ceiling was not real until Net-Razor fixed it.** The download had no
+  total bound, only a gap-between-chunks timeout, so a slow trickle could have
+  streamed a large episode for hours. This was one of four concerns raised
+  against Net-Razor before building; two of them turned out to be bugs.
+
+**Four things only live feeds found**
+
+- **The run budget was spent on the newest episodes globally.** A show
+  publishing daily took six of eight slots and two weekly shows never appeared.
+  Net-Razor already caps what each feed contributes, and flattening everything
+  into one newest-first list threw that fairness away. Raising the budget does
+  not help — it only admits more of the same show. Selection now takes one
+  episode from each feed before a second from any.
+- **The part budget was fitted to a sample twice and was wrong twice.** Six was
+  set against an 83,368-character episode and cut it short. Eight was set just
+  above that same sample, and the next week's episode of the same show arrived
+  at 103,684 characters and was cut short again. The axis was wrong, not the
+  number: a per-episode cap punishes exactly one thing, a long episode, while
+  short ones leave the budget unused. An episode is now read until Net-Razor
+  stops returning a `next_offset`, and the ceiling moved to the run — sixty
+  parts across all its episodes, derived from ten episodes averaging six parts
+  at a measured sixteen seconds to summarize one.
+- **A good digest was discarded for citing nothing.** Four episodes summarized,
+  a solid cross-cutting digest written, and the run died at the last step
+  producing no report at all. The prompt never told the model that each supplied
+  episode carries a `url` field, so it was asked for something it was never
+  shown where to find. Citing a URL that was never supplied is fabrication and
+  stays fatal; citing none is a formatting miss, and the report already lists
+  every episode with its canonical URL, so it is now a caveat. **This is the
+  same defect already recorded against Community Research, which I then copied
+  into new code.** Unit tests could not catch it because they mock the digest
+  model to always return a citation.
+- **`/podcasts` was rejected outright and the command never worked.** The parser
+  refuses any slash command with an empty request, because every command until
+  then needed a subject. Podcast Catch-up already knows what to catch up on. An
+  empty line is now the ordinary way to use it, listed per command so
+  `/research` still refuses one.
+
+**Two things copied from the YouTube shape that were wrong**
+
+Discovery returns `items`, not `episodes`. And it has no `caveats` list — a feed
+it could not read arrives in `errors`, so without reading those, a run covering
+six of eight feeds looked identical to one covering all eight.
+
+**Naming one show**
+
+`/podcasts <show>` returns that show's newest episode alone, matched on the
+display name Net-Razor already returns so ORIS never learns a feed URL.
+Narrowing to a configured show is not the same as supplying an arbitrary one,
+so the capability boundary holds.
+
+Transcription was initially kept out of the interactive graph entirely, on the
+rule that a chat turn must never start work that blocks for minutes. That line
+was in the wrong place: three of the five feeds in real use publish no
+transcript, so naming a show — the only reason to name one — answered "nothing
+to summarise" almost every time. What actually matters is how many
+transcriptions one run can stack up. A named show is one episode and so at most
+one transcription, already bounded at 23 minutes. A catch-up can queue five,
+which would hold the interface for most of an hour, so chat still refuses to
+transcribe for one.
+
+**Also in this period**
+
+- Every slash command now answers `--help` or `-h`, and `/help` takes a command
+  name. `/podcasts --help` had been read as the name of a show, so the command
+  most likely to be asked about searched the feeds for a podcast called
+  "--help".
+- The README gained a section on standing the project up on a second machine,
+  since the existing setup notes assumed the machine you were already on.
+- One episode, `93bfba91`, was acknowledged by mistake during testing and is
+  permanently out of the queue. Acknowledgement is one-way. The cause was
+  reproducing a bug with the acknowledging graph when every other test had
+  deliberately used the preparation graph.
+
+**Still open**
+
+Chat has no retry on a dropped model call, which has now been hit in normal use.
+The scheduled path — `oris-run-scheduled` writing a report, indexing it to
+`/recall`, and acknowledging episodes — has not been run end to end.
+
+Deterministic baseline: 301 passing, 17 skipped, clean lint and formatting.

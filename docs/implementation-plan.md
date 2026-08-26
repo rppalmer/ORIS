@@ -30,7 +30,8 @@ Knowledge, and session isolation. The parent graph, durable sessions, explicit
 Local Knowledge recall, and Threat Intel are working.
 
 Ordinary input uses a constrained structured-output router; `/research`,
-`/community`, `/recall`, and `/threat` remain deterministic overrides. The
+`/community`, `/recall`, `/podcasts`, and `/threat` remain deterministic
+overrides. Every command answers `--help`, and `/help` takes a command name. The
 router resolves context-dependent follow-ups and prepares specialist input in
 the same model call. Community Research receives a concise Net-Razor topic;
 other specialists receive standalone requests. Failed requests are kept out of
@@ -39,9 +40,13 @@ distinguishes current-state lookups from publication-bounded news and selects
 Tavily's news category for explicit news requests. YouTube Catch-up discovers a
 bounded queue through Net-Razor, summarizes transcripts one at a time, and maps
 only its cited digest and caveats back into chat; Net-Razor remains the sole
-owner of processed-video state. Local Knowledge plans each archive search into
-concise terms, a chat or scheduled-report filter, and relevance or newest
-ordering, and recall answers are not re-indexed as new knowledge. Direct chat
+owner of processed-video state. Podcast Catch-up covers the same ground for configured podcast feeds, prefers
+the publisher's transcript over a machine one, and falls back to local Whisper;
+it shares no code with YouTube Catch-up, which it may eventually replace. Local
+Knowledge plans each archive search into concise terms, a chat or
+scheduled-report filter, and relevance or newest ordering, and recall answers
+are not re-indexed as new knowledge. Its archive is stemmed, so a question
+about "schedules" reaches a document that says "scheduled". Direct chat
 leads with the answer and expands only when depth is requested — a prompt-only
 behaviour, with no output truncation or graph change.
 
@@ -56,8 +61,9 @@ by both. Which becomes the primary interface is still open and waiting on real
 use.
 
 Local Phoenix tracing, the project-owned APScheduler runtime, and scheduled run
-history are working. The scheduler can run either Web Research or YouTube
-Catch-up directly from a validated `schedules.toml` entry. No recurring YouTube
+history are working. The scheduler can run Web Research, YouTube Catch-up, or
+Podcast Catch-up directly from a validated `schedules.toml` entry. Only the
+scheduled path transcribes a whole catch-up; in chat, only a named show does. No recurring YouTube
 job is enabled in the committed schedule because its timing and work budget have
 not been chosen. Both the scheduler and Phoenix run as transitional per-user
 LaunchAgents managed by `orisctl <service> <action>`, rendered from one set of
@@ -432,8 +438,9 @@ and everything has been exercised against live services.
 Take "Answer quality" next. It is the only work on this roadmap that changes
 what an investigation actually tells you; everything else changes what ORIS can
 reach or how comfortable it is to drive. The current date is done. The
-evaluation cases are next, because nothing after them can be judged without a
-before-and-after, and the four case files have not been run even once yet.
+evaluation cases were run for the first time on 2026-08-18 and found three
+defects, all recorded in the history. What they still lack is a recorded verdict
+per case, so two reports cannot be compared without reading both in full.
 
 Provider adapters remain contingent on a real second implementation, and
 dynamic MCP exploration remains unapproved.

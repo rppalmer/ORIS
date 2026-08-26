@@ -1442,3 +1442,37 @@ Deterministic baseline: 316 passing, 17 skipped, clean lint and formatting.
   file would claim a run was recorded when it was not.
 
 Deterministic baseline: 325 passing, 17 skipped, clean lint and formatting.
+
+### YouTube Catch-up removed — 2026-08-26
+
+- **Net-Razor dropped its YouTube source, so the three tools ORIS asked for
+  stopped existing.** Podcast Catch-up had been built as the replacement and was
+  working well enough to settle it. Everything YouTube is deleted: the
+  specialist, its two prompts, its tool tuple and loader, its builders, its
+  scheduled job type, its run record, its report formatter, its runner, its
+  tests, its two live contracts, its contract document, its routing line and its
+  routing evaluation case.
+- **The separation stated its own test and it held.** Every podcast test passed
+  before a line of a podcast file was touched. What did need editing was shared
+  infrastructure — the router enum, the scheduler dispatch, the tool loaders,
+  the graph signature — which is where a second specialist was always going to
+  appear. The only podcast edits afterwards were docstrings describing a module
+  that no longer exists.
+- **The four scheduled-run tests were ported, not deleted.** They cover
+  persisting a report before acknowledging it, the empty-queue report, and both
+  failure paths, and those invariants belong to podcasts exactly as they did to
+  videos. Deleting them would have left the scheduled podcast path with no
+  coverage at all — and that path has still never been run end to end, so it was
+  the worst possible thing to leave untested.
+- **The routing prompt no longer has to disambiguate.** It carried a rule about
+  preferring one catch-up for "videos, channels, watching" and the other for
+  "podcasts, episodes, shows, listening". With one catch-up left, a bare "catch
+  me up" is no longer ambiguous and the rule is gone.
+- The routing evaluation set swapped its YouTube case for the podcast one and
+  its version was bumped, so an older report is not mistaken for the same set of
+  questions.
+- **Kept:** `docs/youtube-transcription-plan.md`, already marked dead, which
+  records why the Whisper-for-YouTube work stopped. It is history, not a plan.
+- Net removal: 27 files, 1,810 lines deleted against 115 added.
+
+Deterministic baseline: 318 passing, 15 skipped, clean lint and formatting.

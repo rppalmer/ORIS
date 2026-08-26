@@ -1377,14 +1377,30 @@ Deterministic baseline: 311 passing, 17 skipped, clean lint and formatting.
   inherit the terminal. Verified before relying on it, and pinned by a test so
   that an upstream change making the simpler fix viable shows up as a failure
   rather than going unnoticed.
-- **The redirection covers the run and is undone on the way out**, so a crash
-  still prints its traceback where it can be read. Configuration is loaded
-  before it starts, so a bad `.env` also still reports itself to the terminal.
-  Server logging lands in `~/.oris/logs/mcp-servers.log`.
-- **The test writes to descriptor 2 explicitly rather than using
-  `sys.stderr`.** Under pytest, `sys.stderr` is a replacement backed by a
-  different descriptor, so a test built on it passed while proving nothing
-  about production. Writing the test the obvious way is what surfaced that: it
-  failed, and the failure was the test's, not the fix's.
+- **The first attempt redirected file descriptor 2, and broke the interface
+  completely.** Textual draws every frame on `sys.__stderr__`, so redirecting
+  one level below that moved the interface as well: `oris-tui` painted itself
+  into the log file and the terminal stayed blank. Over SSH it looked like the
+  command did nothing. Shipped without ever running the interface, on tests
+  that only checked where a child process's output went.
+- **The working fix separates the two names for that stream.** Textual uses
+  `sys.__stderr__` and nothing touches it. The MCP client takes `sys.stderr` as
+  a default argument value, bound once when its module is imported, so
+  rebinding that name before the import decides where every server's logging
+  goes without moving the interface. The import ordering is therefore
+  load-bearing: `_main` reads settings from `oris.config`, because importing
+  `web_research_app` first would pull in the client and bind the terminal.
+- **The redirection is undone on the way out**, so a crash still prints its
+  traceback where it can be read. Configuration is loaded before it starts, so
+  a bad `.env` also still reports itself to the terminal. Server logging lands
+  in `~/.oris/logs/mcp-servers.log`.
+- **A test now pins that Textual draws on the stream this leaves alone**, and
+  another that importing `oris.tui` does not load the MCP client. Either
+  changing upstream would silently hide the interface again.
+- **The lesson is about what was verified, not about stderr.** Both attempts
+  had passing tests. The first one's tests were all about where a child
+  process's output went, and every one of them was true — the interface was
+  simply never run. A pseudo-terminal reproduction took two minutes once it was
+  actually tried, and would have caught it before it shipped.
 
-Deterministic baseline: 314 passing, 17 skipped, clean lint and formatting.
+Deterministic baseline: 316 passing, 17 skipped, clean lint and formatting.

@@ -39,18 +39,24 @@ Every other error type is terminal for that episode. Branching on the published
 an error message means would be rebuilding it.
 """
 
-MAX_TRANSCRIPT_PARTS = 8
+MAX_TRANSCRIPT_PARTS = 13
 """How many parts of one episode's transcript a single run will read.
 
-Net-Razor serves about 12,000 characters per part, so eight covers 96,000
-characters. Measured against the configured feeds on 2026-08-19: the two shows
-that publish their own transcripts came in at 71,738 and 83,368 characters, or
-six and seven parts. Six would have silently cut the longer one short every
-week.
+Derived from the longest show the feeds carry rather than from one sample.
+Net-Razor serves about 12,000 characters per part, and measured transcripts run
+near 50,000 characters per hour of speech, so a three-hour episode — the longest
+of the configured shows — needs about thirteen parts.
 
-This is an orchestration budget rather than a provider limit: Net-Razor cannot
-know how many model calls one run can afford. An episode that exceeds it is
-summarised from the parts that were read and reported as truncated.
+Fitting this number to a single measurement has now failed twice. Six was set
+against an 83,368-character episode and cut it short; eight was set just above
+that same sample, and the next week's episode of the same show came in at
+103,684 characters and was cut short again. A weekly show varies by more than
+the headroom either number left.
+
+This remains an orchestration budget rather than a provider limit: Net-Razor
+cannot know how many model calls one run can afford. An episode that still
+exceeds it is summarised from the parts that were read and reported as
+truncated.
 """
 
 

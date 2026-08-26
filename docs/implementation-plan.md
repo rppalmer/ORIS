@@ -257,6 +257,29 @@ than a follow-up.
     stated rules, not against observed failures. Cases earn their place by
     catching something; these have not been run yet.
 
+### Remove YouTube Catch-up
+
+- [ ] **Delete the YouTube specialist.** Net-Razor removed its YouTube source on
+  2026-08-26, so the three tools ORIS asks for no longer exist. Podcast
+  Catch-up was built as the replacement and is working, which is what settled
+  it.
+  - **This is live now.** The specialist resolves lazily, so ORIS still starts
+    and everything else works. But the router can still choose
+    `youtube_catch_up`, and that turn now fails with "Net-Razor is missing
+    required MCP tools". Nothing warns first.
+  - The separation was designed for exactly this and states its own test:
+    deleting the specialist, its two prompt files, its tool tuple and loader,
+    its builders, its scheduled job type, its report builder and its table rows
+    must leave every podcast test passing, with no edit inside a podcast file.
+    If a podcast file needs touching, the separation failed and that is worth
+    knowing.
+  - Also goes: the routing prompt's YouTube line and its routing evaluation
+    cases, `tests/test_youtube_catch_up.py`, the two live contract files, the
+    README entries, and `docs/youtube-catch-up-contract.md`. Check
+    `schedules.toml` for an enabled job first.
+  - Keep `docs/youtube-transcription-plan.md`, which is already marked dead and
+    records why the transcription work stopped.
+
 ### Interfaces
 
 - [ ] Add schedule management to the terminal interface: list the jobs in

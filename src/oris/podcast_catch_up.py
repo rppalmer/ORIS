@@ -22,9 +22,7 @@ from oris.net_razor import PODCAST_CATCH_UP_TOOL_NAMES
 from oris.prompts import load_system_prompt
 from oris.search import NonEmptyText
 
-EPISODE_SUMMARY_SYSTEM_PROMPT = load_system_prompt(
-    "podcast_episode_summary_system.txt"
-)
+EPISODE_SUMMARY_SYSTEM_PROMPT = load_system_prompt("podcast_episode_summary_system.txt")
 CATCH_UP_SYSTEM_PROMPT = load_system_prompt("podcast_catch_up_system.txt")
 
 DEFAULT_MAX_EPISODES = 5
@@ -373,9 +371,7 @@ def create_podcast_catch_up_preparation_graph(
             transcribed = await read_transcript_page(transcription_tool, episode, 0)
             transcription_error = _first_error_type(transcribed)
             if transcription_error is not None:
-                caveats.append(
-                    f"Could not transcribe {title}: {transcription_error}."
-                )
+                caveats.append(f"Could not transcribe {title}: {transcription_error}.")
                 continue
 
             backends[episode["source_id"]] = transcribed.get(
@@ -473,7 +469,9 @@ def create_podcast_catch_up_preparation_graph(
                         not isinstance(transcript_call_id, str)
                         or not transcript_call_id
                     ):
-                        raise ValueError("Net-Razor did not return a transcript call ID")
+                        raise ValueError(
+                            "Net-Razor did not return a transcript call ID"
+                        )
 
                 part_summaries.append(await summarize_part(episode, part, backend))
                 parts_remaining -= 1
@@ -632,9 +630,7 @@ def create_acknowledging_podcast_catch_up_graph(
 
     async def prepare(state: PodcastCatchUpState) -> dict:
         request = {
-            key: state[key]
-            for key in ("days", "max_episodes", "show")
-            if key in state
+            key: state[key] for key in ("days", "max_episodes", "show") if key in state
         }
         return await preparation_graph.ainvoke(request)
 

@@ -601,9 +601,9 @@ def _selected(graph, tools, *, max_episodes: int) -> list[str]:
     """The episode IDs the graph chose to work on, in order."""
     from oris.podcast_catch_up import select_episodes
 
-    discovered = tools["discovery"].ainvoke.return_value.artifact[
-        "structured_content"
-    ]["items"]
+    discovered = tools["discovery"].ainvoke.return_value.artifact["structured_content"][
+        "items"
+    ]
     return [
         episode["source_id"] for episode in select_episodes(discovered, max_episodes)
     ]
@@ -664,7 +664,9 @@ def test_a_long_episode_is_read_to_its_end() -> None:
     at six pages and again at eight, and prevented nothing.
     """
     pages = [
-        transcript_page("call-1", f"Part {n}.", part=n, part_count=10, next_offset=n * 100)
+        transcript_page(
+            "call-1", f"Part {n}.", part=n, part_count=10, next_offset=n * 100
+        )
         for n in range(1, 10)
     ]
     pages.append(transcript_page("call-1", "Part 10.", part=10, part_count=10))
@@ -691,12 +693,15 @@ def test_the_run_stops_reading_once_its_whole_budget_is_spent() -> None:
     from oris.podcast_catch_up import MAX_TRANSCRIPT_PARTS_PER_RUN
 
     endless = [
-        transcript_page("call-1", f"Part {n}.", part=n, part_count=99, next_offset=n * 100)
+        transcript_page(
+            "call-1", f"Part {n}.", part=n, part_count=99, next_offset=n * 100
+        )
         for n in range(1, MAX_TRANSCRIPT_PARTS_PER_RUN + 5)
     ]
     tools = make_tools(
         episodes=[make_episode(1)],
-        transcript_pages=[transcript_page("call-1", "Part 1.", next_offset=100)] + endless,
+        transcript_pages=[transcript_page("call-1", "Part 1.", next_offset=100)]
+        + endless,
     )
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
@@ -769,9 +774,7 @@ def test_a_chat_catch_up_never_starts_a_transcription() -> None:
 
     tools["transcription"].ainvoke.assert_not_awaited()
     assert result["episodes"] == []
-    assert any(
-        "Ask for this show by name" in caveat for caveat in result["caveats"]
-    )
+    assert any("Ask for this show by name" in caveat for caveat in result["caveats"])
 
 
 def test_the_scheduled_run_still_transcribes_a_whole_catch_up() -> None:
@@ -789,7 +792,9 @@ def test_the_scheduled_run_still_transcribes_a_whole_catch_up() -> None:
         side_effect=[
             tool_message(
                 tools["transcription"].name,
-                transcript_page(f"whisper-{number}", "Machine words.", backend="whisper"),
+                transcript_page(
+                    f"whisper-{number}", "Machine words.", backend="whisper"
+                ),
             )
             for number in (1, 2)
         ]

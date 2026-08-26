@@ -128,3 +128,34 @@ Testing model behavior:
 Record these four points in the implementation commentary before writing the
 test. Keep test docstrings focused on the invariant; do not add repetitive test
 metadata or a custom testing framework solely to record this rationale.
+
+## Keeping the documentation current
+
+`docs/implementation-plan.md` holds current work and open questions.
+`docs/implementation-history.md` holds dated entries for work already finished.
+A change is not done until both say the right thing.
+
+1. When a plan item is finished, delete it from the plan and add a dated entry
+   to the history. Do this in the commit that finishes the work. If the work
+   spans several commits, do it in the last one, while the reasoning is still
+   in front of you.
+
+2. Write the history entry for someone who was not there. Say what the change
+   does, what it replaced, and why the alternative was rejected. An entry that
+   only lists what was added is not worth the space.
+
+3. Never end a session with a finished feature that has no history entry. This
+   rule exists because Podcast Catch-up was built, tested against live feeds,
+   documented in the README, and shipped over eight days without the history
+   file mentioning podcasts once.
+
+4. When a change makes a sentence in the README, the plan, or a contract
+   document false, fix that sentence in the same commit. A stale claim is worse
+   than no claim, because it gets believed.
+
+5. The README says how to run ORIS and what to expect. The history says why it
+   works that way. When a decision is interesting, it goes in the history even
+   if the README needs no change at all.
+
+6. Do not write cross-project summaries or handoff notes into `docs/`. They
+   belong in the conversation.

@@ -1404,3 +1404,41 @@ Deterministic baseline: 311 passing, 17 skipped, clean lint and formatting.
   actually tried, and would have caught it before it shipped.
 
 Deterministic baseline: 316 passing, 17 skipped, clean lint and formatting.
+
+### Evidence for podcast runs — 2026-08-26
+
+- **`e` found nothing on a podcast run.** Only Threat Intel wrote evidence, so
+  the key that answers "what was this built from" answered it for one
+  specialist out of five. A summary always prompts the question a summary
+  cannot answer — what did the episode actually say — and the transcript was
+  the one thing ORIS read and then threw away.
+- **Every page a run reads is now kept**, and written to the store Threat Intel
+  already uses. That is the whole point: both are recorded the same way,
+  correlated to their run the same way, aged out on the same retention
+  schedule, and deleted with the conversation the same way. One key, one
+  mechanism, whichever specialist produced the run.
+- **I recommended the opposite a turn earlier and changed my mind.** The first
+  recommendation was to fetch the transcript back from Net-Razor on demand,
+  because Net-Razor already stores it and a second copy is duplication. That is
+  still true. What it was weighed against was wrong: fetching means the
+  interface holding MCP tools, a page at a time, one subprocess per page, and
+  evidence that cannot be read when Net-Razor is unavailable. A run's
+  transcripts are a few hundred kilobytes on a retention schedule that already
+  exists. The simplicity gate settles it.
+- **The contract's rule was never against this.** It says full transcripts are
+  never returned in public output or added to Local Knowledge — an evidence
+  file is neither, and the reason for that rule was context cost and search
+  pollution, neither of which applies.
+- **Paging was designed and then dropped, on a measurement.** A viewer that
+  fetched one part at a time was the plan until 540 KB of text was rendered in
+  a single widget in 0.47 seconds. The whole run's transcripts open at once.
+- **The viewer renders on shape.** Provider responses are JSON and read best as
+  JSON. A transcript is prose, and JSON would show it as one enormous line with
+  every newline written out as an escape — the same evidence, unreadable.
+- **The backend is repeated in the viewer**, not just in the digest, because
+  this is where someone comes to check a name the summary got wrong, and
+  whether a machine transcribed it is the first thing that explains one.
+- A run that produced no usable transcript stores nothing. An empty evidence
+  file would claim a run was recorded when it was not.
+
+Deterministic baseline: 325 passing, 17 skipped, clean lint and formatting.

@@ -382,7 +382,12 @@ class OrisTui(App):
        directly above the prompt, and an empty one is zero rows high, so the
        conversation gets the line back between turns. */
     #status { height: auto; padding: 0 1; }
-    #prompt { dock: bottom; }
+    /* Textual's default input border is `tall`: thick half-blocks down the
+       sides, thin lines along the top and bottom, and no corners joining them.
+       Beside three `round` panels it reads as a broken box rather than a
+       style. `round` is what the rest of the interface already uses. */
+    #prompt { dock: bottom; border: round $panel; }
+    #prompt:focus { border: round $accent; }
     /* The turn list carries six columns and the detail pane three, so an even
        split truncates the headings that matter at ordinary widths. */
     #turns { width: 3fr; height: 1fr; }

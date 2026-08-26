@@ -1204,3 +1204,31 @@ def test_the_stream_is_restored_afterwards(tmp_path: Path) -> None:
     assert sys.stderr is before
     assert "while running" in log.read_text()
     assert "after exiting" not in log.read_text()
+
+
+def test_every_framed_pane_is_drawn_with_the_same_border(tmp_path: Path) -> None:
+    """One style across the interface, not one per widget's default.
+
+    The input box kept Textual's default `tall` border: thick half-blocks down
+    the sides, thin lines along the top and bottom, and no corners joining
+    them. Beside three `round` panels it read as a broken box rather than as a
+    style. Asserting they agree, rather than asserting one value, is what would
+    catch a new pane arriving with its own default.
+    """
+
+    async def drive() -> set[str]:
+        app, _graph, _knowledge = _build(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.pause()
+            return {
+                edge[0]
+                for selector in ("#sessions", "#conversation", "#prompt")
+                for edge in (
+                    app.query_one(selector).styles.border_top,
+                    app.query_one(selector).styles.border_bottom,
+                    app.query_one(selector).styles.border_left,
+                    app.query_one(selector).styles.border_right,
+                )
+            }
+
+    assert _run(drive()) == {"round"}

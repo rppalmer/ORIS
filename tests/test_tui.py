@@ -6,7 +6,12 @@ without it still has a clean test run.
 
 import asyncio
 import html
+import inspect
+import io
+import os
 import re
+import subprocess
+import sys
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -39,6 +44,7 @@ from oris.tui import (  # noqa: E402
     EvidenceScreen,
     OrisTui,
     PromptScreen,
+    quiet_subprocess_logging,
 )
 
 THREAD_ID = "thread-1"
@@ -1105,3 +1111,81 @@ def test_the_phoenix_keys_are_not_offered_on_the_chat_tab(tmp_path: Path) -> Non
 
     assert not on_chat
     assert on_activity
+
+
+def test_a_subprocess_logs_to_a_file_rather_than_over_the_interface(
+    tmp_path: Path,
+) -> None:
+    """A stdio MCP server writes its own logging to this process's stderr.
+
+    Net-Razor logs a JSON line per request. Landing on the terminal Textual is
+    drawing, those lines scroll the frame out from under the interface.
+
+    Driven with a real child process, through both routes a child can reach
+    stderr: inheriting the descriptor, and being handed a stream object bound
+    earlier. The second is the one production takes, because the MCP client
+    bound that object as a default argument when its module was imported.
+
+    That object is opened here on descriptor 2 rather than read from
+    `sys.stderr`, because under pytest `sys.stderr` is a replacement backed by
+    a different descriptor and would not be redirected — which says something
+    about pytest, not about the interface.
+    """
+    log = tmp_path / "logs" / "mcp-servers.log"
+    noisy = [
+        sys.executable,
+        "-c",
+        "import sys; print('server noise', file=sys.stderr)",
+    ]
+    bound_before_the_redirection = open(2, "w", closefd=False)  # noqa: SIM115
+
+    try:
+        with quiet_subprocess_logging(log):
+            subprocess.run(noisy, check=True, stderr=bound_before_the_redirection)
+            subprocess.run(noisy, check=True)
+    finally:
+        bound_before_the_redirection.close()
+
+    assert log.read_text().count("server noise") == 2
+
+
+def test_reassigning_sys_stderr_would_not_have_worked() -> None:
+    """Why the redirection is at the descriptor and not at `sys.stderr`.
+
+    The MCP client takes `sys.stderr` as a default argument value, which Python
+    binds once when that module is imported. Rebinding the name afterwards
+    leaves the default pointing at whatever stream was current then, so the
+    child would still inherit the terminal. Pinned here so that an upstream
+    change making the simpler fix viable shows up as a failure rather than
+    going unnoticed.
+    """
+    import mcp.client.stdio
+
+    def errlog_default() -> Any:
+        signature = inspect.signature(mcp.client.stdio.stdio_client)
+        return signature.parameters["errlog"].default
+
+    bound_at_import = errlog_default()
+
+    with patch.object(sys, "stderr", io.StringIO()):
+        assert errlog_default() is bound_at_import
+        assert errlog_default() is not sys.stderr
+
+
+def test_the_descriptor_is_restored_afterwards(tmp_path: Path, capfd: Any) -> None:
+    """Once the interface exits, a crash still reports itself to the terminal.
+
+    `capfd` captures at the file descriptor, which is the level the redirection
+    works at, so this sees what a child process would see.
+    """
+    log = tmp_path / "logs" / "mcp-servers.log"
+
+    with quiet_subprocess_logging(log):
+        os.write(2, b"while running\n")
+    os.write(2, b"after exiting\n")
+
+    captured = capfd.readouterr()
+
+    assert "while running" in log.read_text()
+    assert "after exiting" not in log.read_text()
+    assert "after exiting" in captured.err

@@ -139,6 +139,16 @@ class Settings(BaseSettings):
         return ORIS_HOME / "artifacts" / "exports"
 
     @property
+    def service_log_path(self) -> Path:
+        """Where a stdio MCP server's own logging goes while the interface runs.
+
+        Anchored to the fixed root for the same reason as the exports above: it
+        should not move because some unrelated directory setting was pointed
+        elsewhere.
+        """
+        return ORIS_HOME / "logs" / "mcp-servers.log"
+
+    @property
     def phoenix_url(self) -> str:
         """The Phoenix UI, derived from the endpoint traces are already sent to."""
         endpoint = str(self.phoenix_collector_endpoint)

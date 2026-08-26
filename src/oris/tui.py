@@ -16,6 +16,9 @@ two front ends cannot answer the same request differently.
 """
 
 import json
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
@@ -52,6 +55,7 @@ from oris.commands import (
     read_command,
     working_label,
 )
+from oris.config import Settings
 from oris.knowledge import KnowledgeRepository
 from oris.launch_agent import LaunchAgentPaths, is_loaded
 from oris.launch_agent import restart as restart_service
@@ -77,6 +81,7 @@ from oris.sessions import (
 )
 from oris.threat_reports import TIMESTAMP_RESOLUTION_SECONDS, ThreatReportStore
 
+STDERR_FILENO = 2
 TRACE_LIMIT = 50
 REPORT_LIMIT = 200
 # Everything that acts on the selected run. Evidence in particular has exactly
@@ -105,6 +110,38 @@ NO_TRACES = (
 PHOENIX_RUNNING = "running"
 PHOENIX_STOPPED = "stopped"
 PHOENIX_NOT_INSTALLED = "not installed"
+
+
+@contextmanager
+def quiet_subprocess_logging(path: Path) -> Iterator[None]:
+    """Send this process's stderr to a file for as long as the interface runs.
+
+    Every stdio MCP server inherits ORIS's stderr, and Net-Razor logs a JSON
+    line per request to it. Written straight onto the terminal Textual is
+    drawing, those lines scroll the frame out from under the interface and
+    leave the display in pieces — the conversation ends up interleaved with
+    somebody else's logs, and the prompt is no longer where it appears to be.
+
+    Redirected at the file descriptor, not by reassigning `sys.stderr`. The MCP
+    client takes `sys.stderr` as a default argument value, which Python binds
+    once when that module is imported, so rebinding the name afterwards changes
+    nothing and the child still inherits the terminal. Verified rather than
+    assumed: the default is the original stderr object and stays that way.
+
+    Everything ORIS itself writes to stderr goes to the same file while the
+    interface is up, which is the point — none of it can be read on a screen
+    Textual owns. The descriptor is restored on the way out, so a crash still
+    prints its traceback to the terminal.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    saved = os.dup(STDERR_FILENO)
+    try:
+        with path.open("a", buffering=1) as log:
+            os.dup2(log.fileno(), STDERR_FILENO)
+            yield
+    finally:
+        os.dup2(saved, STDERR_FILENO)
+        os.close(saved)
 
 
 def phoenix_state(paths: LaunchAgentPaths | None) -> str:
@@ -1047,19 +1084,34 @@ class OrisTui(App):
 
 async def _main() -> None:
     """Build ORIS and run its terminal interface."""
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-
-    from oris.sessions import ACTIVE_SESSION_FILENAME, load_or_create_session
-    from oris.web_research_app import (
-        build_oris_graph,
-        knowledge_repository,
-        settings,
-        threat_report_store,
-    )
+    from oris.sessions import ACTIVE_SESSION_FILENAME
+    from oris.web_research_app import settings
 
     database_path = settings.checkpoint_database_path
     database_path.parent.mkdir(parents=True, exist_ok=True)
     session_file_path = database_path.parent / ACTIVE_SESSION_FILENAME
+
+    # Everything from here on runs with stderr pointed at a file, because an
+    # MCP server started later inherits it. Configuration is already loaded by
+    # this point, so a bad `.env` still reports itself to the terminal.
+    with quiet_subprocess_logging(settings.service_log_path):
+        await _run_interface(settings, database_path, session_file_path)
+
+
+async def _run_interface(
+    settings: Settings,
+    database_path: Path,
+    session_file_path: Path,
+) -> None:
+    """Compile the graph and hand control to the interface."""
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    from oris.sessions import load_or_create_session
+    from oris.web_research_app import (
+        build_oris_graph,
+        knowledge_repository,
+        threat_report_store,
+    )
 
     async with AsyncSqliteSaver.from_conn_string(str(database_path)) as checkpointer:
         graph = await build_oris_graph(checkpointer)

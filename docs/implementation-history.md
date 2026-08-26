@@ -1355,3 +1355,36 @@ Deterministic baseline: 305 passing, 17 skipped, clean lint and formatting.
   each key does is spelled out on the status line beside the state.
 
 Deterministic baseline: 311 passing, 17 skipped, clean lint and formatting.
+
+### Keeping MCP server logging off the screen — 2026-08-25
+
+- **Running `/podcasts` in the terminal interface broke the display.**
+  Net-Razor's JSON log lines appeared underneath the interface, scrolling the
+  frame out from under it and leaving the conversation interleaved with
+  somebody else's logs and the prompt no longer where it appeared to be.
+- **Every stdio MCP server inherits ORIS's stderr.** That is how the transport
+  works — stdin and stdout carry the protocol, and stderr is left to the
+  server's own logging. Net-Razor writes a line per request there. Nothing was
+  misconfigured on either side; the client is simply expected to decide where
+  that goes, and ORIS had never decided.
+- **This was never specific to podcasts.** ThreatSyft and every other stdio
+  server had the same path to the terminal. Podcast runs made it obvious
+  because they are long and chatty.
+- **Redirected at the file descriptor, not by reassigning `sys.stderr`.** The
+  MCP client takes `sys.stderr` as a default argument value, and Python binds a
+  default once, when the module is imported. Rebinding the name afterwards
+  leaves that default pointing at the original stream, so the child would still
+  inherit the terminal. Verified before relying on it, and pinned by a test so
+  that an upstream change making the simpler fix viable shows up as a failure
+  rather than going unnoticed.
+- **The redirection covers the run and is undone on the way out**, so a crash
+  still prints its traceback where it can be read. Configuration is loaded
+  before it starts, so a bad `.env` also still reports itself to the terminal.
+  Server logging lands in `~/.oris/logs/mcp-servers.log`.
+- **The test writes to descriptor 2 explicitly rather than using
+  `sys.stderr`.** Under pytest, `sys.stderr` is a replacement backed by a
+  different descriptor, so a test built on it passed while proving nothing
+  about production. Writing the test the obvious way is what surfaced that: it
+  failed, and the failure was the test's, not the fix's.
+
+Deterministic baseline: 314 passing, 17 skipped, clean lint and formatting.

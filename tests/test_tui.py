@@ -1386,3 +1386,50 @@ def test_pressing_e_on_a_podcast_run_opens_its_transcript(tmp_path: Path) -> Non
 
     assert screen is EvidenceScreen
     assert "Wes said the release slipped." in viewer
+
+
+@pytest.mark.parametrize("by_key", [True, False])
+def test_a_new_session_can_be_started_without_typing(
+    tmp_path: Path,
+    by_key: bool,
+) -> None:
+    """`ctrl+n` and `/new` are the same thing, reached two ways.
+
+    A chord rather than a bare letter because the input box holds focus almost
+    the whole time in chat and swallows printable keys, so a single letter would
+    only work after tabbing away from where you are typing.
+    """
+
+    async def drive() -> tuple[str, str]:
+        app, _graph, _knowledge = _build(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await _ask(app, pilot, "first question")
+            before = app.thread_id
+            if by_key:
+                await pilot.press("ctrl+n")
+                await pilot.pause()
+            else:
+                await _ask(app, pilot, "/new")
+            return before, app.thread_id
+
+    before, after = _run(drive())
+
+    assert after != before
+
+
+def test_the_new_session_key_clears_the_conversation(tmp_path: Path) -> None:
+    """A fresh session shows the empty-session line, not the previous answer."""
+
+    async def drive() -> str:
+        app, _graph, _knowledge = _build(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            await _ask(app, pilot, "first question")
+            assert ANSWER in _text(app, "#conversation")
+            await pilot.press("ctrl+n")
+            await pilot.pause()
+            return _text(app, "#conversation")
+
+    conversation = _run(drive())
+
+    assert ANSWER not in conversation
+    assert "New session" in conversation

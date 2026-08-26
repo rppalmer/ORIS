@@ -445,6 +445,12 @@ class OrisTui(App):
         Binding("a", "toggle_scope", "Session/All"),
         Binding("x", "export", "Export"),
         Binding("d", "delete_session", "Delete session"),
+        # A chord rather than a bare letter, because the input box has focus
+        # almost the whole time in chat and swallows every printable key. `d`
+        # for delete only reaches the app once focus has moved to the session
+        # list, which is acceptable for something destructive and useless for
+        # something you want to reach mid-sentence.
+        Binding("ctrl+n", "new_session", "New session"),
         # Short labels on purpose: the footer already carries eight keys at
         # ordinary widths, and longer ones pushed this pair off the end of it.
         # What each does is spelled out on the status line beside the state.
@@ -644,10 +650,7 @@ class OrisTui(App):
                     Static(Text(f"Current session: {self.thread_id}", style="dim"))
                 )
             elif parsed.name == "new":
-                self.thread_id = start_new_session(self.session_file_path)
-                self._load_sessions()
-                self._load_conversation()
-                self.action_refresh_activity()
+                self.action_new_session()
             else:
                 self._show_evidence(parsed.argument)
             return
@@ -935,6 +938,18 @@ class OrisTui(App):
         self.query_one("#services", Static).update(
             Text.assemble(("Phoenix: ", "dim"), (state, style), (hint, "dim"))
         )
+
+    def action_new_session(self) -> None:
+        """Start a fresh conversation, the same as typing `/new`.
+
+        Both routes call the same function, so the key and the command cannot
+        come to mean different things.
+        """
+        self.thread_id = start_new_session(self.session_file_path)
+        self._load_sessions()
+        self._load_conversation()
+        self.action_refresh_activity()
+        self.query_one("#prompt", PromptInput).focus()
 
     def action_copy_selection(self) -> None:
         """Copy the highlighted text, and say what happened.

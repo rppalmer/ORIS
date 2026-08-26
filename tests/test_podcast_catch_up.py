@@ -293,8 +293,46 @@ def test_without_transcription_a_missing_transcript_is_only_a_caveat() -> None:
     result = asyncio.run(graph.ainvoke({}))
 
     assert result["episodes"] == []
-    assert any("publishes no transcript" in caveat for caveat in result["caveats"])
+    # The show, not the episode: the caveat tells the reader to ask for it by
+    # name, and "Episode 1" is not a name the narrowing would ever match.
+    assert result["caveats"] == [
+        "Example Show publishes no transcript, and transcription is not "
+        "available on this path."
+    ]
     tools["acknowledgement"].ainvoke.assert_not_awaited()
+
+
+def test_one_caveat_per_show_however_many_episodes_it_published() -> None:
+    """A daily feed with nothing to transcribe says so once, not five times.
+
+    Observed on the real feeds: a catch-up came back as a wall of identical
+    lines, one per episode, with every other caveat lost among them.
+    """
+    tools = make_tools(
+        episodes=[
+            make_episode_for("feed-daily", "Daily Show", 1),
+            make_episode_for("feed-daily", "Daily Show", 2),
+            make_episode_for("feed-weekly", "Weekly Show", 3),
+        ],
+        transcript_pages=[transcript_error("no_transcript_found")] * 3,
+    )
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    assert result["caveats"] == [
+        "Daily Show publishes no transcript. Run `/podcasts Daily Show` to "
+        "have its newest episode transcribed.",
+        "Weekly Show publishes no transcript. Run `/podcasts Weekly Show` to "
+        "have its newest episode transcribed.",
+    ]
+    tools["transcription"].ainvoke.assert_not_awaited()
 
 
 def test_the_run_budget_bounds_the_queue_before_any_transcript_call() -> None:
@@ -777,7 +815,7 @@ def test_a_chat_catch_up_never_starts_a_transcription() -> None:
 
     tools["transcription"].ainvoke.assert_not_awaited()
     assert result["episodes"] == []
-    assert any("Ask for this show by name" in caveat for caveat in result["caveats"])
+    assert any("Run `/podcasts Example Show`" in caveat for caveat in result["caveats"])
 
 
 def test_the_scheduled_run_still_transcribes_a_whole_catch_up() -> None:

@@ -342,12 +342,19 @@ def create_podcast_catch_up_preparation_graph(
         """
         backends: dict[str, str] = {}
         caveats = list(state["caveats"])
+        # Collected per show and reported once at the end. Publishing no
+        # transcript is a fact about a feed, not about an episode, and a feed
+        # with five new episodes was saying it five times over — which buried
+        # every other caveat in the run under repetition.
+        no_transcription_available: list[str] = []
+        transcription_needs_a_name: list[str] = []
 
         for episode in state["discovered_episodes"]:
             if not isinstance(episode, dict):
                 raise ValueError("Net-Razor returned an invalid episode entry")
 
             title = episode["title"]
+            show_name = episode["author"]["display_name"]
             page = await read_transcript_page(transcript_tool, episode, 0)
             error_type = _first_error_type(page)
 
@@ -360,17 +367,13 @@ def create_podcast_catch_up_preparation_graph(
                 continue
 
             if transcription_tool is None:
-                caveats.append(
-                    f"{title} publishes no transcript, and transcription is not "
-                    "available on this path."
-                )
+                if show_name not in no_transcription_available:
+                    no_transcription_available.append(show_name)
                 continue
 
             if not transcribe_catch_ups and not state.get("show", "").strip():
-                caveats.append(
-                    f"{title} publishes no transcript. Ask for this show by "
-                    "name to have it transcribed."
-                )
+                if show_name not in transcription_needs_a_name:
+                    transcription_needs_a_name.append(show_name)
                 continue
 
             transcribed = await read_transcript_page(transcription_tool, episode, 0)
@@ -383,6 +386,20 @@ def create_podcast_catch_up_preparation_graph(
                 "source_backend", "whisper"
             )
 
+        # The show's name, never the episode's: the advice is to ask for it by
+        # name, and naming a show is what the narrowing matches on. Printing the
+        # episode title made the instruction impossible to follow.
+        for show_name in no_transcription_available:
+            caveats.append(
+                f"{show_name} publishes no transcript, and transcription is "
+                "not available on this path."
+            )
+        for show_name in transcription_needs_a_name:
+            caveats.append(
+                f"{show_name} publishes no transcript. Run "
+                f"`/podcasts {show_name}` to have its newest episode "
+                "transcribed."
+            )
         return {"transcript_backends": backends, "caveats": caveats}
 
     async def summarize_part(

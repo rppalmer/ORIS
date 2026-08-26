@@ -1325,3 +1325,33 @@ Deterministic baseline: 301 passing, 17 skipped, clean lint and formatting.
   was never the problem.
 
 Deterministic baseline: 305 passing, 17 skipped, clean lint and formatting.
+
+### Phoenix control from the interface — 2026-08-25
+
+- **The Activity tab now says whether Phoenix is running, and can start, stop
+  or restart it.** `s` toggles, `r` restarts. Both call the service functions
+  `orisctl` already uses, so no launchd handling was written here.
+- **An empty activity view had two causes that looked identical.** Either
+  nothing ran, or the collector was down. They call for opposite responses, and
+  the table could not tell them apart. The state now sits beside it.
+- **The state is read from launchd on every refresh, never remembered.** The
+  service can be started or stopped outside this interface, or die on its own.
+  A toggle that trusted its own last action would then send the opposite
+  command, and be confidently wrong about what it had just done.
+- **"Not installed" is kept distinct from "stopped".** A stopped service starts
+  with one key; one that was never installed cannot, and calling it stopped
+  sends the reader looking for a problem that is not there. Both keys refuse
+  early in that state and name the `orisctl phoenix install` that fixes it.
+- **`launchctl` runs on a worker thread.** It is a subprocess and takes long
+  enough to be noticed, so calling it inline froze the interface mid-keystroke.
+- **A failure notifies and does nothing else.** Tracing is optional and the
+  scheduler must never depend on Phoenix, so a collector that will not start is
+  not a reason for the conversation to stop working. The test drives that
+  directly: it fails a start, then asks a question and expects an answer.
+- The "no traces" message pointed at `./start-phoenix.sh`. It still exists, but
+  the key is now the shorter path and the message says so.
+- Footer labels are deliberately short. The Activity tab already carries eight
+  keys, and longer ones pushed this pair off the end at ordinary widths. What
+  each key does is spelled out on the status line beside the state.
+
+Deterministic baseline: 311 passing, 17 skipped, clean lint and formatting.

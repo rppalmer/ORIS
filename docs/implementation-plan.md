@@ -266,10 +266,6 @@ than a follow-up.
   002, and an interface that writes it becomes a second source of truth. Start
   read-only plus a manual trigger, which is what the missed-run diagnosis
   actually needed.
-- [ ] Show Phoenix's state in the terminal interface and let it be started,
-  stopped, and restarted from there. The service and its `orisctl phoenix`
-  command exist as of 2026-08-16, so this is now a thin surface over code that
-  is already tested; scheduler health must still not depend on Phoenix health.
 - [ ] Decide whether a long turn needs a cancel key. Per-step status now names
   the running graph node, which was the larger half of the complaint; whether
   the remaining wait is worth interrupting is a question for real use.

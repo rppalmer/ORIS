@@ -7,8 +7,6 @@ without it still has a clean test run.
 import asyncio
 import html
 import inspect
-import io
-import os
 import re
 import subprocess
 import sys
@@ -1121,15 +1119,8 @@ def test_a_subprocess_logs_to_a_file_rather_than_over_the_interface(
     Net-Razor logs a JSON line per request. Landing on the terminal Textual is
     drawing, those lines scroll the frame out from under the interface.
 
-    Driven with a real child process, through both routes a child can reach
-    stderr: inheriting the descriptor, and being handed a stream object bound
-    earlier. The second is the one production takes, because the MCP client
-    bound that object as a default argument when its module was imported.
-
-    That object is opened here on descriptor 2 rather than read from
-    `sys.stderr`, because under pytest `sys.stderr` is a replacement backed by
-    a different descriptor and would not be redirected — which says something
-    about pytest, not about the interface.
+    Driven with a real child process handed the stream the MCP client would
+    hand it, because that is the thing that has to end up somewhere else.
     """
     log = tmp_path / "logs" / "mcp-servers.log"
     noisy = [
@@ -1137,55 +1128,79 @@ def test_a_subprocess_logs_to_a_file_rather_than_over_the_interface(
         "-c",
         "import sys; print('server noise', file=sys.stderr)",
     ]
-    bound_before_the_redirection = open(2, "w", closefd=False)  # noqa: SIM115
-
-    try:
-        with quiet_subprocess_logging(log):
-            subprocess.run(noisy, check=True, stderr=bound_before_the_redirection)
-            subprocess.run(noisy, check=True)
-    finally:
-        bound_before_the_redirection.close()
-
-    assert log.read_text().count("server noise") == 2
-
-
-def test_reassigning_sys_stderr_would_not_have_worked() -> None:
-    """Why the redirection is at the descriptor and not at `sys.stderr`.
-
-    The MCP client takes `sys.stderr` as a default argument value, which Python
-    binds once when that module is imported. Rebinding the name afterwards
-    leaves the default pointing at whatever stream was current then, so the
-    child would still inherit the terminal. Pinned here so that an upstream
-    change making the simpler fix viable shows up as a failure rather than
-    going unnoticed.
-    """
-    import mcp.client.stdio
-
-    def errlog_default() -> Any:
-        signature = inspect.signature(mcp.client.stdio.stdio_client)
-        return signature.parameters["errlog"].default
-
-    bound_at_import = errlog_default()
-
-    with patch.object(sys, "stderr", io.StringIO()):
-        assert errlog_default() is bound_at_import
-        assert errlog_default() is not sys.stderr
-
-
-def test_the_descriptor_is_restored_afterwards(tmp_path: Path, capfd: Any) -> None:
-    """Once the interface exits, a crash still reports itself to the terminal.
-
-    `capfd` captures at the file descriptor, which is the level the redirection
-    works at, so this sees what a child process would see.
-    """
-    log = tmp_path / "logs" / "mcp-servers.log"
 
     with quiet_subprocess_logging(log):
-        os.write(2, b"while running\n")
-    os.write(2, b"after exiting\n")
+        subprocess.run(noisy, check=True, stderr=sys.stderr)
 
-    captured = capfd.readouterr()
+    assert "server noise" in log.read_text()
 
+
+def test_the_interface_itself_is_not_redirected(tmp_path: Path) -> None:
+    """The bug this replaced: the whole interface drew into the log file.
+
+    Textual writes every frame to `sys.__stderr__`. Redirecting one level lower,
+    at the file descriptor, moved that too — so `oris-tui` painted itself into
+    `~/.oris/logs` and the terminal stayed blank. Over SSH it looked like the
+    command did nothing at all.
+
+    Two names for one stream is what makes the separation possible, so both
+    halves are asserted: the servers' name moves, the interface's does not.
+    """
+    log = tmp_path / "logs" / "mcp-servers.log"
+    drawing_surface = sys.__stderr__
+
+    with quiet_subprocess_logging(log):
+        assert sys.stderr is not drawing_surface
+        assert sys.__stderr__ is drawing_surface
+
+    assert sys.__stderr__ is drawing_surface
+
+
+def test_textual_still_draws_on_the_stream_this_leaves_alone() -> None:
+    """Pins the upstream fact the separation depends on.
+
+    If Textual ever draws on `sys.stderr` instead, the redirection would hide
+    the interface again. That should fail here rather than on someone's screen.
+    """
+    from textual.drivers.linux_driver import LinuxDriver
+
+    source = inspect.getsource(LinuxDriver.__init__)
+
+    assert "sys.__stderr__" in source
+
+
+def test_the_interface_module_does_not_load_the_mcp_client() -> None:
+    """The redirection only works if the MCP client is imported after it.
+
+    The client decides where a server's logging goes at import time, by taking
+    `sys.stderr` as a default argument value. If importing this module pulled
+    the client in, that decision would already be made — against the terminal —
+    before the interface ever started.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, oris.tui; "
+            "print(any(m.startswith('mcp') for m in sys.modules))",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout.strip() == "False"
+
+
+def test_the_stream_is_restored_afterwards(tmp_path: Path) -> None:
+    """Once the interface exits, a crash still reports itself to the terminal."""
+    log = tmp_path / "logs" / "mcp-servers.log"
+    before = sys.stderr
+
+    with quiet_subprocess_logging(log):
+        print("while running", file=sys.stderr)
+    print("after exiting", file=sys.stderr)
+
+    assert sys.stderr is before
     assert "while running" in log.read_text()
     assert "after exiting" not in log.read_text()
-    assert "after exiting" in captured.err

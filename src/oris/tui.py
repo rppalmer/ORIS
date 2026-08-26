@@ -16,7 +16,7 @@ two front ends cannot answer the same request differently.
 """
 
 import json
-import os
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -81,7 +81,6 @@ from oris.sessions import (
 )
 from oris.threat_reports import TIMESTAMP_RESOLUTION_SECONDS, ThreatReportStore
 
-STDERR_FILENO = 2
 TRACE_LIMIT = 50
 REPORT_LIMIT = 200
 # Everything that acts on the selected run. Evidence in particular has exactly
@@ -114,34 +113,36 @@ PHOENIX_NOT_INSTALLED = "not installed"
 
 @contextmanager
 def quiet_subprocess_logging(path: Path) -> Iterator[None]:
-    """Send this process's stderr to a file for as long as the interface runs.
+    """Send stdio MCP servers' own logging to a file instead of the screen.
 
     Every stdio MCP server inherits ORIS's stderr, and Net-Razor logs a JSON
-    line per request to it. Written straight onto the terminal Textual is
-    drawing, those lines scroll the frame out from under the interface and
-    leave the display in pieces — the conversation ends up interleaved with
-    somebody else's logs, and the prompt is no longer where it appears to be.
+    line per request to it. Written onto the terminal Textual is drawing, those
+    lines scroll the frame out from under the interface.
 
-    Redirected at the file descriptor, not by reassigning `sys.stderr`. The MCP
-    client takes `sys.stderr` as a default argument value, which Python binds
-    once when that module is imported, so rebinding the name afterwards changes
-    nothing and the child still inherits the terminal. Verified rather than
-    assumed: the default is the original stderr object and stays that way.
+    This works on the two names for that stream being separable. Textual draws
+    on `sys.__stderr__`, the original object, which nothing here touches. The
+    MCP client takes `sys.stderr` as a default argument value, and Python binds
+    a default once, when that module is imported — so rebinding the name before
+    the import decides where every server's logging goes, for good, without
+    moving the interface.
 
-    Everything ORIS itself writes to stderr goes to the same file while the
-    interface is up, which is the point — none of it can be read on a screen
-    Textual owns. The descriptor is restored on the way out, so a crash still
-    prints its traceback to the terminal.
+    That ordering is the whole trick, and it is why `_main` reads its settings
+    from `oris.config` rather than from `web_research_app`: importing the latter
+    pulls in the MCP client, and doing so before this point would bind the
+    terminal instead.
+
+    The first attempt at this redirected file descriptor 2, which is a level
+    below both names and therefore moved Textual as well. The interface drew
+    itself into the log file and the terminal showed nothing at all.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    saved = os.dup(STDERR_FILENO)
-    try:
-        with path.open("a", buffering=1) as log:
-            os.dup2(log.fileno(), STDERR_FILENO)
+    with path.open("a", buffering=1) as log:
+        saved = sys.stderr
+        sys.stderr = log
+        try:
             yield
-    finally:
-        os.dup2(saved, STDERR_FILENO)
-        os.close(saved)
+        finally:
+            sys.stderr = saved
 
 
 def phoenix_state(paths: LaunchAgentPaths | None) -> str:
@@ -1083,17 +1084,24 @@ class OrisTui(App):
 
 
 async def _main() -> None:
-    """Build ORIS and run its terminal interface."""
-    from oris.sessions import ACTIVE_SESSION_FILENAME
-    from oris.web_research_app import settings
+    """Build ORIS and run its terminal interface.
 
+    Settings come from `oris.config` rather than from `web_research_app`, which
+    would otherwise be imported here. That import pulls in the MCP client, and
+    the client decides where every server's logging goes at import time — so it
+    has to happen inside the redirection below, not before it.
+    """
+    from oris.config import load_settings
+    from oris.sessions import ACTIVE_SESSION_FILENAME
+
+    settings = load_settings()
     database_path = settings.checkpoint_database_path
     database_path.parent.mkdir(parents=True, exist_ok=True)
     session_file_path = database_path.parent / ACTIVE_SESSION_FILENAME
 
-    # Everything from here on runs with stderr pointed at a file, because an
-    # MCP server started later inherits it. Configuration is already loaded by
-    # this point, so a bad `.env` still reports itself to the terminal.
+    # Configuration is already loaded, so a bad `.env` still reports itself to
+    # the terminal. Everything after this point — including the import that
+    # first loads the MCP client — runs with stderr pointed at a file.
     with quiet_subprocess_logging(settings.service_log_path):
         await _run_interface(settings, database_path, session_file_path)
 

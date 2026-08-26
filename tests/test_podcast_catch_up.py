@@ -6,6 +6,7 @@ YouTube should be a deletion rather than an untangling.
 """
 
 import asyncio
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
@@ -511,7 +512,7 @@ def test_an_uncited_digest_survives_as_a_caveat() -> None:
 
     result = asyncio.run(graph.ainvoke({}))
 
-    assert result["answer"] == "A digest that cites nothing."
+    assert "A digest that cites nothing." in result["answer"]
     assert result["cited_urls"] == []
     assert any("cites no episode" in caveat for caveat in result["caveats"])
 
@@ -892,3 +893,64 @@ def test_the_whole_transcript_is_stored_not_only_what_was_summarised(
     stored = store.latest()
     assert stored is not None
     assert stored["evidence"]["episodes"][0]["transcript"] == "Part one. Part two."
+
+
+def test_each_show_is_summarised_on_its_own(tmp_path: Path) -> None:
+    """A busy show cannot crowd a quiet one out of the digest.
+
+    One digest across every feed let the biggest subject win: the feeds are not
+    one subject, and asking for agreements and connections across basketball,
+    politics and Linux produced a digest about whichever show published most
+    that week while the rest went unmentioned. Sectioning is not formatting —
+    a show cannot be crowded out of a call that only contains it.
+    """
+    tools = make_tools(
+        episodes=[
+            make_episode_for("https://feeds.example.com/hoops.xml", "Hoops Daily", 1),
+            make_episode_for("https://feeds.example.com/hoops.xml", "Hoops Daily", 2),
+            make_episode_for("https://feeds.example.com/politics.xml", "The Brief", 3),
+        ],
+        transcript_pages=[
+            transcript_page(f"call-{n}", "Words.") for n in (1, 1, 2, 2, 3, 3)
+        ],
+    )
+
+    model = Mock(spec=BaseChatModel)
+    summary_model = AsyncMock()
+    summary_model.ainvoke.side_effect = [
+        TranscriptSummary(summary=f"Summary {n}") for n in range(1, 5)
+    ]
+    digest_model = AsyncMock()
+    digest_model.ainvoke.side_effect = [
+        PodcastCatchUpAnswer(
+            answer="Two games covered.",
+            cited_urls=("https://example.com/episode-1",),
+        ),
+        PodcastCatchUpAnswer(
+            answer="One bill covered.",
+            cited_urls=("https://example.com/episode-3",),
+        ),
+    ]
+    model.with_structured_output.side_effect = [summary_model, digest_model]
+
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], model
+    )
+    result = asyncio.run(graph.ainvoke({"max_episodes": 3}))
+
+    # One call per show, each shown only its own episodes.
+    assert digest_model.ainvoke.await_count == 2
+    supplied = [
+        json.loads(call.args[0][1][1]) for call in digest_model.ainvoke.await_args_list
+    ]
+    assert [payload["show"] for payload in supplied] == ["Hoops Daily", "The Brief"]
+    assert {episode["show"] for episode in supplied[0]["episodes"]} == {"Hoops Daily"}
+    assert {episode["show"] for episode in supplied[1]["episodes"]} == {"The Brief"}
+
+    assert "## Hoops Daily" in result["answer"]
+    assert "## The Brief" in result["answer"]
+    assert "One bill covered." in result["answer"]
+    assert result["cited_urls"] == [
+        "https://example.com/episode-1",
+        "https://example.com/episode-3",
+    ]

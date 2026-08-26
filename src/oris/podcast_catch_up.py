@@ -573,23 +573,43 @@ def create_podcast_catch_up_preparation_graph(
                 "cited_urls": [],
             }
 
-        response = await digest_model.ainvoke(
-            [
-                ("system", CATCH_UP_SYSTEM_PROMPT),
-                (
-                    "human",
-                    json.dumps(
-                        {"episodes": state["episodes"], "caveats": state["caveats"]},
-                        ensure_ascii=False,
-                        indent=2,
+        # One digest per show, each written from that show's episodes alone.
+        #
+        # A single digest across every feed lets the biggest subject win. The
+        # feeds are not one subject: basketball, politics and Linux have no
+        # agreements or connections to draw out, and asking for them produced a
+        # digest about whichever show published most that week while the rest
+        # went unmentioned. Sectioning it is not formatting — a show cannot be
+        # crowded out of a call that only contains it.
+        by_show: dict[str, list[PodcastEpisodeSummary]] = {}
+        for episode in state["episodes"]:
+            by_show.setdefault(episode["show"], []).append(episode)
+
+        sections: list[str] = []
+        cited: list[str] = []
+        for show, episodes in by_show.items():
+            response = await digest_model.ainvoke(
+                [
+                    ("system", CATCH_UP_SYSTEM_PROMPT),
+                    (
+                        "human",
+                        json.dumps(
+                            {"show": show, "episodes": episodes},
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
                     ),
-                ),
-            ],
-            max_completion_tokens=640,
-        )
+                ],
+                max_completion_tokens=400,
+            )
+            sections.append(f"## {show}\n\n{response.answer}")
+            cited.extend(response.cited_urls)
+
+        # Order preserved and duplicates dropped: an episode cited in its own
+        # section is the only place it should appear.
         return {
-            "answer": response.answer,
-            "cited_urls": list(response.cited_urls),
+            "answer": "\n\n".join(sections),
+            "cited_urls": list(dict.fromkeys(cited)),
         }
 
     def validate_citations(state: PodcastCatchUpState) -> dict:

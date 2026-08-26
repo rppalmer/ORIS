@@ -7,6 +7,7 @@ without it still has a clean test run.
 import asyncio
 import html
 import inspect
+import logging
 import re
 import subprocess
 import sys
@@ -42,7 +43,7 @@ from oris.tui import (  # noqa: E402
     EvidenceScreen,
     OrisTui,
     PromptScreen,
-    quiet_subprocess_logging,
+    quiet_background_logging,
 )
 
 THREAD_ID = "thread-1"
@@ -1129,7 +1130,7 @@ def test_a_subprocess_logs_to_a_file_rather_than_over_the_interface(
         "import sys; print('server noise', file=sys.stderr)",
     ]
 
-    with quiet_subprocess_logging(log):
+    with quiet_background_logging(log):
         subprocess.run(noisy, check=True, stderr=sys.stderr)
 
     assert "server noise" in log.read_text()
@@ -1149,7 +1150,7 @@ def test_the_interface_itself_is_not_redirected(tmp_path: Path) -> None:
     log = tmp_path / "logs" / "mcp-servers.log"
     drawing_surface = sys.__stderr__
 
-    with quiet_subprocess_logging(log):
+    with quiet_background_logging(log):
         assert sys.stderr is not drawing_surface
         assert sys.__stderr__ is drawing_surface
 
@@ -1197,7 +1198,7 @@ def test_the_stream_is_restored_afterwards(tmp_path: Path) -> None:
     log = tmp_path / "logs" / "mcp-servers.log"
     before = sys.stderr
 
-    with quiet_subprocess_logging(log):
+    with quiet_background_logging(log):
         print("while running", file=sys.stderr)
     print("after exiting", file=sys.stderr)
 
@@ -1268,3 +1269,32 @@ def test_copying_says_what_happened(tmp_path: Path) -> None:
     # The terminal is the half ORIS cannot verify, so the message says so
     # rather than reporting a success that may not have reached a clipboard.
     assert any("terminal is blocking" in message for message in copied)
+
+
+def test_the_trace_exporter_is_quiet_even_at_shutdown(tmp_path: Path) -> None:
+    """Its noisiest moment is after the interface has already exited.
+
+    A batch of spans is flushed at interpreter shutdown. With no collector
+    running that flush retries and complains, and by then the redirection is
+    undone, so the complaints land on the terminal the user is looking at —
+    which is what happened on the Mac mini after a /podcasts run.
+
+    Rebinding `sys.stderr` cannot cover that, because it is deliberately put
+    back on the way out. The exporter's own logger has to be pointed at the
+    file and kept there.
+    """
+    log = tmp_path / "logs" / "mcp-servers.log"
+    exporter = logging.getLogger("opentelemetry")
+    saved_handlers, saved_propagate = exporter.handlers[:], exporter.propagate
+
+    try:
+        with quiet_background_logging(log):
+            exporter.warning("during the run")
+        exporter.warning("after the interface exited")
+    finally:
+        exporter.handlers, exporter.propagate = saved_handlers, saved_propagate
+
+    written = log.read_text()
+
+    assert "during the run" in written
+    assert "after the interface exited" in written

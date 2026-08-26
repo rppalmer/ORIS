@@ -16,6 +16,7 @@ two front ends cannot answer the same request differently.
 """
 
 import json
+import logging
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -112,37 +113,46 @@ PHOENIX_NOT_INSTALLED = "not installed"
 
 
 @contextmanager
-def quiet_subprocess_logging(path: Path) -> Iterator[None]:
-    """Send stdio MCP servers' own logging to a file instead of the screen.
+def quiet_background_logging(path: Path) -> Iterator[None]:
+    """Keep other people's logging off the screen Textual is drawing.
 
-    Every stdio MCP server inherits ORIS's stderr, and Net-Razor logs a JSON
-    line per request to it. Written onto the terminal Textual is drawing, those
-    lines scroll the frame out from under the interface.
+    Two sources reach the terminal, and they need different handling.
 
-    This works on the two names for that stream being separable. Textual draws
-    on `sys.__stderr__`, the original object, which nothing here touches. The
-    MCP client takes `sys.stderr` as a default argument value, and Python binds
-    a default once, when that module is imported — so rebinding the name before
-    the import decides where every server's logging goes, for good, without
-    moving the interface.
+    A stdio MCP server inherits ORIS's stderr and logs a line per request to it.
+    That is handled by the two names for that stream being separable: Textual
+    draws on `sys.__stderr__`, which nothing here touches, while the MCP client
+    takes `sys.stderr` as a default argument value, bound once when its module
+    is imported. Rebinding the name before that import decides where every
+    server's logging goes without moving the interface. The ordering is why
+    `_main` reads settings from `oris.config` rather than `web_research_app`.
 
-    That ordering is the whole trick, and it is why `_main` reads its settings
-    from `oris.config` rather than from `web_research_app`: importing the latter
-    pulls in the MCP client, and doing so before this point would bind the
-    terminal instead.
+    The trace exporter is the harder one, because its noisiest moment is after
+    the interface has already exited. A batch of spans is flushed at interpreter
+    shutdown, and if the collector is not running that flush retries and
+    complains — by which point `sys.stderr` is restored and the complaints land
+    on the terminal. So its logger gets a handler of its own pointed at the file
+    and stops propagating, which holds whenever it writes rather than only
+    while the interface is up.
 
-    The first attempt at this redirected file descriptor 2, which is a level
-    below both names and therefore moved Textual as well. The interface drew
-    itself into the log file and the terminal showed nothing at all.
+    The file is deliberately never closed. That shutdown flush needs somewhere
+    to write long after this returns, and one file handle held for the life of
+    a process that is exiting anyway costs nothing.
+
+    An earlier attempt redirected file descriptor 2, which is below both names
+    and therefore moved Textual as well: the interface drew itself into the log
+    and the terminal stayed blank.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", buffering=1) as log:
-        saved = sys.stderr
-        sys.stderr = log
-        try:
-            yield
-        finally:
-            sys.stderr = saved
+    log = path.open("a", buffering=1)  # noqa: SIM115 - outlives this scope by design
+    exporter = logging.getLogger("opentelemetry")
+    exporter.addHandler(logging.StreamHandler(log))
+    exporter.propagate = False
+    saved = sys.stderr
+    sys.stderr = log
+    try:
+        yield
+    finally:
+        sys.stderr = saved
 
 
 def phoenix_state(paths: LaunchAgentPaths | None) -> str:
@@ -1134,7 +1144,7 @@ async def _main() -> None:
     # Configuration is already loaded, so a bad `.env` still reports itself to
     # the terminal. Everything after this point — including the import that
     # first loads the MCP client — runs with stderr pointed at a file.
-    with quiet_subprocess_logging(settings.service_log_path):
+    with quiet_background_logging(settings.service_log_path):
         await _run_interface(settings, database_path, session_file_path)
 
 

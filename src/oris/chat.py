@@ -357,7 +357,7 @@ def create_oris_graph(
         return {"messages": [AIMessage(content=content)]}
 
     async def run_podcast_catch_up(
-        _state: ORISState,
+        state: ORISState,
     ) -> dict[str, list[AIMessage]]:
         """Answer from the configured feeds, without transcription.
 
@@ -368,7 +368,12 @@ def create_oris_graph(
         """
         if podcast_catch_up_graph is None:
             raise ValueError("Podcast Catch-up is not configured")
-        result = await podcast_catch_up_graph.ainvoke({})
+        # An empty request is the ordinary catch-up across every configured
+        # feed. Anything else names one show and asks what its latest episode
+        # said, which is a different question with a much smaller answer.
+        show = state["resolved_request"].strip()
+        request = {"show": show} if show else {}
+        result = await podcast_catch_up_graph.ainvoke(request)
         source_links = "\n".join(
             f"[{number}]({url})"
             for number, url in enumerate(result["cited_urls"], start=1)

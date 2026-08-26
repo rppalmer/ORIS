@@ -607,3 +607,50 @@ def _selected(graph, tools, *, max_episodes: int) -> list[str]:
     return [
         episode["source_id"] for episode in select_episodes(discovered, max_episodes)
     ]
+
+
+def test_naming_a_show_returns_its_newest_episode_alone() -> None:
+    """Asking about one show summarises one episode, not a whole catch-up.
+
+    The show is matched on the display name Net-Razor already returns, so ORIS
+    never needs to know a feed URL. That keeps the boundary the contract sets:
+    narrowing to a configured show is not the same as supplying an arbitrary
+    feed.
+    """
+    episodes = [
+        make_episode_for("feed-a", "Daily Show", 1),
+        make_episode_for("feed-b", "LINUX Unplugged", 1),
+        make_episode_for("feed-b", "LINUX Unplugged", 2),
+    ]
+    tools = make_tools(
+        episodes=episodes,
+        transcript_pages=[
+            transcript_page("call-1", "Words."),
+            transcript_page("call-1", "Words."),
+        ],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], make_model()
+    )
+
+    result = asyncio.run(graph.ainvoke({"show": "linux unplugged"}))
+
+    assert [e["episode_id"] for e in result["episodes"]] == ["LINUX Unplugged-1"]
+
+
+def test_a_show_nobody_follows_says_so_without_calling_the_model() -> None:
+    """A name that matches nothing is answered plainly, not with an empty run."""
+    tools = make_tools(
+        episodes=[make_episode_for("feed-a", "Daily Show", 1)],
+        transcript_pages=[],
+    )
+    model = make_model()
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], model
+    )
+
+    result = asyncio.run(graph.ainvoke({"show": "gardeners question time"}))
+
+    assert result["episodes"] == []
+    assert "gardeners question time" in result["answer"]
+    tools["transcript"].ainvoke.assert_not_awaited()

@@ -97,6 +97,7 @@ class PodcastCatchUpInput(TypedDict):
 
     days: NotRequired[int]
     max_episodes: NotRequired[int]
+    show: NotRequired[str]
 
 
 class PodcastCatchUpOutput(TypedDict):
@@ -119,6 +120,7 @@ class PodcastCatchUpState(TypedDict):
 
     days: NotRequired[int]
     max_episodes: NotRequired[int]
+    show: NotRequired[str]
     discovered_episodes: NotRequired[list[dict[str, Any]]]
     transcript_backends: NotRequired[dict[str, str]]
     transcript_call_ids: NotRequired[list[str]]
@@ -283,6 +285,24 @@ def create_podcast_catch_up_preparation_graph(
             for error in returned_errors
             if isinstance(error, dict) and isinstance(error.get("message"), str)
         ]
+        show = state.get("show", "").strip()
+        if show:
+            # Matched on the display name Net-Razor already returns, so ORIS
+            # never needs to know a feed URL. Narrowing to a configured show is
+            # not the same as accepting an arbitrary feed, so the boundary the
+            # contract sets still holds.
+            matching = [
+                episode
+                for episode in episodes
+                if show.casefold() in episode["author"]["display_name"].casefold()
+            ]
+            # One show means one episode. Asking about a specific podcast is
+            # asking what its latest instalment said, not for a catch-up.
+            return {
+                "max_episodes": max_episodes,
+                "discovered_episodes": matching[:1],
+                "caveats": caveats,
+            }
         return {
             "max_episodes": max_episodes,
             "discovered_episodes": select_episodes(episodes, max_episodes),
@@ -480,7 +500,13 @@ def create_podcast_catch_up_preparation_graph(
 
     async def create_digest(state: PodcastCatchUpState) -> dict[str, object]:
         if not state["discovered_episodes"]:
-            return {"answer": "No new podcast episodes were found.", "cited_urls": []}
+            show = state.get("show", "").strip()
+            answer = (
+                f"No new episodes were found for a show matching '{show}'."
+                if show
+                else "No new podcast episodes were found."
+            )
+            return {"answer": answer, "cited_urls": []}
         if not state["episodes"]:
             return {
                 "answer": "No usable podcast transcripts were available.",
@@ -589,7 +615,11 @@ def create_acknowledging_podcast_catch_up_graph(
     """Wrap preparation with immediate acknowledgement for interactive use."""
 
     async def prepare(state: PodcastCatchUpState) -> dict:
-        request = {key: state[key] for key in ("days", "max_episodes") if key in state}
+        request = {
+            key: state[key]
+            for key in ("days", "max_episodes", "show")
+            if key in state
+        }
         return await preparation_graph.ainvoke(request)
 
     async def mark_processed(state: PodcastCatchUpState) -> dict:

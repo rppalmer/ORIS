@@ -50,6 +50,14 @@ Hacker News, or YouTube tools.
   remain authoritative.
 - `max_episodes`: total episodes processed in one run, default `5`, minimum `1`,
   maximum `10`.
+- `show`: optional. When given, the run covers the newest episode of the
+  configured show whose name contains it, and nothing else. Asking about one
+  podcast is asking what its latest instalment said, not for a catch-up, so the
+  answer is one episode however large the budget is.
+
+The show is matched on the display name Net-Razor already returns with each
+episode, so ORIS never learns a feed URL. Narrowing to a configured show is not
+the same as supplying an arbitrary feed, and the boundary below still holds.
 
 Net-Razor's configured feed list is the source of truth. The graph does not
 accept arbitrary feeds, a topic query, or model-controlled tool arguments.

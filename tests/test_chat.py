@@ -761,3 +761,56 @@ def test_oris_async_checkpointer_restores_community_session(
         "Community answer.",
         "Continue",
     ]
+
+
+def _podcast_graph_and_double() -> tuple[object, Mock]:
+    """A parent graph wired to a controllable Podcast Catch-up double."""
+    podcast_graph = Mock()
+    podcast_graph.ainvoke = AsyncMock(
+        return_value={
+            "answer": "One episode was summarized.",
+            "cited_urls": ["https://example.com/episode-1"],
+            "episodes": [],
+            "caveats": [],
+        }
+    )
+    community_research_graph = Mock()
+    community_research_graph.ainvoke = AsyncMock()
+    graph = create_oris_graph(
+        Mock(),
+        Mock(),
+        community_research_graph,
+        Mock(),
+        Mock(),
+        podcast_catch_up_graph=podcast_graph,
+    )
+    return graph, podcast_graph
+
+
+def test_a_bare_podcast_command_catches_up_on_every_feed() -> None:
+    """`/podcasts` sends an empty request, which means the whole catch-up."""
+    graph, podcast_graph = _podcast_graph_and_double()
+
+    asyncio.run(
+        graph.ainvoke(
+            {"messages": [HumanMessage(content="")], "mode": "podcast_catch_up"}
+        )
+    )
+
+    podcast_graph.ainvoke.assert_awaited_once_with({})
+
+
+def test_a_named_show_narrows_the_podcast_run() -> None:
+    """`/podcasts <show>` asks what one show's latest episode said."""
+    graph, podcast_graph = _podcast_graph_and_double()
+
+    asyncio.run(
+        graph.ainvoke(
+            {
+                "messages": [HumanMessage(content="LINUX Unplugged")],
+                "mode": "podcast_catch_up",
+            }
+        )
+    )
+
+    podcast_graph.ainvoke.assert_awaited_once_with({"show": "LINUX Unplugged"})

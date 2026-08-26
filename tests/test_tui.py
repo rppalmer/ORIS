@@ -1232,3 +1232,39 @@ def test_every_framed_pane_is_drawn_with_the_same_border(tmp_path: Path) -> None
             }
 
     assert _run(drive()) == {"round"}
+
+
+def test_copying_says_what_happened(tmp_path: Path) -> None:
+    """A copy that worked and one that found nothing looked identical.
+
+    Textual's own binding is silent either way, and the clipboard itself is a
+    terminal setting ORIS cannot see. With no feedback there is no way to tell
+    a failed copy from a terminal that refused it, which is most of the trouble
+    with diagnosing one.
+    """
+
+    async def drive() -> tuple[list[str], list[str]]:
+        app, _graph, _knowledge = _build(tmp_path)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await _ask(app, pilot, "anything")
+            with patch.object(type(app), "notify", lambda s, m, **k: said.append(m)):
+                await pilot.press("ctrl+c")
+                await pilot.pause()
+                nothing_selected = list(said)
+                said.clear()
+
+                answer = app.query_one("#conversation").query_one(Markdown)
+                await _drag(pilot, answer, (0, 0), (13, 0))
+                await pilot.press("ctrl+c")
+                await pilot.pause()
+                return nothing_selected, list(said)
+
+    said: list[str] = []
+    with patch.object(OrisTui, "copy_to_clipboard", lambda s, t: None):
+        empty, copied = _run(drive())
+
+    assert any("Nothing selected" in message for message in empty)
+    assert any("Copied" in message for message in copied)
+    # The terminal is the half ORIS cannot verify, so the message says so
+    # rather than reporting a success that may not have reached a clipboard.
+    assert any("terminal is blocking" in message for message in copied)

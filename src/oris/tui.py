@@ -409,6 +409,13 @@ class OrisTui(App):
         # Short labels on purpose: the footer already carries eight keys at
         # ordinary widths, and longer ones pushed this pair off the end of it.
         # What each does is spelled out on the status line beside the state.
+        # Textual already binds these to a copy that says nothing either way, so
+        # a press that copied and a press that found no selection look
+        # identical — and so does a terminal that refused the clipboard. That
+        # silence is the whole difficulty with diagnosing a failed copy, so this
+        # shadows it to report what happened. `priority` because the binding it
+        # replaces lives on the screen, which is consulted first.
+        Binding("ctrl+c,super+c", "copy_selection", "Copy", priority=True, show=False),
         Binding("s", "phoenix_toggle", "Phoenix"),
         Binding("r", "phoenix_restart", "Restart"),
     ]
@@ -888,6 +895,26 @@ class OrisTui(App):
         hint = "" if state == PHOENIX_NOT_INSTALLED else "   s  on/off    r  restart"
         self.query_one("#services", Static).update(
             Text.assemble(("Phoenix: ", "dim"), (state, style), (hint, "dim"))
+        )
+
+    def action_copy_selection(self) -> None:
+        """Copy the highlighted text, and say what happened.
+
+        The clipboard is reached by writing an escape sequence the terminal is
+        expected to act on, which is the only thing that can work over SSH — the
+        machine ORIS runs on is not the machine with the clipboard. Terminals
+        are free to ignore it, and macOS Terminal always does, so a copy can
+        succeed here and still put nothing on the clipboard. Naming that in the
+        message is the difference between a bug in ORIS and a setting to change.
+        """
+        selection = self.screen.get_selected_text()
+        if not selection:
+            self.notify("Nothing selected. Drag across the text first.")
+            return
+        self.copy_to_clipboard(selection)
+        self.notify(
+            f"Copied {len(selection)} characters. If nothing pastes, the "
+            "terminal is blocking clipboard access."
         )
 
     def action_phoenix_toggle(self) -> None:

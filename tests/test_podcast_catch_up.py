@@ -6,6 +6,7 @@ YouTube should be a deletion rather than an untangling.
 """
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -19,6 +20,7 @@ from oris.podcast_catch_up import (
     create_podcast_catch_up_graph,
     create_podcast_catch_up_preparation_graph,
 )
+from oris.threat_reports import ThreatReportStore
 
 
 def make_episode(number: int) -> dict:
@@ -809,3 +811,84 @@ def test_the_scheduled_run_still_transcribes_a_whole_catch_up() -> None:
     asyncio.run(graph.ainvoke({}))
 
     assert tools["transcription"].ainvoke.await_count == 2
+
+
+def test_a_run_stores_the_transcripts_its_summaries_were_made_from(
+    tmp_path: Path,
+) -> None:
+    """A summary always prompts the question a summary cannot answer.
+
+    Threat Intel stores full provider responses for exactly this reason, and
+    podcasts now use the same store, so both are opened the same way from the
+    same key.
+    """
+    store = ThreatReportStore(tmp_path / "reports", retention_days=30)
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "First half. "),
+            transcript_page("call-1", "First half. "),
+        ],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+        report_store=store,
+    )
+
+    asyncio.run(graph.ainvoke({"thread_id": "thread-7"}))
+
+    stored = store.latest()
+    assert stored is not None
+    assert stored["thread_id"] == "thread-7"
+    episode = stored["evidence"]["episodes"][0]
+    assert episode["transcript"] == "First half. "
+    assert episode["transcript_backend"] == "publisher"
+    assert episode["title"] == "Episode 1"
+
+
+def test_a_run_with_no_usable_transcript_stores_nothing(tmp_path: Path) -> None:
+    """An empty evidence file would claim a run was recorded when it was not."""
+    store = ThreatReportStore(tmp_path / "reports", retention_days=30)
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[transcript_error("no_transcript_found")],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+        report_store=store,
+    )
+
+    asyncio.run(graph.ainvoke({}))
+
+    assert store.latest() is None
+
+
+def test_the_whole_transcript_is_stored_not_only_what_was_summarised(
+    tmp_path: Path,
+) -> None:
+    """Every page read is kept, so a long episode is complete in the evidence."""
+    store = ThreatReportStore(tmp_path / "reports", retention_days=30)
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "Part one. ", next_offset=1),
+            transcript_page("call-1", "Part one. ", next_offset=1),
+            transcript_page("call-1", "Part two.", next_offset=None),
+        ],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(summaries=2),
+        report_store=store,
+    )
+
+    asyncio.run(graph.ainvoke({}))
+
+    stored = store.latest()
+    assert stored is not None
+    assert stored["evidence"]["episodes"][0]["transcript"] == "Part one. Part two."

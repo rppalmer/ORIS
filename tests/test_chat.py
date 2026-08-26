@@ -797,7 +797,7 @@ def test_a_bare_podcast_command_catches_up_on_every_feed() -> None:
         )
     )
 
-    podcast_graph.ainvoke.assert_awaited_once_with({})
+    podcast_graph.ainvoke.assert_awaited_once_with({"thread_id": ""})
 
 
 def test_a_named_show_narrows_the_podcast_run() -> None:
@@ -813,4 +813,6 @@ def test_a_named_show_narrows_the_podcast_run() -> None:
         )
     )
 
-    podcast_graph.ainvoke.assert_awaited_once_with({"show": "LINUX Unplugged"})
+    podcast_graph.ainvoke.assert_awaited_once_with(
+        {"thread_id": "", "show": "LINUX Unplugged"}
+    )

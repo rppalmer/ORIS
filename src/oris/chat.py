@@ -358,6 +358,7 @@ def create_oris_graph(
 
     async def run_podcast_catch_up(
         state: ORISState,
+        config: RunnableConfig,
     ) -> dict[str, list[AIMessage]]:
         """Answer from the configured feeds, without transcription.
 
@@ -372,7 +373,14 @@ def create_oris_graph(
         # feed. Anything else names one show and asks what its latest episode
         # said, which is a different question with a much smaller answer.
         show = state["resolved_request"].strip()
-        request = {"show": show} if show else {}
+        # The conversation is passed for the same reason Threat Intel passes it:
+        # the transcripts stored for this run outlive the turn, and deleting the
+        # conversation has to be able to find them again.
+        request: dict[str, object] = {
+            "thread_id": config.get("configurable", {}).get("thread_id", "")
+        }
+        if show:
+            request["show"] = show
         result = await podcast_catch_up_graph.ainvoke(request)
         source_links = "\n".join(
             f"[{number}]({url})"

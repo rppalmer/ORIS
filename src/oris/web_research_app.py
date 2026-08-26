@@ -125,6 +125,7 @@ async def build_podcast_catch_up_preparation() -> tuple[CompiledStateGraph, Base
         transcript_tool,
         model,
         transcription_tool=transcription_tool,
+        report_store=threat_report_store,
     )
     return preparation_graph, acknowledgement_tool
 
@@ -144,6 +145,7 @@ async def build_podcast_catch_up_graph() -> CompiledStateGraph:
         acknowledgement_tool,
         model,
         transcription_tool=transcription_tool,
+        report_store=threat_report_store,
     )
 
 

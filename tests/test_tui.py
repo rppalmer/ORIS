@@ -1298,3 +1298,91 @@ def test_the_trace_exporter_is_quiet_even_at_shutdown(tmp_path: Path) -> None:
 
     assert "during the run" in written
     assert "after the interface exited" in written
+
+
+def test_a_transcript_is_shown_as_prose_not_as_escaped_json() -> None:
+    """The same key opens both kinds of evidence, in the form each is readable in.
+
+    Rendered as JSON a transcript is one enormous line with every newline
+    written out as a backslash-n — the same evidence, and unreadable. The shape
+    of what was stored decides the rendering.
+    """
+    screen = EvidenceScreen(
+        {
+            "report_id": "a1b2c3",
+            "request": "podcasts LINUX Unplugged",
+            "evidence": {
+                "episodes": [
+                    {
+                        "show": "LINUX Unplugged",
+                        "title": "Episode 600",
+                        "url": "https://example.com/600",
+                        "transcript_backend": "whisper",
+                        "transcript_truncated": False,
+                        "transcript": "First line.\nSecond line.",
+                    }
+                ]
+            },
+        }
+    )
+
+    rendered = str(screen.body())
+
+    assert "First line.\nSecond line." in rendered
+    assert "\\n" not in rendered
+    # The backend belongs here, not only in the digest: this is where someone
+    # comes to check a name the summary got wrong, and machine transcription is
+    # the first thing that explains one.
+    assert "whisper" in rendered
+    assert "LINUX Unplugged — Episode 600" in rendered
+
+
+def test_provider_evidence_is_still_shown_as_json() -> None:
+    """Threat Intel evidence is JSON and reads best as JSON; nothing changed."""
+    screen = EvidenceScreen(
+        {"report_id": "a1b2c3", "evidence": {"enrich": {"censys": {"ok": True}}}}
+    )
+
+    rendered = str(screen.body())
+
+    assert '"censys"' in rendered
+    assert '"ok": true' in rendered
+
+
+def test_pressing_e_on_a_podcast_run_opens_its_transcript(tmp_path: Path) -> None:
+    """The point of storing it: one key, whichever specialist produced the run.
+
+    Storing the transcript and rendering it are each tested on their own; this
+    is the path between them, which is the part that has to find the right run.
+    """
+
+    async def drive() -> tuple[type, str]:
+        app, _graph, _knowledge = _build(tmp_path, request="podcasts")
+        app.threat_report_store.save(
+            "podcasts LINUX Unplugged",
+            {
+                "episodes": [
+                    {
+                        "show": "LINUX Unplugged",
+                        "title": "Episode 600",
+                        "url": "https://example.com/600",
+                        "transcript_backend": "publisher",
+                        "transcript_truncated": False,
+                        "transcript": "Wes said the release slipped.",
+                    }
+                ]
+            },
+            thread_id=THREAD_ID,
+            now=STARTED_AT.replace(second=31),
+        )
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            await pilot.press("e")
+            await pilot.pause()
+            return type(app.screen), _text(app, "#viewer")
+
+    screen, viewer = _run(drive())
+
+    assert screen is EvidenceScreen
+    assert "Wes said the release slipped." in viewer

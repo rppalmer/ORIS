@@ -244,20 +244,49 @@ class EvidenceScreen(_JsonScreen):
         self.document = document
 
     def body(self) -> Text:
-        """Highlighted JSON as `Text`, which is both coloured and selectable.
+        """Whatever the run was built from, in the form it is readable in.
 
-        `Syntax` renders to segments that keep no character positions, so a
-        drag over one selects nothing. Asking it to highlight instead returns
-        the same colours as a `Text`, which selection can read.
+        Provider responses are JSON and read best as JSON. A transcript is
+        prose, and JSON would show it as one enormous line with every newline
+        written out as `\n` — technically the same evidence, and unreadable.
+        So the shape decides the rendering, and both arrive under the same key.
         """
-        rendered = json.dumps(
-            self.document.get("evidence") or {},
-            indent=2,
-            ensure_ascii=False,
-        )
+        evidence = self.document.get("evidence") or {}
+        episodes = evidence.get("episodes")
+        if isinstance(episodes, list) and episodes:
+            return self._transcripts(episodes)
+
+        rendered = json.dumps(evidence, indent=2, ensure_ascii=False)
         return Syntax(rendered, "json", theme="ansi_dark", word_wrap=True).highlight(
             rendered
         )
+
+    def _transcripts(self, episodes: list[Any]) -> Text:
+        """Every episode the run read, each under a heading naming its source.
+
+        The backend is repeated here, not just in the digest, because this is
+        where someone comes to check a name the summary got wrong — and whether
+        a machine transcribed it is the first thing that explains one.
+        """
+        blocks: list[Text] = []
+        for episode in episodes:
+            if not isinstance(episode, dict):
+                continue
+            backend = str(episode.get("transcript_backend", "?"))
+            truncated = " · truncated" if episode.get("transcript_truncated") else ""
+            blocks.append(
+                Text.assemble(
+                    (
+                        f"{episode.get('show', '?')} — {episode.get('title', '?')}\n",
+                        "bold cyan",
+                    ),
+                    (f"{episode.get('url', '')}\n", "dim"),
+                    (f"transcript: {backend}{truncated}\n\n", "dim"),
+                    (str(episode.get("transcript", "")), ""),
+                    ("\n\n", ""),
+                )
+            )
+        return Text("\n").join(blocks)
 
 
 class PromptScreen(_JsonScreen):

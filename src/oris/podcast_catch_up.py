@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from oris.net_razor import PODCAST_CATCH_UP_TOOL_NAMES
 from oris.prompts import load_system_prompt
 from oris.search import NonEmptyText
+from oris.threat_reports import ThreatReportStore
 
 EPISODE_SUMMARY_SYSTEM_PROMPT = load_system_prompt("podcast_episode_summary_system.txt")
 CATCH_UP_SYSTEM_PROMPT = load_system_prompt("podcast_catch_up_system.txt")
@@ -96,6 +97,7 @@ class PodcastCatchUpInput(TypedDict):
     days: NotRequired[int]
     max_episodes: NotRequired[int]
     show: NotRequired[str]
+    thread_id: NotRequired[str]
 
 
 class PodcastCatchUpOutput(TypedDict):
@@ -119,6 +121,7 @@ class PodcastCatchUpState(TypedDict):
     days: NotRequired[int]
     max_episodes: NotRequired[int]
     show: NotRequired[str]
+    thread_id: NotRequired[str]
     discovered_episodes: NotRequired[list[dict[str, Any]]]
     transcript_backends: NotRequired[dict[str, str]]
     transcript_call_ids: NotRequired[list[str]]
@@ -208,6 +211,7 @@ def create_podcast_catch_up_preparation_graph(
     *,
     transcription_tool: BaseTool | None = None,
     transcribe_catch_ups: bool = True,
+    report_store: ThreatReportStore | None = None,
 ) -> CompiledStateGraph:
     """Compile podcast discovery, transcription, summaries, and synthesis.
 
@@ -419,6 +423,7 @@ def create_podcast_catch_up_preparation_graph(
         state: PodcastCatchUpState,
     ) -> dict[str, object]:
         summaries: list[PodcastEpisodeSummary] = []
+        transcripts: list[dict[str, Any]] = []
         transcript_call_ids: list[str] = []
         caveats = list(state["caveats"])
         backends = state["transcript_backends"]
@@ -436,6 +441,7 @@ def create_podcast_catch_up_preparation_graph(
             # which would summarise an episode from its opening minutes and
             # then acknowledge it as done.
             part_summaries: list[str] = []
+            transcript_parts: list[str] = []
             transcript_call_id = ""
             unreadable: str | None = None
             offset: int | None = 0
@@ -473,6 +479,7 @@ def create_podcast_catch_up_preparation_graph(
                             "Net-Razor did not return a transcript call ID"
                         )
 
+                transcript_parts.append(text)
                 part_summaries.append(await summarize_part(episode, part, backend))
                 parts_remaining -= 1
                 next_offset = part.get("next_offset")
@@ -492,6 +499,17 @@ def create_podcast_catch_up_preparation_graph(
                     "acronyms, and version numbers in it are less reliable."
                 )
 
+            transcripts.append(
+                {
+                    "title": episode["title"],
+                    "show": episode["author"]["display_name"],
+                    "published_at": episode["published_at"],
+                    "url": episode["canonical_url"],
+                    "transcript_backend": backend,
+                    "transcript_truncated": truncated,
+                    "transcript": "".join(transcript_parts),
+                }
+            )
             summaries.append(
                 {
                     "episode_id": episode["source_id"],
@@ -506,11 +524,39 @@ def create_podcast_catch_up_preparation_graph(
             )
             transcript_call_ids.append(transcript_call_id)
 
+        _store_transcripts(state, transcripts)
         return {
             "episodes": summaries,
             "caveats": caveats,
             "transcript_call_ids": transcript_call_ids,
         }
+
+    def _store_transcripts(
+        state: PodcastCatchUpState,
+        transcripts: list[dict[str, Any]],
+    ) -> None:
+        """Keep what the summaries were made from, so it can be read afterwards.
+
+        A summary always prompts the question a summary cannot answer: what did
+        the episode actually say. This is the same reason Threat Intel stores
+        full provider responses, and it uses the same store, so `/threat` and
+        `/podcasts` runs are opened the same way from the same key.
+
+        The transcript is written out rather than fetched back from Net-Razor on
+        demand. Net-Razor does still hold it, so this is a second copy — but
+        fetching would mean the interface holding MCP tools, a page at a time,
+        and evidence that cannot be read when Net-Razor is unavailable. Against
+        that, a run's transcripts are a few hundred kilobytes and age out on the
+        same retention schedule as everything else in the store.
+        """
+        if report_store is None or not transcripts:
+            return
+        shows = sorted({str(episode["show"]) for episode in transcripts})
+        report_store.save(
+            f"podcasts {' '.join(shows)}".strip(),
+            {"episodes": transcripts},
+            thread_id=state.get("thread_id", ""),
+        )
 
     async def create_digest(state: PodcastCatchUpState) -> dict[str, object]:
         if not state["discovered_episodes"]:
@@ -630,7 +676,9 @@ def create_acknowledging_podcast_catch_up_graph(
 
     async def prepare(state: PodcastCatchUpState) -> dict:
         request = {
-            key: state[key] for key in ("days", "max_episodes", "show") if key in state
+            key: state[key]
+            for key in ("days", "max_episodes", "show", "thread_id")
+            if key in state
         }
         return await preparation_graph.ainvoke(request)
 
@@ -677,6 +725,7 @@ def create_podcast_catch_up_graph(
     model: BaseChatModel,
     *,
     transcription_tool: BaseTool | None = None,
+    report_store: ThreatReportStore | None = None,
 ) -> CompiledStateGraph:
     """Compile Podcast Catch-up for chat, transcribing only a named show.
 
@@ -691,6 +740,7 @@ def create_podcast_catch_up_graph(
         model,
         transcription_tool=transcription_tool,
         transcribe_catch_ups=False,
+        report_store=report_store,
     )
     return create_acknowledging_podcast_catch_up_graph(
         preparation_graph,

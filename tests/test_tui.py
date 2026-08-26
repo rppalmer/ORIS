@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from checkpoint_fixture import write_session
@@ -20,7 +21,9 @@ from phoenix_fixture import write_trace
 
 pytest.importorskip("textual", reason="install the optional 'tui' extra")
 
-from textual.widgets import DataTable, ListView, TabbedContent  # noqa: E402
+from textual.events import MouseMove  # noqa: E402
+from textual.geometry import Region  # noqa: E402
+from textual.widgets import DataTable, ListView, Markdown, TabbedContent  # noqa: E402
 
 from oris.knowledge import KnowledgeRepository  # noqa: E402
 from oris.sessions import list_sessions  # noqa: E402
@@ -158,9 +161,24 @@ def _build(
 
 
 def _text(app: OrisTui, selector: str) -> str:
-    """Read back what a log-style widget has actually rendered."""
+    """Read back what a pane has actually rendered.
+
+    Two shapes, because the two panes are built differently. The activity
+    detail is still a log and holds its own rendered lines. The conversation is
+    a container of one widget per message, which is what makes its text
+    selectable, so it is read by rendering each leaf widget under it.
+    """
     node = app.screen.query_one(selector)
-    return "\n".join(strip.text for strip in node.lines)
+    if hasattr(node, "lines"):
+        return "\n".join(strip.text for strip in node.lines)
+    return "\n".join(
+        strip.text
+        for widget in node.walk_children(with_self=False)
+        if not widget.children
+        for strip in widget.render_lines(
+            Region(0, 0, widget.size.width, widget.size.height)
+        )
+    )
 
 
 def _rows(app: OrisTui) -> str:
@@ -838,3 +856,62 @@ def test_deleting_is_offered_on_the_chat_tab_only(tmp_path: Path) -> None:
 
     assert on_chat is True
     assert on_activity is False
+
+
+async def _drag(
+    pilot: Any, widget: Any, start: tuple[int, int], end: tuple[int, int]
+) -> None:
+    """Select text the way a mouse does: press, move with the button down, release."""
+    await pilot.mouse_down(widget, start)
+    await pilot._post_mouse_events([MouseMove], widget=widget, offset=end, button=1)
+    await pilot.mouse_up(widget, end)
+    await pilot.pause()
+
+
+def test_an_answer_can_be_selected_and_copied(tmp_path: Path) -> None:
+    """Dragging across an answer yields exactly those characters.
+
+    This is the whole reason the conversation is a container of message widgets
+    rather than a log. A log accepted the drag, reported a selection, and handed
+    back an empty string, so the interface looked like it supported copying and
+    did not. The assertion is on the extracted text rather than on the widget
+    type, because the widget is the means and the text is the requirement.
+    """
+
+    async def drive() -> tuple[str, list[str]]:
+        app, _graph, _knowledge = _build(tmp_path)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await _ask(app, pilot, "anything")
+            answer = app.query_one("#conversation").query_one(Markdown)
+            await _drag(pilot, answer, (0, 0), (13, 0))
+            selected = app.screen.get_selected_text()
+            app.screen.action_copy_text()
+            return selected or "", list(copied)
+
+    copied: list[str] = []
+    with patch.object(
+        OrisTui, "copy_to_clipboard", lambda _self, text: copied.append(text)
+    ):
+        selected, clipboard = _run(drive())
+
+    # Deliberately not an exact column-to-character mapping. What has to hold is
+    # that a drag extracts real characters from the answer and that copying
+    # sends exactly those. Where column 13 lands depends on the widget's padding,
+    # which is styling and is free to change.
+    assert selected in ANSWER
+    assert 0 < len(selected) < len(ANSWER)
+    assert clipboard == [selected]
+
+
+def test_a_request_can_be_selected_too(tmp_path: Path) -> None:
+    """The question is as worth copying as the answer, and is a different widget."""
+
+    async def drive() -> str:
+        app, _graph, _knowledge = _build(tmp_path)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await _ask(app, pilot, "enrich 8.8.8.8")
+            asked = app.query_one("#conversation").query_one(".ask")
+            await _drag(pilot, asked, (2, 0), (16, 0))
+            return app.screen.get_selected_text() or ""
+
+    assert _run(drive()) == "enrich 8.8.8.8"

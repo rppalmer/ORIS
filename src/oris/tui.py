@@ -23,13 +23,12 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph
-from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     DataTable,
@@ -38,6 +37,7 @@ from textual.widgets import (
     Input,
     ListItem,
     ListView,
+    Markdown,
     RichLog,
     Static,
     TabbedContent,
@@ -284,6 +284,14 @@ class OrisTui(App):
        carries no information the truncated title does not. */
     #sessions Static { text-wrap: nowrap; text-overflow: ellipsis; }
     #conversation { height: 1fr; border: round $panel; padding: 0 1; }
+    /* Every message is a widget of its own, which is what makes the text
+       selectable. A log would be simpler and cannot be selected: Textual reads
+       the characters under a drag from content it rendered itself, and
+       pre-rendered Rich output keeps no character positions to read. */
+    #conversation > Static { height: auto; }
+    #conversation > Markdown { height: auto; margin: 0 0 1 0; }
+    /* The blank line that used to be written above and below each request. */
+    #conversation > .ask { margin: 1 0; }
     /* Not docked, deliberately. Docking this to the same edge as the prompt
        put both in the same band, and the prompt — three rows tall against this
        one — was painted over the top of it. The status was set correctly the
@@ -352,7 +360,7 @@ class OrisTui(App):
             with TabPane("Chat", id="chat"), Horizontal():
                 yield ListView(id="sessions")
                 with Vertical():
-                    yield RichLog(id="conversation", wrap=True, markup=False)
+                    yield VerticalScroll(id="conversation")
                     yield Static("", id="status")
                     yield PromptInput(placeholder="Ask, or /help …", id="prompt")
             with TabPane("Activity", id="activity"):
@@ -372,8 +380,21 @@ class OrisTui(App):
         self.query_one("#prompt", PromptInput).focus()
 
     # -- chat ----------------------------------------------------------------
-    def _conversation(self) -> RichLog:
-        return self.query_one("#conversation", RichLog)
+    def _conversation(self) -> VerticalScroll:
+        return self.query_one("#conversation", VerticalScroll)
+
+    def _say(self, widget: Static | Markdown) -> None:
+        """Add one message to the conversation and keep the newest in view.
+
+        Each message is its own widget rather than a line written into a log.
+        That is what makes the text selectable: Textual can only extract the
+        characters under a drag from a widget whose content it rendered itself,
+        and a log of pre-rendered Rich output has no character positions left to
+        offer. The whole conversation was selectable-looking and copied nothing.
+        """
+        conversation = self._conversation()
+        conversation.mount(widget)
+        conversation.call_after_refresh(conversation.scroll_end, animate=False)
 
     def _load_sessions(self) -> None:
         """Rebuild the session list, marking the one being continued."""
@@ -419,27 +440,27 @@ class OrisTui(App):
 
     def _load_conversation(self) -> None:
         """Replay the active session, so switching shows what will be continued."""
-        log = self._conversation()
-        log.clear()
+        self._conversation().remove_children()
         prompt = self.query_one("#prompt", PromptInput)
         prompt.history = []
         transcript = session_transcript(self.checkpoint_database_path, self.thread_id)
         if not transcript:
-            log.write(Text("New session. Type /help for commands.", style="dim"))
+            self._say(
+                Static(Text("New session. Type /help for commands.", style="dim"))
+            )
             return
         for role, text in transcript:
             if role == "you":
                 self._write_request(text)
                 prompt.remember(text)
             else:
-                log.write(Markdown(text))
+                self._say(Markdown(text))
         prompt.remember("")
 
     def _write_request(self, request: str) -> None:
-        log = self._conversation()
-        log.write("")
-        log.write(Text.assemble(("› ", "bold cyan"), (request, "bold")))
-        log.write("")
+        self._say(
+            Static(Text.assemble(("› ", "bold cyan"), (request, "bold")), classes="ask")
+        )
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Switching sessions changes what the next turn continues from."""
@@ -465,18 +486,19 @@ class OrisTui(App):
 
     def _handle(self, query: str) -> None:
         """Answer what the interface owns; send everything else to the graph."""
-        log = self._conversation()
         parsed = read_command(query)
         if isinstance(parsed, Rejected):
-            log.write(Text(parsed.message, style="yellow"))
+            self._say(Static(Text(parsed.message, style="yellow")))
             return
         if isinstance(parsed, SelfHandled):
             if parsed.name == "exit":
                 self.exit()
             elif parsed.name == "help":
-                log.write(command_table(parsed.argument))
+                self._say(Static(command_table(parsed.argument)))
             elif parsed.name == "session":
-                log.write(Text(f"Current session: {self.thread_id}", style="dim"))
+                self._say(
+                    Static(Text(f"Current session: {self.thread_id}", style="dim"))
+                )
             elif parsed.name == "new":
                 self.thread_id = start_new_session(self.session_file_path)
                 self._load_sessions()
@@ -493,7 +515,6 @@ class OrisTui(App):
     @work(exclusive=True)
     async def _ask(self, mode: str, request: str) -> None:
         """Run one turn without freezing the interface."""
-        log = self._conversation()
         try:
             result = await run_turn(
                 self.graph,
@@ -503,20 +524,20 @@ class OrisTui(App):
             )
         except Exception as error:  # noqa: BLE001 - a failed turn is not a crash
             self._finish()
-            log.write(Text(f"⚠ {error}", style="red"))
+            self._say(Static(Text(f"⚠ {error}", style="red")))
             return
         self._finish()
 
         if not result.get("request_succeeded", True):
             message = result.get("request_error") or REQUEST_FAILURE_MESSAGE
-            log.write(Text(f"⚠ {message}", style="red"))
+            self._say(Static(Text(f"⚠ {message}", style="red")))
             self.action_refresh_activity()
             return
 
         answer = str(result["messages"][-1].text)
         # Show the answer before archiving it: work already done must not be
         # lost because the local archive write failed.
-        log.write(Markdown(answer))
+        self._say(Markdown(answer))
         self.knowledge_repository.add_exchange(
             thread_id=self.thread_id,
             request=request,

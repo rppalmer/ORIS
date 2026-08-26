@@ -1278,3 +1278,37 @@ The scheduled path — `oris-run-scheduled` writing a report, indexing it to
 `/recall`, and acknowledging episodes — has not been run end to end.
 
 Deterministic baseline: 301 passing, 17 skipped, clean lint and formatting.
+
+### Selectable chat text — 2026-08-25
+
+- **The conversation looked like it supported copying and never did.** Dragging
+  across the chat pane visibly selected, and copying returned an empty string
+  every time. Reported three times before it was diagnosed, twice by me from
+  memory and wrongly: I first reasoned about the command line, which is not the
+  affected front end, and then concluded from `RichLog.ALLOW_SELECT` being
+  `True` that the support was already there.
+- **`ALLOW_SELECT` means the widget joins the selection protocol, not that it
+  can produce text.** Textual works out which characters a drag covers from
+  `offset` metadata attached to each rendered segment by its own content
+  pipeline. `RichLog` holds pre-rendered Rich output, which carries none, so the
+  screen falls back to selecting the whole widget — and `Widget.get_selection`
+  then finds nothing to extract, because it only reads `Text` or `Content`.
+- **Measured rather than argued.** A drag across a `RichLog` returns `''`; the
+  same drag across a `Static` returns the exact characters. Textual's own
+  `Markdown` widget behaves like `Static`. That comparison is what settled the
+  design; reading the attribute had pointed the opposite way.
+- **The chat pane is now a `VerticalScroll` holding one widget per message** —
+  `Static` for requests, errors and the command reference, Textual's `Markdown`
+  widget for answers. Selection and `ctrl+c`/`cmd+c` are already bound by
+  Textual, so no key handling or clipboard code was written.
+- **The Activity tab still uses a log and is untouched.** Its detail pane shows
+  spans rather than prose, and nothing about it was reported as a problem.
+- The test asserts on extracted text, not on widget types, and deliberately does
+  not pin which character a given column lands on — that depends on padding,
+  which is styling. What must hold is that a drag yields real characters from
+  the answer and that copying sends exactly those.
+- **Two things were wrong in the work that preceded this.** Two podcast files
+  were committed earlier the same day without `ruff format`, and the history
+  entry written afterwards claimed a clean formatting baseline. Both are fixed.
+
+Deterministic baseline: 303 passing, 17 skipped, clean lint and formatting.

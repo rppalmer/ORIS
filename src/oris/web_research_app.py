@@ -20,7 +20,7 @@ from oris.net_razor import (
     load_youtube_catch_up_tools,
 )
 from oris.podcast_catch_up import (
-    create_acknowledging_podcast_catch_up_graph,
+    create_podcast_catch_up_graph,
     create_podcast_catch_up_preparation_graph,
 )
 from oris.tavily import TavilyWebSearch, create_tavily_search
@@ -130,21 +130,20 @@ async def build_podcast_catch_up_preparation() -> tuple[CompiledStateGraph, Base
 
 
 async def build_podcast_catch_up_graph() -> CompiledStateGraph:
-    """Compile Podcast Catch-up for chat, without transcription."""
+    """Compile Podcast Catch-up for chat, where only a named show transcribes."""
     python_executable = _net_razor_executable()
     (
         discovery_tool,
         transcript_tool,
         acknowledgement_tool,
     ) = await load_podcast_catch_up_tools(python_executable)
-    preparation_graph = create_podcast_catch_up_preparation_graph(
+    transcription_tool = await load_podcast_transcription_tool(python_executable)
+    return create_podcast_catch_up_graph(
         discovery_tool,
         transcript_tool,
-        model,
-    )
-    return create_acknowledging_podcast_catch_up_graph(
-        preparation_graph,
         acknowledgement_tool,
+        model,
+        transcription_tool=transcription_tool,
     )
 
 

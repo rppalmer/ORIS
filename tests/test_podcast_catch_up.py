@@ -708,3 +708,99 @@ def test_the_run_stops_reading_once_its_whole_budget_is_spent() -> None:
 
     assert result["episodes"][0]["transcript_truncated"] is True
     assert any("truncated" in c.lower() for c in result["caveats"])
+
+
+def test_naming_a_show_transcribes_it_in_chat() -> None:
+    """Chat has the transcription tool, and a named show is allowed to use it.
+
+    Most of the shows in real use publish no transcript. A chat that could
+    never transcribe answered "nothing to summarise" for exactly the shows
+    someone would bother naming, which made the feature useless where it was
+    meant to be used.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_error("no_transcript_found"),
+            transcript_page("call-1", "Machine words.", backend="whisper"),
+        ],
+    )
+    tools["transcription"].ainvoke = AsyncMock(
+        return_value=tool_message(
+            tools["transcription"].name,
+            transcript_page("whisper-call", "Machine words.", backend="whisper"),
+        )
+    )
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({"show": "Example Show"}))
+
+    tools["transcription"].ainvoke.assert_awaited_once()
+    assert result["episodes"][0]["transcript_backend"] == "whisper"
+
+
+def test_a_chat_catch_up_never_starts_a_transcription() -> None:
+    """The same graph holds the tool and refuses to use it for a whole run.
+
+    A catch-up can queue five episodes, and transcribing them one after another
+    would hold the interface for the better part of an hour. Naming a show caps
+    the run at one episode, which is the difference the rule turns on.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[transcript_error("no_transcript_found")],
+    )
+    tools["transcription"].ainvoke = AsyncMock()
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    tools["transcription"].ainvoke.assert_not_awaited()
+    assert result["episodes"] == []
+    assert any(
+        "Ask for this show by name" in caveat for caveat in result["caveats"]
+    )
+
+
+def test_the_scheduled_run_still_transcribes_a_whole_catch_up() -> None:
+    """Nobody is waiting on the scheduled run, so its budget is the only bound."""
+    tools = make_tools(
+        episodes=[make_episode(1), make_episode(2)],
+        transcript_pages=[
+            transcript_error("no_transcript_found"),
+            transcript_error("no_transcript_found"),
+            transcript_page("call-1", "Machine words.", backend="whisper"),
+            transcript_page("call-2", "More machine words.", backend="whisper"),
+        ],
+    )
+    tools["transcription"].ainvoke = AsyncMock(
+        side_effect=[
+            tool_message(
+                tools["transcription"].name,
+                transcript_page(f"whisper-{number}", "Machine words.", backend="whisper"),
+            )
+            for number in (1, 2)
+        ]
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(summaries=2),
+        transcription_tool=tools["transcription"],
+    )
+
+    asyncio.run(graph.ainvoke({}))
+
+    assert tools["transcription"].ainvoke.await_count == 2

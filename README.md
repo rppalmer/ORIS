@@ -24,9 +24,10 @@ respect to external systems.
   summarizes transcripts one at a time, and produces a cited digest.
 - Podcast Catch-up uses Net-Razor to discover recent episodes from configured
   feeds, prefers the publisher's own transcript, and falls back to local Whisper
-  transcription on the scheduled path only. Every episode says which it was,
-  because machine transcription mangles the names and version numbers a digest
-  then repeats as fact.
+  transcription. Every episode says which it was, because machine transcription
+  mangles the names and version numbers a digest then repeats as fact. A
+  scheduled run may transcribe its whole budget; in chat only a named show does,
+  because that is one episode rather than five.
 - Threat Intel runs bounded defensive ThreatSyft lookups behind the explicit
   `/threat` command and stores the full evidence for every run. The router never
   selects it, because enrichment sends indicators to third-party providers.
@@ -146,10 +147,11 @@ uv run pytest -q
 uv run oris
 ```
 
-Then `/podcasts linux unplugged` — or any configured show. It exercises
-discovery, the transcript path, paging, and the digest against one episode
-without transcribing anything, so a broken install fails in seconds rather than
-minutes. Follow it with a bare `/podcasts` for the full catch-up.
+Then `/podcasts linux unplugged`. It exercises discovery, the transcript path,
+paging, and the digest against a single episode, so a broken install fails in
+seconds. Pick a show that publishes its own transcript for this: naming one that
+does not will transcribe it, which works but takes minutes. Follow it with a
+bare `/podcasts` for the full catch-up, which never transcribes.
 
 ### What does not come with the code
 
@@ -199,7 +201,10 @@ you want an explicit path:
   episode per feed before a second from any, so a show that publishes daily
   cannot crowd out one that publishes weekly.
 - `/podcasts <show>` — the newest episode of one configured show, summarised on
-  its own. Matched on the show's name, so no feed URL is needed.
+  its own. Matched on the show's name, so no feed URL is needed. This is the one
+  chat command that will transcribe: a named show is a single episode, and most
+  feeds publish no transcript, so refusing would make the command useless.
+  Expect minutes rather than seconds when it has to.
 - `/threat report <anything>` — return the collected evidence pivoted by field
   instead of a written summary. No model call, so nothing is lost to summarising.
   Composes with the keywords below: `/threat report enrich <ip>`.
@@ -271,11 +276,11 @@ days = 1
 max_episodes = 5
 ```
 
-`max_episodes` and `cron` are related numbers. Only a scheduled run transcribes,
-and a run that transcribes its whole budget can take a long time; a job still
-running when its next firing is due has that firing skipped in silence. A
-scheduled run also acknowledges its episodes, which is one-way — they leave the
-queue and do not come back.
+`max_episodes` and `cron` are related numbers. A scheduled run is the only one
+that transcribes a whole catch-up, and a run that transcribes its whole budget
+can take a long time; a job still running when its next firing is due has that
+firing skipped in silence. A scheduled run also acknowledges its episodes,
+which is one-way — they leave the queue and do not come back.
 
 Run one enabled job immediately by its configured ID:
 

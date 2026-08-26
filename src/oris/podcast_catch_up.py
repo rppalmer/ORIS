@@ -209,13 +209,20 @@ def create_podcast_catch_up_preparation_graph(
     model: BaseChatModel,
     *,
     transcription_tool: BaseTool | None = None,
+    transcribe_catch_ups: bool = True,
 ) -> CompiledStateGraph:
     """Compile podcast discovery, transcription, summaries, and synthesis.
 
-    `transcription_tool` is supplied only on the scheduled path. Without it the
-    graph degrades to publisher transcripts, and an episode with none becomes a
-    caveat — which is also what happens when Net-Razor has transcription
-    switched off.
+    Without `transcription_tool` the graph degrades to publisher transcripts,
+    and an episode with none becomes a caveat — which is also what happens when
+    Net-Razor has transcription switched off.
+
+    `transcribe_catch_ups` is what separates a run someone is sitting in front
+    of from one nobody is waiting on. Chat sets it False: naming a show is at
+    most one episode and so at most one transcription, which the MCP deadline
+    already bounds, but a whole catch-up could transcribe five in a row and no
+    chat turn should hold the interface for that long. The scheduled run has
+    nobody waiting and keeps the default.
     """
     actual_tool_names = (discovery_tool.name, transcript_tool.name)
     preparation_tool_names = PODCAST_CATCH_UP_TOOL_NAMES[:2]
@@ -353,6 +360,13 @@ def create_podcast_catch_up_preparation_graph(
                 caveats.append(
                     f"{title} publishes no transcript, and transcription is not "
                     "available on this path."
+                )
+                continue
+
+            if not transcribe_catch_ups and not state.get("show", "").strip():
+                caveats.append(
+                    f"{title} publishes no transcript. Ask for this show by "
+                    "name to have it transcribed."
                 )
                 continue
 
@@ -665,12 +679,22 @@ def create_podcast_catch_up_graph(
     transcript_tool: BaseTool,
     acknowledgement_tool: BaseTool,
     model: BaseChatModel,
+    *,
+    transcription_tool: BaseTool | None = None,
 ) -> CompiledStateGraph:
-    """Compile Podcast Catch-up for interactive use, without transcription."""
+    """Compile Podcast Catch-up for chat, transcribing only a named show.
+
+    Three of the five feeds in real use publish no transcript at all, so a chat
+    that could never transcribe answered "nothing to summarise" for most of the
+    shows anyone would name. One episode is a wait chat can afford; a catch-up
+    is not, which `transcribe_catch_ups` is what decides.
+    """
     preparation_graph = create_podcast_catch_up_preparation_graph(
         discovery_tool,
         transcript_tool,
         model,
+        transcription_tool=transcription_tool,
+        transcribe_catch_ups=False,
     )
     return create_acknowledging_podcast_catch_up_graph(
         preparation_graph,

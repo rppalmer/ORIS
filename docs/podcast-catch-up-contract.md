@@ -35,11 +35,20 @@ Four Net-Razor tools, split across two graphs:
 | `net_razor_podcast_new_episodes` | yes | yes |
 | `net_razor_podcast_transcript` | yes | yes |
 | `net_razor_podcast_mark_processed` | yes | yes |
-| `net_razor_podcast_whisper_transcript` | **no** | yes |
+| `net_razor_podcast_whisper_transcript` | named show only | yes |
 
-Transcription blocks for minutes, so the interactive graph must never be able to
-start one. That is guaranteed by the graph not holding the tool, not by it
-choosing not to call it.
+Transcription blocks for minutes. The rule is about how many of those minutes a
+run can stack up, not about whether a person is present.
+
+Naming a show returns exactly one episode, so it can transcribe at most once,
+and the MCP read timeout already bounds that at 23 minutes. A catch-up can queue
+five, and five in a row is most of an hour with the interface held open, so the
+interactive graph refuses to start any transcription for a catch-up.
+
+This was originally enforced by keeping the tool out of the interactive graph
+entirely. That turned out to be the wrong line: three of the five feeds in real
+use publish no transcript at all, so naming a show — the only reason to ask
+about one — answered "nothing to summarise" almost every time.
 
 The specialist must not receive general search, diagnostic, audit-history, X,
 Hacker News, or YouTube tools.

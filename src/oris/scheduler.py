@@ -71,7 +71,6 @@ def main() -> None:
 
     from oris.web_research_app import (
         build_podcast_catch_up_preparation,
-        build_youtube_catch_up_preparation,
         knowledge_repository,
         web_research_graph,
     )
@@ -82,7 +81,6 @@ def main() -> None:
             web_research_graph,
             knowledge_repository,
             current_date=datetime.now(timezone).date(),
-            build_youtube_catch_up=build_youtube_catch_up_preparation,
             build_podcast_catch_up=build_podcast_catch_up_preparation,
         )
         logger.info("Scheduled run succeeded: %s", record.report_path)

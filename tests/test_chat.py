@@ -28,7 +28,6 @@ def test_oris_chats_without_web_research_by_default() -> None:
         web_research_graph,
         local_knowledge_graph,
         Mock(),
-        Mock(),
         model,
     )
 
@@ -61,7 +60,6 @@ def test_oris_delegates_explicit_research_to_web_research() -> None:
     graph = create_oris_graph(
         web_research_graph,
         local_knowledge_graph,
-        Mock(),
         Mock(),
         model,
     )
@@ -112,7 +110,6 @@ def test_oris_delegates_explicit_local_knowledge_request() -> None:
         web_research_graph,
         local_knowledge_graph,
         Mock(),
-        Mock(),
         model,
     )
 
@@ -152,7 +149,6 @@ def test_oris_delegates_explicit_community_research() -> None:
         web_research_graph,
         local_knowledge_graph,
         community_research_graph,
-        Mock(),
         model,
     )
 
@@ -174,53 +170,6 @@ def test_oris_delegates_explicit_community_research() -> None:
         "LangGraph is being discussed for agent workflows.\n\n"
         "Community sources:\n"
         "[1](https://news.ycombinator.com/item?id=123)"
-    )
-
-
-def test_oris_delegates_explicit_youtube_catch_up() -> None:
-    """The parent maps YouTube Catch-up output into one assistant response."""
-    youtube_catch_up_graph = Mock()
-    youtube_catch_up_graph.ainvoke = AsyncMock(
-        return_value={
-            "answer": "Two new videos were summarized.",
-            "cited_urls": ["https://www.youtube.com/watch?v=video-1"],
-            "videos": [],
-            "caveats": ["Transcript truncated for Video 1."],
-        }
-    )
-    web_research_graph = Mock()
-    local_knowledge_graph = Mock()
-    community_research_graph = Mock()
-    community_research_graph.ainvoke = AsyncMock()
-    model = Mock()
-    graph = create_oris_graph(
-        web_research_graph,
-        local_knowledge_graph,
-        community_research_graph,
-        youtube_catch_up_graph,
-        model,
-    )
-
-    result = asyncio.run(
-        graph.ainvoke(
-            {
-                "messages": [HumanMessage(content="Catch me up on YouTube")],
-                "mode": "youtube_catch_up",
-            }
-        )
-    )
-
-    youtube_catch_up_graph.ainvoke.assert_awaited_once_with({})
-    web_research_graph.ainvoke.assert_not_called()
-    local_knowledge_graph.invoke.assert_not_called()
-    community_research_graph.ainvoke.assert_not_awaited()
-    model.invoke.assert_not_called()
-    assert result["messages"][-1].content == (
-        "Two new videos were summarized.\n\n"
-        "YouTube sources:\n"
-        "[1](https://www.youtube.com/watch?v=video-1)\n\n"
-        "Caveats:\n"
-        "- Transcript truncated for Video 1."
     )
 
 
@@ -247,7 +196,6 @@ def test_oris_uses_the_constrained_router_in_auto_mode() -> None:
         web_research_graph,
         local_knowledge_graph,
         community_research_graph,
-        Mock(),
         model,
     )
 
@@ -280,7 +228,7 @@ def test_oris_explicit_mode_bypasses_the_router() -> None:
     model = Mock()
     model.with_structured_output.return_value = routing_model
     model.invoke.return_value = AIMessage(content="Direct answer.")
-    graph = create_oris_graph(Mock(), Mock(), Mock(), Mock(), model)
+    graph = create_oris_graph(Mock(), Mock(), Mock(), model)
 
     result = graph.invoke(
         {
@@ -318,7 +266,6 @@ def test_oris_passes_a_resolved_follow_up_to_research() -> None:
         web_research_graph,
         Mock(),
         Mock(),
-        Mock(),
         model,
     )
 
@@ -353,7 +300,7 @@ def test_oris_closes_a_router_failure() -> None:
     routing_model.invoke.side_effect = RuntimeError("router unavailable")
     model = Mock()
     model.with_structured_output.return_value = routing_model
-    graph = create_oris_graph(Mock(), Mock(), Mock(), Mock(), model)
+    graph = create_oris_graph(Mock(), Mock(), Mock(), model)
 
     result = graph.invoke(
         {
@@ -376,7 +323,6 @@ def test_oris_reports_a_missing_human_message_as_a_closed_request() -> None:
     graph = create_oris_graph(
         web_research_graph,
         local_knowledge_graph,
-        Mock(),
         Mock(),
         model,
     )
@@ -404,7 +350,6 @@ def test_oris_restores_conversation_after_restart(tmp_path) -> None:
             Mock(),
             Mock(),
             Mock(),
-            Mock(),
             first_model,
             checkpointer=checkpointer,
         )
@@ -418,7 +363,6 @@ def test_oris_restores_conversation_after_restart(tmp_path) -> None:
     second_model.invoke.return_value = AIMessage(content="I already told you.")
     with SqliteSaver.from_conn_string(str(database_path)) as checkpointer:
         restarted_graph = create_oris_graph(
-            Mock(),
             Mock(),
             Mock(),
             Mock(),
@@ -462,7 +406,6 @@ def test_oris_closes_a_failed_turn_before_the_next_request(
         ) as checkpointer:
             graph = create_oris_graph(
                 web_research_graph,
-                Mock(),
                 Mock(),
                 Mock(),
                 direct_chat_model,
@@ -516,7 +459,6 @@ def test_router_cannot_select_threat_intel() -> None:
         "local_knowledge",
         "podcast_catch_up",
         "web_research",
-        "youtube_catch_up",
     }
 
 
@@ -536,7 +478,6 @@ def test_oris_delegates_explicit_threat_intel_request() -> None:
     )
     model = Mock()
     graph = create_oris_graph(
-        Mock(),
         Mock(),
         Mock(),
         Mock(),
@@ -573,7 +514,7 @@ def test_threat_intel_reports_clearly_when_threatsyft_is_not_configured() -> Non
     """An unconfigured optional capability degrades one request, not the core."""
     model = Mock()
     model.invoke.return_value = AIMessage(content="Direct answer.")
-    graph = create_oris_graph(Mock(), Mock(), Mock(), Mock(), model)
+    graph = create_oris_graph(Mock(), Mock(), Mock(), model)
 
     failed = asyncio.run(
         graph.ainvoke(
@@ -599,9 +540,7 @@ def test_oris_bounds_the_history_sent_to_the_model() -> None:
     """A long thread cannot grow past the configured context budget."""
     model = Mock()
     model.invoke.return_value = AIMessage(content="Answer.")
-    graph = create_oris_graph(
-        Mock(), Mock(), Mock(), Mock(), model, max_history_tokens=40
-    )
+    graph = create_oris_graph(Mock(), Mock(), Mock(), model, max_history_tokens=40)
     history = []
     for index in range(8):
         history.append(HumanMessage(content=f"question {index} " + "word " * 20))
@@ -620,9 +559,7 @@ def test_oris_keeps_a_request_larger_than_the_history_budget() -> None:
     """Trimming never leaves the model a prompt with no request to answer."""
     model = Mock()
     model.invoke.return_value = AIMessage(content="Answer.")
-    graph = create_oris_graph(
-        Mock(), Mock(), Mock(), Mock(), model, max_history_tokens=10
-    )
+    graph = create_oris_graph(Mock(), Mock(), Mock(), model, max_history_tokens=10)
     oversized_request = "word " * 500
 
     graph.invoke(
@@ -664,7 +601,6 @@ def test_unavailable_mcp_server_closes_only_its_own_request() -> None:
         Mock(),
         Mock(),
         LazyMCPSpecialist(build),
-        Mock(),
         model,
     )
 
@@ -714,7 +650,6 @@ def test_oris_async_checkpointer_restores_community_session(
                 Mock(),
                 Mock(),
                 community_graph,
-                Mock(),
                 first_model,
                 checkpointer=checkpointer,
             )
@@ -733,7 +668,6 @@ def test_oris_async_checkpointer_restores_community_session(
             str(database_path)
         ) as checkpointer:
             restarted_graph = create_oris_graph(
-                Mock(),
                 Mock(),
                 Mock(),
                 Mock(),
@@ -780,7 +714,6 @@ def _podcast_graph_and_double() -> tuple[object, Mock]:
         Mock(),
         Mock(),
         community_research_graph,
-        Mock(),
         Mock(),
         podcast_catch_up_graph=podcast_graph,
     )

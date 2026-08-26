@@ -1,4 +1,4 @@
-version = 4
+version = 5
 
 [[cases]]
 id = "ordinary-writing"
@@ -31,10 +31,10 @@ expected_route = "chat"
 evaluation_goal = "A stable explanatory request should default to direct chat when research is not requested."
 
 [[cases]]
-id = "youtube-channel-catch-up"
-request = "Catch me up on new videos from my configured YouTube channels."
-expected_route = "youtube_catch_up"
-evaluation_goal = "A catch-up request for configured YouTube channels should use YouTube Catch-up."
+id = "podcast-feed-catch-up"
+request = "Catch me up on new episodes from my configured podcast feeds."
+expected_route = "podcast_catch_up"
+evaluation_goal = "A catch-up request for configured feeds should use Podcast Catch-up."
 
 [[cases]]
 id = "current-weather-follow-up"

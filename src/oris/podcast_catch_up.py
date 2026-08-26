@@ -1,10 +1,11 @@
 """Fixed Podcast Catch-up workflow backed by Net-Razor MCP.
 
-Deliberately shares no code with `youtube_catch_up`. The two overlap heavily,
-but this is a candidate replacement for that specialist rather than a sibling:
-YouTube collection keeps getting harder and may be removed entirely. Sharing
-would turn that removal into an untangling rather than a deletion, which is the
-same call Net-Razor made on its own side of the boundary.
+Built to share no code with the YouTube specialist it was a candidate
+replacement for, on the reasoning that sharing would turn that specialist\'s
+removal into an untangling rather than a deletion. Net-Razor dropped its
+YouTube source on 2026-08-26 and ORIS followed the same day: every test in this
+module passed before a line of it was touched, which is what the separation was
+for.
 """
 
 import json

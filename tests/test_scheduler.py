@@ -10,9 +10,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from oris.scheduler import create_scheduler, run_until_stopped
 from oris.schedules import (
+    PodcastCatchUpScheduledJob,
     ScheduleConfig,
     WebResearchScheduledJob,
-    YouTubeCatchUpScheduledJob,
 )
 
 
@@ -60,15 +60,15 @@ def test_create_scheduler_registers_only_enabled_jobs() -> None:
     run_job.assert_not_called()
 
 
-def test_create_scheduler_registers_youtube_catch_up() -> None:
-    """YouTube Catch-up uses the same proven scheduler trigger path."""
-    job = YouTubeCatchUpScheduledJob(
-        id="youtube-catch-up",
+def test_create_scheduler_registers_a_catch_up_job() -> None:
+    """A catch-up job uses the same proven scheduler trigger path."""
+    job = PodcastCatchUpScheduledJob(
+        id="podcast-catch-up",
         enabled=True,
         cron="0 8 * * *",
-        task="youtube_catch_up",
+        task="podcast_catch_up",
         days=7,
-        max_videos=5,
+        max_episodes=5,
     )
     scheduler = create_scheduler(
         ScheduleConfig(timezone="America/Detroit", jobs=(job,)),
@@ -77,7 +77,7 @@ def test_create_scheduler_registers_youtube_catch_up() -> None:
 
     scheduled_jobs = scheduler.get_jobs()
     assert [scheduled_job.id for scheduled_job in scheduled_jobs] == [
-        "youtube-catch-up"
+        "podcast-catch-up"
     ]
     assert scheduled_jobs[0].args == (job,)
 

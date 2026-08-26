@@ -77,15 +77,15 @@ def test_routing_evaluation_set_is_valid() -> None:
         evaluation = tomllib.load(evaluation_file)
 
     cases = evaluation["cases"]
-    assert evaluation["version"] == 4
+    assert evaluation["version"] == 5
     assert len(cases) == 7
     assert len({case["id"] for case in cases}) == len(cases)
     assert {case["expected_route"] for case in cases} == {
         "chat",
         "community_research",
         "local_knowledge",
+        "podcast_catch_up",
         "web_research",
-        "youtube_catch_up",
     }
     follow_up_case = next(
         case for case in cases if case["id"] == "current-weather-follow-up"

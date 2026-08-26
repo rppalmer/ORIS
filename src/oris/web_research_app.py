@@ -17,7 +17,6 @@ from oris.net_razor import (
     load_community_research_tools,
     load_podcast_catch_up_tools,
     load_podcast_transcription_tool,
-    load_youtube_catch_up_tools,
 )
 from oris.podcast_catch_up import (
     create_podcast_catch_up_graph,
@@ -28,10 +27,6 @@ from oris.threat_intel import create_threat_intel_graph
 from oris.threat_reports import ThreatReportStore
 from oris.threatsyft import load_threat_intel_tools
 from oris.web_research import create_web_research_graph
-from oris.youtube_catch_up import (
-    create_acknowledging_youtube_catch_up_graph,
-    create_youtube_catch_up_preparation_graph,
-)
 
 settings = load_settings()
 if settings.local_tracing_enabled:
@@ -69,33 +64,6 @@ async def build_community_research_graph() -> CompiledStateGraph:
         )
     tools = await load_community_research_tools(python_executable)
     return create_community_research_graph(tools[0], model)
-
-
-async def build_youtube_catch_up_preparation() -> tuple[CompiledStateGraph, BaseTool]:
-    """Build a validated digest graph and return its acknowledgement tool."""
-    python_executable = settings.net_razor_python_executable
-    if python_executable is None:
-        raise ValueError("NET_RAZOR_PYTHON_EXECUTABLE is required for YouTube Catch-up")
-    (
-        discovery_tool,
-        transcript_tool,
-        acknowledgement_tool,
-    ) = await load_youtube_catch_up_tools(python_executable)
-    preparation_graph = create_youtube_catch_up_preparation_graph(
-        discovery_tool,
-        transcript_tool,
-        model,
-    )
-    return preparation_graph, acknowledgement_tool
-
-
-async def build_youtube_catch_up_graph() -> CompiledStateGraph:
-    """Compile YouTube Catch-up with interactive acknowledgement."""
-    preparation_graph, acknowledgement_tool = await build_youtube_catch_up_preparation()
-    return create_acknowledging_youtube_catch_up_graph(
-        preparation_graph,
-        acknowledgement_tool,
-    )
 
 
 def _net_razor_executable() -> Path:
@@ -174,7 +142,6 @@ async def build_oris_graph(
         web_research_graph,
         local_knowledge_graph,
         LazyMCPSpecialist(build_community_research_graph),
-        LazyMCPSpecialist(build_youtube_catch_up_graph),
         model,
         checkpointer=checkpointer,
         max_history_tokens=settings.local_llm_max_history_tokens,

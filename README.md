@@ -8,20 +8,17 @@ durable local history, and local traces that make its activity easy to inspect.
 The current application is a local assistant and web researcher, usable from a
 plain command line or a tabbed terminal interface. It can
 chat directly, research the open web, collect community information from X and
-Hacker News, summarize recent videos from configured YouTube channels, and
+Hacker News, summarize recent episodes from configured podcast feeds, and
 search earlier conversations and scheduled reports. It is read-only with
 respect to external systems.
 
 ## What is built
 
-- A constrained LangGraph router selects one of six fixed paths: direct chat,
-  Web Research, Community Research, YouTube Catch-up, Podcast Catch-up, or Local
-  Knowledge.
+- A constrained LangGraph router selects one of five fixed paths: direct chat,
+  Web Research, Community Research, Podcast Catch-up, or Local Knowledge.
 - Web Research performs one bounded Tavily search and returns a cited answer.
 - Community Research uses the local Net-Razor MCP server to collect bounded X
   and Hacker News evidence.
-- YouTube Catch-up uses Net-Razor to discover recent videos, retrieves and
-  summarizes transcripts one at a time, and produces a cited digest.
 - Podcast Catch-up uses Net-Razor to discover recent episodes from configured
   feeds, prefers the publisher's own transcript, and falls back to local Whisper
   transcription. Every episode says which it was, because machine transcription
@@ -49,7 +46,7 @@ development MacBook or move to the Mac mini without source-code changes.
 - An accessible oMLX server with a compatible instruction model loaded
 - A Tavily API key
 - A local [Net-Razor](https://github.com/rppalmer/net-razor) checkout for
-  Community Research, YouTube Catch-up, and Podcast Catch-up
+  Community Research and Podcast Catch-up
 - `ffmpeg` on `PATH` and Apple Silicon, for podcast transcription only. Without
   them Net-Razor reports `not_configured` and episodes with no published
   transcript become caveats.
@@ -124,7 +121,6 @@ Configuration lives outside both checkouts and is not in git, so copy it across:
 scp ~/.oris/.env              <host>:~/.oris/.env
 scp ~/.net-razor/.env         <host>:~/.net-razor/.env
 scp ~/.net-razor/podcasts.txt <host>:~/.net-razor/
-scp ~/.net-razor/channels.txt <host>:~/.net-razor/
 
 # on the new machine
 mkdir -p ~/.oris ~/.net-razor
@@ -263,8 +259,7 @@ automatically inserted into a new session's context.
 
 `schedules.toml` is the single source of truth for recurring jobs. It currently
 contains an enabled weekday Web Research job. The scheduler also supports
-bounded YouTube Catch-up and Podcast Catch-up jobs; their channel and feed lists
-remain in Net-Razor.
+bounded Podcast Catch-up jobs; the feed list remains in Net-Razor.
 
 ```toml
 [[jobs]]
@@ -440,5 +435,4 @@ process needs to be handed the whole file.
 - [Implementation history](docs/implementation-history.md)
 - [Portable local-first architecture](docs/architecture/001-portable-local-first-foundation.md)
 - [Scheduling architecture](docs/architecture/002-project-owned-scheduling.md)
-- [YouTube Catch-up contract](docs/youtube-catch-up-contract.md)
 - [Future Web Evidence MCP plan](docs/web-evidence-mcp-plan.md)

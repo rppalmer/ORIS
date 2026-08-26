@@ -23,7 +23,6 @@ ALLOWED_ROUTES = {
     "community_research",
     "local_knowledge",
     "web_research",
-    "youtube_catch_up",
 }
 
 

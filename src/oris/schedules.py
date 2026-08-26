@@ -46,14 +46,6 @@ class WebResearchScheduledJob(ScheduledJob):
     search_category: SearchCategory
 
 
-class YouTubeCatchUpScheduledJob(ScheduledJob):
-    """One scheduled YouTube Catch-up job."""
-
-    task: Literal["youtube_catch_up"]
-    days: int
-    max_videos: int
-
-
 class PodcastCatchUpScheduledJob(ScheduledJob):
     """One scheduled Podcast Catch-up job.
 
@@ -71,7 +63,7 @@ class PodcastCatchUpScheduledJob(ScheduledJob):
 
 
 ConfiguredScheduledJob = Annotated[
-    WebResearchScheduledJob | YouTubeCatchUpScheduledJob | PodcastCatchUpScheduledJob,
+    WebResearchScheduledJob | PodcastCatchUpScheduledJob,
     Field(discriminator="task"),
 ]
 

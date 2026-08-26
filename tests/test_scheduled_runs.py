@@ -9,13 +9,13 @@ from langchain_core.tools import BaseTool
 
 from oris.knowledge import KnowledgeRepository
 from oris.scheduled_runs import (
+    PodcastCatchUpScheduledRunRecord,
     ScheduledRunRecord,
-    YouTubeCatchUpScheduledRunRecord,
     run_scheduled_job,
 )
 from oris.schedules import (
+    PodcastCatchUpScheduledJob,
     WebResearchScheduledJob,
-    YouTubeCatchUpScheduledJob,
 )
 from oris.search import WebSearchResult
 from oris.web_research import CitedAnswer
@@ -63,48 +63,49 @@ def make_job(*, enabled: bool = True) -> WebResearchScheduledJob:
     )
 
 
-def make_youtube_job(*, enabled: bool = True) -> YouTubeCatchUpScheduledJob:
-    """Create one bounded scheduled YouTube Catch-up job."""
-    return YouTubeCatchUpScheduledJob(
-        id="youtube-catch-up",
+def make_podcast_job(*, enabled: bool = True) -> PodcastCatchUpScheduledJob:
+    """Create one bounded scheduled Podcast Catch-up job."""
+    return PodcastCatchUpScheduledJob(
+        id="podcast-catch-up",
         enabled=enabled,
         cron="0 8 * * *",
-        task="youtube_catch_up",
+        task="podcast_catch_up",
         days=7,
-        max_videos=2,
+        max_episodes=2,
     )
 
 
-def youtube_result(*, empty: bool = False) -> dict:
-    """Return one validated prepared YouTube result."""
+def podcast_result(*, empty: bool = False) -> dict:
+    """Return one validated prepared Podcast Catch-up result."""
     if empty:
         return {
-            "answer": "No new YouTube videos were found.",
+            "answer": "No new podcast episodes were found.",
             "cited_urls": [],
-            "videos": [],
+            "episodes": [],
             "caveats": [],
             "transcript_call_ids": [],
         }
     return {
         "answer": "A concise scheduled digest.",
-        "cited_urls": ["https://www.youtube.com/watch?v=video-1"],
-        "videos": [
+        "cited_urls": ["https://example.com/episode-1"],
+        "episodes": [
             {
-                "video_id": "video-1",
-                "title": "Video 1",
-                "channel": "Example Channel",
+                "episode_id": "episode-1",
+                "title": "Episode 1",
+                "show": "Example Show",
                 "published_at": "2026-08-08T12:00:00+00:00",
-                "url": "https://www.youtube.com/watch?v=video-1",
-                "summary": "The video explains one useful idea.",
+                "url": "https://example.com/episode-1",
+                "summary": "The episode explains one useful idea.",
+                "transcript_backend": "whisper",
                 "transcript_truncated": True,
             }
         ],
-        "caveats": ["Transcript truncated for Video 1."],
+        "caveats": ["Transcript truncated for Episode 1."],
         "transcript_call_ids": ["transcript-call-1"],
     }
 
 
-def make_youtube_builder(
+def make_podcast_builder(
     result: dict,
     acknowledgement_tool: Mock,
     *,
@@ -123,8 +124,8 @@ def make_youtube_builder(
 def make_acknowledgement_tool() -> Mock:
     """Create the approved Net-Razor acknowledgement tool double."""
     tool = Mock(spec=BaseTool)
-    tool.name = "net_razor_yt_mark_processed"
-    tool.ainvoke = AsyncMock(return_value={"acknowledged_video_ids": ["video-1"]})
+    tool.name = "net_razor_podcast_mark_processed"
+    tool.ainvoke = AsyncMock(return_value={"errors": []})
     return tool
 
 
@@ -137,13 +138,13 @@ def load_only_record(artifact_root: Path) -> ScheduledRunRecord:
     )
 
 
-def load_only_youtube_record(
+def load_only_podcast_record(
     artifact_root: Path,
-) -> YouTubeCatchUpScheduledRunRecord:
-    """Load the one retained YouTube history record."""
+) -> PodcastCatchUpScheduledRunRecord:
+    """Load the one retained Podcast Catch-up history record."""
     record_paths = list(artifact_root.rglob("*.json"))
     assert len(record_paths) == 1
-    return YouTubeCatchUpScheduledRunRecord.model_validate_json(
+    return PodcastCatchUpScheduledRunRecord.model_validate_json(
         record_paths[0].read_text(encoding="utf-8")
     )
 
@@ -231,8 +232,13 @@ def test_disabled_job_is_not_attempted(tmp_path) -> None:
     assert not artifact_root.exists()
 
 
-def test_scheduled_youtube_persists_before_acknowledgement(tmp_path) -> None:
-    """A complete report and knowledge entry exist before acknowledgement."""
+def test_scheduled_podcast_persists_before_acknowledgement(tmp_path) -> None:
+    """A complete report and knowledge entry exist before acknowledgement.
+
+    Acknowledgement is one-way: an episode leaves Net-Razor's queue and does not
+    come back. Doing it before the deliverable is safely written would lose the
+    episode and the report together.
+    """
     repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
     artifact_root = tmp_path / "scheduled"
     acknowledgement = make_acknowledgement_tool()
@@ -241,115 +247,116 @@ def test_scheduled_youtube_persists_before_acknowledgement(tmp_path) -> None:
         report_paths = list(artifact_root.rglob("*.md"))
         assert len(report_paths) == 1
         assert repository.search("useful idea", source_type="scheduled_run")
-        return {"acknowledged_video_ids": ["video-1"]}
+        return {"errors": []}
 
     acknowledgement.ainvoke.side_effect = acknowledge_after_persistence
-    builder, preparation_graph = make_youtube_builder(youtube_result(), acknowledgement)
+    builder, preparation_graph = make_podcast_builder(podcast_result(), acknowledgement)
 
     record = run_scheduled_job(
-        make_youtube_job(),
+        make_podcast_job(),
         Mock(),
         repository,
         current_date=TEST_CURRENT_DATE,
         artifact_root=artifact_root,
-        build_youtube_catch_up=builder,
+        build_podcast_catch_up=builder,
     )
 
-    preparation_graph.ainvoke.assert_awaited_once_with({"days": 7, "max_videos": 2})
+    preparation_graph.ainvoke.assert_awaited_once_with({"days": 7, "max_episodes": 2})
     acknowledgement.ainvoke.assert_awaited_once()
     assert acknowledgement.ainvoke.await_args.args[0]["args"] == {
-        "transcript_call_ids": ["transcript-call-1"]
+        "call_ids": ["transcript-call-1"]
     }
     assert record.status == "succeeded"
     assert record.report_path is not None
-    assert load_only_youtube_record(artifact_root) == record
+    assert load_only_podcast_record(artifact_root) == record
 
-    report_path = next(artifact_root.rglob("*.md"))
-    report = report_path.read_text(encoding="utf-8")
+    report = next(artifact_root.rglob("*.md")).read_text(encoding="utf-8")
     assert "A concise scheduled digest." in report
-    assert "[Video 1](https://www.youtube.com/watch?v=video-1)" in report
-    assert "The video explains one useful idea." in report
-    assert "Transcript: `truncated`" in report
-    assert "Transcript truncated for Video 1." in report
+    assert "[Episode 1](https://example.com/episode-1)" in report
+    assert "The episode explains one useful idea." in report
+    assert "`whisper`" in report
+    assert "Transcript truncated for Episode 1." in report
+    # Receipts are internal plumbing and never belong in a deliverable.
     assert "transcript-call-1" not in report
 
 
-def test_scheduled_youtube_writes_an_empty_success_report(tmp_path) -> None:
+def test_scheduled_podcast_writes_an_empty_success_report(tmp_path) -> None:
     """An empty queue remains visible without an acknowledgement call."""
     repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
     artifact_root = tmp_path / "scheduled"
     acknowledgement = make_acknowledgement_tool()
-    builder, _ = make_youtube_builder(youtube_result(empty=True), acknowledgement)
+    builder, _ = make_podcast_builder(podcast_result(empty=True), acknowledgement)
 
     record = run_scheduled_job(
-        make_youtube_job(),
+        make_podcast_job(),
         Mock(),
         repository,
         current_date=TEST_CURRENT_DATE,
         artifact_root=artifact_root,
-        build_youtube_catch_up=builder,
+        build_podcast_catch_up=builder,
     )
 
     assert record.status == "succeeded"
     acknowledgement.ainvoke.assert_not_awaited()
     report = next(artifact_root.rglob("*.md")).read_text(encoding="utf-8")
-    assert "No new YouTube videos were found." in report
-    assert "No videos were summarized." in report
-    assert "No sources were cited." in report
+    assert "No new podcast episodes were found." in report
 
 
-def test_scheduled_youtube_failure_before_report_does_not_acknowledge(tmp_path) -> None:
-    """Preparation failure leaves no deliverable and no processed videos."""
+def test_scheduled_podcast_failure_before_report_does_not_acknowledge(tmp_path) -> None:
+    """Preparation failure leaves no deliverable and no processed episodes."""
     repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
     artifact_root = tmp_path / "scheduled"
     acknowledgement = make_acknowledgement_tool()
-    builder, _ = make_youtube_builder(
-        youtube_result(),
+    builder, _ = make_podcast_builder(
+        podcast_result(),
         acknowledgement,
         graph_error=RuntimeError("digest failed"),
     )
 
     with pytest.raises(RuntimeError, match="digest failed"):
         run_scheduled_job(
-            make_youtube_job(),
+            make_podcast_job(),
             Mock(),
             repository,
             current_date=TEST_CURRENT_DATE,
             artifact_root=artifact_root,
-            build_youtube_catch_up=builder,
+            build_podcast_catch_up=builder,
         )
 
-    record = load_only_youtube_record(artifact_root)
+    record = load_only_podcast_record(artifact_root)
     assert record.status == "failed"
     assert record.report_path is None
     assert record.error is not None
-    assert record.error.startswith("preparing YouTube Catch-up: RuntimeError")
+    assert record.error.startswith("preparing Podcast Catch-up: RuntimeError")
     assert list(artifact_root.rglob("*.md")) == []
     acknowledgement.ainvoke.assert_not_awaited()
 
 
-def test_scheduled_youtube_acknowledgement_failure_retains_report(tmp_path) -> None:
-    """An uncertain acknowledgement cannot erase the completed deliverable."""
+def test_scheduled_podcast_acknowledgement_failure_retains_report(tmp_path) -> None:
+    """An uncertain acknowledgement cannot erase the completed deliverable.
+
+    The safe direction is for an episode to appear again, never to vanish.
+    """
     repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
     artifact_root = tmp_path / "scheduled"
     acknowledgement = make_acknowledgement_tool()
     acknowledgement.ainvoke.side_effect = RuntimeError("acknowledgement unavailable")
-    builder, _ = make_youtube_builder(youtube_result(), acknowledgement)
+    builder, _ = make_podcast_builder(podcast_result(), acknowledgement)
 
     with pytest.raises(RuntimeError, match="acknowledgement unavailable"):
         run_scheduled_job(
-            make_youtube_job(),
+            make_podcast_job(),
             Mock(),
             repository,
             current_date=TEST_CURRENT_DATE,
             artifact_root=artifact_root,
-            build_youtube_catch_up=builder,
+            build_podcast_catch_up=builder,
         )
 
-    record = load_only_youtube_record(artifact_root)
+    record = load_only_podcast_record(artifact_root)
     assert record.status == "failed"
     assert record.report_path is not None
     assert record.error is not None
-    assert record.error.startswith("acknowledging YouTube videos: RuntimeError")
+    assert record.error.startswith("acknowledging podcast episodes: RuntimeError")
     assert len(list(artifact_root.rglob("*.md"))) == 1
     assert repository.search("useful idea", source_type="scheduled_run")

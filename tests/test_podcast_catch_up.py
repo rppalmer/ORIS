@@ -389,7 +389,7 @@ def test_the_show_and_episode_come_from_net_razors_own_fields() -> None:
 
 
 def test_acknowledgement_passes_receipts_under_the_name_net_razor_expects() -> None:
-    """The acknowledgement argument is `call_ids`, not YouTube's name for it."""
+    """The acknowledgement argument is `call_ids`, which is Net-Razor\'s name."""
     tools = make_tools(
         episodes=[make_episode(1)],
         transcript_pages=[

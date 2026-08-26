@@ -16,7 +16,6 @@ from oris.net_razor import (
     load_community_research_tools,
     load_podcast_catch_up_tools,
     load_podcast_transcription_tool,
-    load_youtube_catch_up_tools,
 )
 
 
@@ -67,40 +66,6 @@ def test_load_community_research_tools_keeps_only_allowlisted_tool(
         tools = asyncio.run(load_community_research_tools(python_executable))
 
     assert tools == (research_tool,)
-    client.get_tools.assert_awaited_once_with(server_name=NET_RAZOR_SERVER_NAME)
-
-
-def test_load_youtube_catch_up_tools_keeps_only_ordered_allowlist(
-    tmp_path: Path,
-) -> None:
-    """Only the three approved YouTube tools cross the specialist boundary."""
-    python_executable = tmp_path / "python"
-    python_executable.write_text("test executable", encoding="utf-8")
-    transcript_tool = Mock(name="transcript_tool")
-    transcript_tool.name = "net_razor_yt_transcript"
-    discovery_tool = Mock(name="discovery_tool")
-    discovery_tool.name = "net_razor_yt_new_videos"
-    acknowledgement_tool = Mock(name="acknowledgement_tool")
-    acknowledgement_tool.name = "net_razor_yt_mark_processed"
-    unapproved_tool = Mock(name="unapproved_tool")
-    unapproved_tool.name = "net_razor_yt_channel_digest"
-    client = Mock()
-    client.get_tools = AsyncMock(
-        return_value=[
-            transcript_tool,
-            unapproved_tool,
-            acknowledgement_tool,
-            discovery_tool,
-        ]
-    )
-
-    with patch(
-        "oris.net_razor.create_net_razor_client",
-        return_value=client,
-    ):
-        tools = asyncio.run(load_youtube_catch_up_tools(python_executable))
-
-    assert tools == (discovery_tool, transcript_tool, acknowledgement_tool)
     client.get_tools.assert_awaited_once_with(server_name=NET_RAZOR_SERVER_NAME)
 
 

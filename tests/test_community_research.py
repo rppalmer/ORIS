@@ -108,7 +108,7 @@ def test_community_research_calls_one_tool_and_synthesizes_once() -> None:
 
 
 def test_community_research_rejects_an_unapproved_source() -> None:
-    """YouTube cannot enter the X-and-Hacker-News specialist."""
+    """Podcast tools cannot enter the X-and-Hacker-News specialist."""
     tool, model, structured_model = make_dependencies()
     graph = create_community_research_graph(tool, model)
 

@@ -32,7 +32,6 @@ RouterMode = Literal[
     "local_knowledge",
     "podcast_catch_up",
     "web_research",
-    "youtube_catch_up",
 ]
 """Destinations the constrained router may choose on its own.
 
@@ -51,7 +50,6 @@ NODE_BY_SELECTED_MODE: dict[str, str] = {
     "local_knowledge": "local_knowledge",
     "podcast_catch_up": "podcast_catch_up",
     "web_research": "web_research",
-    "youtube_catch_up": "youtube_catch_up",
     "threat_intel": "threat_intel",
 }
 
@@ -62,7 +60,6 @@ FAILED_COMPONENT_NAMES = {
     "local_knowledge": "Local Knowledge",
     "web_research": "Web Research",
     "community_research": "Community Research",
-    "youtube_catch_up": "YouTube Catch-up",
     "podcast_catch_up": "Podcast Catch-up",
     "threat_intel": "Threat Intel",
 }
@@ -256,7 +253,6 @@ def create_oris_graph(
     web_research_graph: CompiledStateGraph,
     local_knowledge_graph: CompiledStateGraph,
     community_research_graph: AsyncSpecialistGraph,
-    youtube_catch_up_graph: AsyncSpecialistGraph,
     model: BaseChatModel,
     checkpointer: BaseCheckpointSaver | None = None,
     max_history_tokens: int = DEFAULT_MAX_HISTORY_TOKENS,
@@ -338,22 +334,6 @@ def create_oris_graph(
         content = result["answer"]
         if source_links:
             content = f"{content}\n\nCommunity sources:\n{source_links}"
-        return {"messages": [AIMessage(content=content)]}
-
-    async def run_youtube_catch_up(
-        _state: ORISState,
-    ) -> dict[str, list[AIMessage]]:
-        result = await youtube_catch_up_graph.ainvoke({})
-        source_links = "\n".join(
-            f"[{number}]({url})"
-            for number, url in enumerate(result["cited_urls"], start=1)
-        )
-        caveat_list = "\n".join(f"- {caveat}" for caveat in result["caveats"])
-        content = result["answer"]
-        if source_links:
-            content = f"{content}\n\nYouTube sources:\n{source_links}"
-        if caveat_list:
-            content = f"{content}\n\nCaveats:\n{caveat_list}"
         return {"messages": [AIMessage(content=content)]}
 
     async def run_podcast_catch_up(
@@ -444,7 +424,6 @@ def create_oris_graph(
         ("local_knowledge", run_local_knowledge),
         ("web_research", run_web_research),
         ("community_research", run_community_research),
-        ("youtube_catch_up", run_youtube_catch_up),
         ("podcast_catch_up", run_podcast_catch_up),
         ("threat_intel", run_threat_intel),
     ):

@@ -110,9 +110,7 @@ PHASE_LABELS = {
     "search_web": "searching the web",
     "retrieve_knowledge": "searching the archive",
     "answer_from_knowledge": "reading the archive",
-    "discover_videos": "looking for new videos",
-    "summarize_videos": "summarising transcripts",
-    "mark_processed": "acknowledging videos",
+    "mark_processed": "acknowledging episodes",
 }
 
 SelfHandledName = Literal["exit", "help", "session", "new", "show_evidence"]

@@ -1311,4 +1311,9 @@ Deterministic baseline: 301 passing, 17 skipped, clean lint and formatting.
   were committed earlier the same day without `ruff format`, and the history
   entry written afterwards claimed a clean formatting baseline. Both are fixed.
 
+- **Pasting was dropped from the item, not deferred.** The original entry asked
+  for copy and paste both. Asked directly, the requirement is only to select and
+  copy answers out of the conversation pane; typing a URL into the input line
+  was never the problem.
+
 Deterministic baseline: 303 passing, 17 skipped, clean lint and formatting.

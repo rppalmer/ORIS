@@ -270,10 +270,6 @@ than a follow-up.
   stopped, and restarted from there. The service and its `orisctl phoenix`
   command exist as of 2026-08-16, so this is now a thin surface over code that
   is already tested; scheduler health must still not depend on Phoenix health.
-- [ ] Decide whether pasting into the input line needs anything. Selecting and
-  copying answers is done and recorded in the history. Pasting was the other
-  half of the original item and has not been tested against a real terminal;
-  it may already work through the emulator's own paste.
 - [ ] Decide whether a long turn needs a cancel key. Per-step status now names
   the running graph node, which was the larger half of the complaint; whether
   the remaining wait is worth interrupting is a question for real use.

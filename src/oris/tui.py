@@ -659,9 +659,20 @@ class OrisTui(App):
         self._begin(working_label(parsed.mode))
         self._ask(parsed.mode, parsed.request)
 
-    @work(exclusive=True)
+    @work(exclusive=True, exit_on_error=False)
     async def _ask(self, mode: str, request: str) -> None:
-        """Run one turn without freezing the interface."""
+        """Run one turn without freezing the interface, and survive it failing.
+
+        The guard covers everything, not only the turn. Textual's default is to
+        close the app when a worker raises, and only the call to the graph used
+        to be caught — so a failure while showing the answer, archiving it, or
+        refreshing the activity view took the whole interface down. With stderr
+        written to a log file while the interface runs, that left no trace on
+        screen either: the interface simply vanished mid-question.
+
+        Losing a conversation is never the right response to a failed turn, so
+        the failure is reported into the conversation and the prompt comes back.
+        """
         try:
             result = await run_turn(
                 self.graph,
@@ -669,30 +680,29 @@ class OrisTui(App):
                 {"configurable": {"thread_id": self.thread_id}},
                 on_step=self._show_step,
             )
+            self._finish()
+
+            if not result.get("request_succeeded", True):
+                message = result.get("request_error") or REQUEST_FAILURE_MESSAGE
+                self._say(Static(Text(f"⚠ {message}", style="red")))
+                self.action_refresh_activity()
+                return
+
+            answer = str(result["messages"][-1].text)
+            # Show the answer before archiving it: work already done must not be
+            # lost because the local archive write failed.
+            self._say(Markdown(answer))
+            self.knowledge_repository.add_exchange(
+                thread_id=self.thread_id,
+                request=request,
+                answer=answer,
+                selected_mode=result.get("selected_mode", mode),
+            )
+            self._load_sessions()
+            self.action_refresh_activity()
         except Exception as error:  # noqa: BLE001 - a failed turn is not a crash
             self._finish()
-            self._say(Static(Text(f"⚠ {error}", style="red")))
-            return
-        self._finish()
-
-        if not result.get("request_succeeded", True):
-            message = result.get("request_error") or REQUEST_FAILURE_MESSAGE
-            self._say(Static(Text(f"⚠ {message}", style="red")))
-            self.action_refresh_activity()
-            return
-
-        answer = str(result["messages"][-1].text)
-        # Show the answer before archiving it: work already done must not be
-        # lost because the local archive write failed.
-        self._say(Markdown(answer))
-        self.knowledge_repository.add_exchange(
-            thread_id=self.thread_id,
-            request=request,
-            answer=answer,
-            selected_mode=result.get("selected_mode", mode),
-        )
-        self._load_sessions()
-        self.action_refresh_activity()
+            self._say(Static(Text(f"⚠ {type(error).__name__}: {error}", style="red")))
 
     def _begin(self, label: str) -> None:
         self._label = label

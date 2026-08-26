@@ -1433,3 +1433,52 @@ def test_the_new_session_key_clears_the_conversation(tmp_path: Path) -> None:
 
     assert ANSWER not in conversation
     assert "New session" in conversation
+
+
+def test_a_failure_after_the_answer_does_not_close_the_interface(
+    tmp_path: Path,
+) -> None:
+    """Only the call to the graph used to be guarded.
+
+    Textual closes the app when a worker raises, so a failure while showing the
+    answer, archiving it, or refreshing the activity view took the interface
+    down mid-question — and with stderr going to a log file there was nothing
+    on screen to say why. Losing the conversation is never the right response
+    to a failed turn.
+    """
+
+    async def drive() -> tuple[bool, str]:
+        app, _graph, _knowledge = _build(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            with patch.object(
+                type(app.knowledge_repository),
+                "add_exchange",
+                side_effect=OSError("archive is read-only"),
+            ):
+                await _ask(app, pilot, "anything")
+            return app.is_running, _text(app, "#conversation")
+
+    still_running, conversation = _run(drive())
+
+    assert still_running
+    assert "archive is read-only" in conversation
+    # The answer was shown before the archive was written, so it survives the
+    # archive failing -- which is the reason that ordering exists.
+    assert ANSWER in conversation
+
+
+def test_the_prompt_comes_back_after_a_failed_turn(tmp_path: Path) -> None:
+    """A disabled prompt with no error on screen looks like a frozen interface."""
+
+    async def drive() -> bool:
+        app, _graph, _knowledge = _build(tmp_path)
+        async with app.run_test(size=(110, 30)) as pilot:
+            with patch.object(
+                type(app.knowledge_repository),
+                "add_exchange",
+                side_effect=OSError("archive is read-only"),
+            ):
+                await _ask(app, pilot, "anything")
+            return app.query_one("#prompt").disabled
+
+    assert _run(drive()) is False

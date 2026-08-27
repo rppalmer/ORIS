@@ -18,7 +18,7 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
 from oris.net_razor import PODCAST_CATCH_UP_TOOL_NAMES
-from oris.podcast_output import PodcastEpisodeSummary
+from oris.podcast_output import PodcastEpisodeSummary, show_lines
 from oris.prompts import load_system_prompt
 from oris.search import NonEmptyText
 from oris.threat_reports import ThreatReportStore
@@ -86,6 +86,7 @@ class PodcastCatchUpInput(TypedDict):
     show: NotRequired[str]
     thread_id: NotRequired[str]
     include_processed: NotRequired[bool]
+    list_shows: NotRequired[bool]
 
 
 class PodcastCatchUpOutput(TypedDict):
@@ -111,6 +112,7 @@ class PodcastCatchUpState(TypedDict):
     show: NotRequired[str]
     thread_id: NotRequired[str]
     include_processed: NotRequired[bool]
+    list_shows: NotRequired[bool]
     discovered_episodes: NotRequired[list[dict[str, Any]]]
     transcript_backends: NotRequired[dict[str, str]]
     transcribed_this_run: NotRequired[list[str]]
@@ -201,6 +203,7 @@ def create_podcast_catch_up_preparation_graph(
     *,
     transcription_tool: BaseTool | None = None,
     transcribe_catch_ups: bool = True,
+    feeds_tool: BaseTool | None = None,
     report_store: ThreatReportStore | None = None,
 ) -> CompiledStateGraph:
     """Compile podcast discovery, transcription, summaries, and synthesis.
@@ -248,6 +251,49 @@ def create_podcast_catch_up_preparation_graph(
                 }
             )
         )
+
+    async def list_configured_shows(
+        _state: PodcastCatchUpState,
+    ) -> dict[str, object]:
+        """Name the shows Net-Razor is configured with, and stop there.
+
+        The feed list holds URLs, so this is the only way to learn what the
+        shows are called — and the show's name is what narrowing a catch-up
+        matches on, which made "which podcasts can you cover?" a question ORIS
+        could not answer about itself.
+
+        No model call. The answer is a list Net-Razor already has, and asking a
+        model to restate it could only introduce a show that does not exist.
+        """
+        if feeds_tool is None:
+            raise ValueError("Listing shows requires the podcast feeds tool")
+        listing = _structured_content(
+            await feeds_tool.ainvoke(
+                {
+                    "type": "tool_call",
+                    "id": str(uuid4()),
+                    "name": feeds_tool.name,
+                    "args": {},
+                }
+            )
+        )
+        shows = listing.get("shows")
+        if not isinstance(shows, list):
+            raise ValueError("Net-Razor did not return a show list")
+        # A feed it could not read is an entry in `errors`, not a short list.
+        caveats = [
+            f"Feed problem: {error['message']}"
+            for error in listing.get("errors", [])
+            if isinstance(error, dict) and isinstance(error.get("message"), str)
+        ]
+        answer = show_lines(shows) or "No podcast feeds are configured."
+        return {
+            "answer": answer,
+            "cited_urls": [],
+            "episodes": [],
+            "caveats": caveats,
+            "transcript_call_ids": [],
+        }
 
     async def discover_episodes(
         state: PodcastCatchUpState,
@@ -693,6 +739,7 @@ def create_podcast_catch_up_preparation_graph(
         input_schema=PodcastCatchUpInput,
         output_schema=PreparedPodcastCatchUpOutput,
     )
+    builder.add_node("list_configured_shows", list_configured_shows)
     builder.add_node("discover_episodes", discover_episodes)
     builder.add_node("obtain_transcripts", obtain_transcripts)
     # Model calls carry no MCP deadline, so nothing else bounds this node. An
@@ -703,7 +750,19 @@ def create_podcast_catch_up_preparation_graph(
     )
     builder.add_node("create_digest", create_digest)
     builder.add_node("validate_citations", validate_citations)
-    builder.add_edge(START, "discover_episodes")
+    # Listing is a different question from catching up and shares none of the
+    # work, so it branches at the entry rather than being a flag checked in
+    # every node downstream.
+    builder.add_conditional_edges(
+        START,
+        lambda state: (
+            "list_configured_shows"
+            if state.get("list_shows", False)
+            else "discover_episodes"
+        ),
+        ["list_configured_shows", "discover_episodes"],
+    )
+    builder.add_edge("list_configured_shows", END)
     builder.add_edge("discover_episodes", "obtain_transcripts")
     builder.add_edge("obtain_transcripts", "summarize_episodes")
     builder.add_edge("summarize_episodes", "create_digest")
@@ -749,6 +808,7 @@ def create_acknowledging_podcast_catch_up_graph(
                 "show",
                 "thread_id",
                 "include_processed",
+                "list_shows",
             )
             if key in state
         }
@@ -804,6 +864,7 @@ def create_podcast_catch_up_graph(
     model: BaseChatModel,
     *,
     transcription_tool: BaseTool | None = None,
+    feeds_tool: BaseTool | None = None,
     report_store: ThreatReportStore | None = None,
 ) -> CompiledStateGraph:
     """Compile Podcast Catch-up for chat, transcribing only a named show.
@@ -819,6 +880,7 @@ def create_podcast_catch_up_graph(
         model,
         transcription_tool=transcription_tool,
         transcribe_catch_ups=False,
+        feeds_tool=feeds_tool,
         report_store=report_store,
     )
     return create_acknowledging_podcast_catch_up_graph(

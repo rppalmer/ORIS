@@ -16,6 +16,7 @@ from oris.model import create_chat_model
 from oris.net_razor import (
     load_community_research_tools,
     load_podcast_catch_up_tools,
+    load_podcast_feeds_tool,
     load_podcast_transcription_tool,
 )
 from oris.podcast_catch_up import (
@@ -107,12 +108,14 @@ async def build_podcast_catch_up_graph() -> CompiledStateGraph:
         acknowledgement_tool,
     ) = await load_podcast_catch_up_tools(python_executable)
     transcription_tool = await load_podcast_transcription_tool(python_executable)
+    feeds_tool = await load_podcast_feeds_tool(python_executable)
     return create_podcast_catch_up_graph(
         discovery_tool,
         transcript_tool,
         acknowledgement_tool,
         model,
         transcription_tool=transcription_tool,
+        feeds_tool=feeds_tool,
         report_store=threat_report_store,
     )
 

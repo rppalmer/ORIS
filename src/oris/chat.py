@@ -359,18 +359,27 @@ def create_oris_graph(
         # transcripts for. It is the only way to read a scheduled run's work
         # again, because that run acknowledged its episodes and Net-Razor
         # therefore leaves them out of the catch-up queue from then on.
-        words = state["resolved_request"].strip().split(maxsplit=1)
-        recap = bool(words) and words[0].casefold() == "recap"
+        #
+        # A bare "list" asks a fourth: which shows are configured at all. The
+        # feed list holds URLs, so a show's name is only learnable from
+        # Net-Razor — and the name is what narrowing matches on.
+        request_text = state["resolved_request"].strip()
+        words = request_text.split(maxsplit=1)
+        first = words[0].casefold() if words else ""
+        listing = first == "list" and len(words) == 1
+        recap = first == "recap"
         if recap:
             show = words[1].strip() if len(words) > 1 else ""
         else:
-            show = state["resolved_request"].strip()
+            show = "" if listing else request_text
         # The conversation is passed for the same reason Threat Intel passes it:
         # the transcripts stored for this run outlive the turn, and deleting the
         # conversation has to be able to find them again.
         request: dict[str, object] = {
             "thread_id": config.get("configurable", {}).get("thread_id", "")
         }
+        if listing:
+            request["list_shows"] = True
         if recap:
             request["include_processed"] = True
         if show:

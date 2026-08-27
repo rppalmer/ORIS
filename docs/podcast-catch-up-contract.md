@@ -31,6 +31,7 @@ Four Net-Razor tools, split across two graphs:
 
 | Tool | Interactive | Scheduled |
 | --- | --- | --- |
+| `net_razor_podcast_feeds` | list only | no |
 | `net_razor_podcast_new_episodes` | yes | yes |
 | `net_razor_podcast_transcript` | yes | yes |
 | `net_razor_podcast_mark_processed` | yes | yes |
@@ -58,6 +59,18 @@ Hacker News tools.
   remain authoritative.
 - `max_episodes`: total episodes processed in one run, default `5`, minimum `1`,
   maximum `10`.
+- `list_shows`: optional, default `false`. Names the configured shows and stops
+  — no episodes, no transcripts, no model call. The feed list holds URLs, so
+  Net-Razor is the only place a show's name can come from, and the name is what
+  narrowing matches on. Each show reports whether it publishes transcripts, read
+  from its newest episode: a hint about the show, not a promise about any
+  episode, and never used to skip asking the publisher.
+
+  It branches at the graph entry rather than being a flag checked in each node,
+  because it shares none of a catch-up's work. `net_razor_podcast_feeds` is
+  loaded separately and is off the catch-up allowlist, so a catch-up cannot call
+  it: it reads every configured feed, and a catch-up already learns each show's
+  name from the episodes it fetches.
 - `include_processed`: optional, default `false`. A catch-up asks for what
   Net-Razor has not yet handed over. A recap asks for episodes it already has,
   which is the only route back to a scheduled run's work: that run acknowledged

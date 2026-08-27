@@ -128,11 +128,42 @@ def make_tools(*, episodes: list[dict], transcript_pages: list[dict]) -> dict:
     acknowledgement_tool.ainvoke = AsyncMock(
         return_value=tool_message(acknowledgement_tool.name, {"errors": []})
     )
+
+    feeds_tool = Mock(spec=BaseTool)
+    feeds_tool.name = "net_razor_podcast_feeds"
+    feeds_tool.ainvoke = AsyncMock(
+        return_value=tool_message(
+            feeds_tool.name,
+            {
+                "feed_count": 2,
+                "shows": [
+                    {
+                        "show_title": "Talkin' Bout [Infosec] News",
+                        "feed_url": "https://feeds.example.com/infosec",
+                        "episode_count": 40,
+                        "latest_episode_title": "Episode 40",
+                        "latest_episode_at": "2026-08-25T12:00:00+00:00",
+                        "publishes_transcripts": True,
+                    },
+                    {
+                        "show_title": "Locked On Pistons",
+                        "feed_url": "https://feeds.example.com/pistons",
+                        "episode_count": 900,
+                        "latest_episode_title": "Episode 900",
+                        "latest_episode_at": "2026-08-26T12:00:00+00:00",
+                        "publishes_transcripts": False,
+                    },
+                ],
+                "errors": [],
+            },
+        )
+    )
     return {
         "discovery": discovery_tool,
         "transcript": transcript_tool,
         "transcription": transcription_tool,
         "acknowledgement": acknowledgement_tool,
+        "feeds": feeds_tool,
     }
 
 
@@ -1141,3 +1172,97 @@ def test_a_named_show_recap_still_narrows_to_that_show() -> None:
     )
     assert [episode["show"] for episode in result["episodes"]] == ["Wanted Show"]
     tools["transcription"].ainvoke.assert_not_awaited()
+
+
+def test_listing_names_the_shows_and_says_which_need_transcribing() -> None:
+    """The feed list holds URLs, so only Net-Razor knows what a show is called.
+
+    That mattered more than it sounds: narrowing a catch-up matches on the show
+    name, so without this ORIS could not answer "which podcasts can you cover?"
+    about its own configuration, and naming one was guesswork.
+    """
+    tools = make_tools(episodes=[], transcript_pages=[])
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+        feeds_tool=tools["feeds"],
+    )
+
+    result = asyncio.run(graph.ainvoke({"list_shows": True}))
+
+    assert result["answer"] == (
+        "1. Talkin' Bout [Infosec] News — publishes transcripts, "
+        "newest 2026-08-25T12:00:00+00:00\n"
+        "2. Locked On Pistons — needs transcribing, "
+        "newest 2026-08-26T12:00:00+00:00"
+    )
+    assert result["episodes"] == []
+
+
+def test_listing_shows_reaches_no_other_tool() -> None:
+    """Listing is a different question and shares none of a catch-up's work.
+
+    It costs one call to Net-Razor and no model call at all. Asking a model to
+    restate a list it was handed could only invent a show that does not exist.
+    """
+    tools = make_tools(episodes=[], transcript_pages=[])
+    # Not make_model(): its two structured models come from a consumed
+    # iterator, so there is no way to hold on to them and assert they stayed
+    # untouched. One shared double answers both requests here.
+    model = Mock(spec=BaseChatModel)
+    structured_model = AsyncMock()
+    model.with_structured_output.return_value = structured_model
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        model,
+        transcription_tool=tools["transcription"],
+        feeds_tool=tools["feeds"],
+    )
+
+    asyncio.run(graph.ainvoke({"list_shows": True}))
+
+    tools["discovery"].ainvoke.assert_not_awaited()
+    tools["transcript"].ainvoke.assert_not_awaited()
+    tools["transcription"].ainvoke.assert_not_awaited()
+    tools["acknowledgement"].ainvoke.assert_not_awaited()
+    structured_model.ainvoke.assert_not_awaited()
+
+
+def test_a_feed_that_cannot_be_read_is_reported_beside_the_ones_that_could() -> None:
+    """A short list and a broken feed must not look the same."""
+    tools = make_tools(episodes=[], transcript_pages=[])
+    tools["feeds"].ainvoke = AsyncMock(
+        return_value=tool_message(
+            tools["feeds"].name,
+            {
+                "feed_count": 1,
+                "shows": [
+                    {
+                        "show_title": "Working Show",
+                        "feed_url": "https://feeds.example.com/working",
+                        "episode_count": 3,
+                        "latest_episode_title": "Episode 3",
+                        "latest_episode_at": "2026-08-26T12:00:00+00:00",
+                        "publishes_transcripts": True,
+                    }
+                ],
+                "errors": [{"type": "request_failed", "message": "Feed timed out."}],
+            },
+        )
+    )
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+        feeds_tool=tools["feeds"],
+    )
+
+    result = asyncio.run(graph.ainvoke({"list_shows": True}))
+
+    assert result["caveats"] == ["Feed problem: Feed timed out."]
+    assert "Working Show" in result["answer"]

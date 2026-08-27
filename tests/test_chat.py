@@ -870,3 +870,40 @@ def test_the_episode_list_says_where_each_transcript_came_from() -> None:
         "2. [Episode 2](https://example.com/episode-2) — Other Show, "
         "transcribed by ORIS during this run" in answer
     )
+
+
+def test_list_asks_which_shows_are_configured() -> None:
+    """`/podcasts list` answers a question about configuration, not episodes."""
+    graph, podcast_graph = _podcast_graph_and_double()
+
+    asyncio.run(
+        graph.ainvoke(
+            {"messages": [HumanMessage(content="list")], "mode": "podcast_catch_up"}
+        )
+    )
+
+    podcast_graph.ainvoke.assert_awaited_once_with(
+        {"thread_id": "", "list_shows": True}
+    )
+
+
+def test_a_show_called_list_something_is_still_a_show() -> None:
+    """Only a bare "list" is the command; anything after it names a show.
+
+    Unlike `recap`, which narrows, listing takes no subject — so a second word
+    means the first was never the command.
+    """
+    graph, podcast_graph = _podcast_graph_and_double()
+
+    asyncio.run(
+        graph.ainvoke(
+            {
+                "messages": [HumanMessage(content="List Notes Weekly")],
+                "mode": "podcast_catch_up",
+            }
+        )
+    )
+
+    podcast_graph.ainvoke.assert_awaited_once_with(
+        {"thread_id": "", "show": "List Notes Weekly"}
+    )

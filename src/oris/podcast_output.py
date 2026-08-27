@@ -51,3 +51,34 @@ def episode_lines(episodes: list[PodcastEpisodeSummary]) -> str:
         f"{transcript_provenance(episode)}"
         for number, episode in enumerate(episodes, start=1)
     )
+
+
+class PodcastShow(TypedDict):
+    """One configured show, as Net-Razor names it."""
+
+    show_title: str
+    episode_count: int
+    latest_episode_title: str | None
+    latest_episode_at: str | None
+    publishes_transcripts: bool
+
+
+def show_lines(shows: list[PodcastShow]) -> str:
+    """List the configured shows, saying which of them need transcribing.
+
+    `publishes_transcripts` is read from each show's newest episode, so it
+    describes what the show does now rather than what any particular episode
+    has. That is the right thing for someone deciding which show to ask about:
+    naming a show that publishes its own transcripts answers in seconds, and
+    naming one that does not means waiting for Whisper.
+    """
+    lines = []
+    for number, show in enumerate(shows, start=1):
+        transcripts = (
+            "publishes transcripts"
+            if show["publishes_transcripts"]
+            else "needs transcribing"
+        )
+        newest = show.get("latest_episode_at") or "no episodes"
+        lines.append(f"{number}. {show['show_title']} — {transcripts}, newest {newest}")
+    return "\n".join(lines)

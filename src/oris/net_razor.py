@@ -42,6 +42,15 @@ PODCAST_CATCH_UP_TOOL_NAMES = (
 )
 """The tools both podcast graphs hold. Transcription is deliberately not here."""
 
+PODCAST_FEEDS_TOOL_NAME = "net_razor_podcast_feeds"
+"""Loaded separately, because listing shows is not part of catching up.
+
+Kept off the catch-up allowlist so a catch-up cannot call it. It reads every
+configured feed, which costs about a second, and a catch-up already learns each
+show's name from the episodes it fetches. The question it answers is "what am I
+subscribed to", which is asked before a catch-up rather than during one.
+"""
+
 PODCAST_TRANSCRIPTION_TOOL_NAME = "net_razor_podcast_whisper_transcript"
 """Loaded separately, for the scheduled graph only.
 
@@ -114,6 +123,12 @@ async def load_podcast_catch_up_tools(
 ) -> tuple[BaseTool, ...]:
     """Load the podcast tools that answer in seconds."""
     return await _load_tools(python_executable, PODCAST_CATCH_UP_TOOL_NAMES)
+
+
+async def load_podcast_feeds_tool(python_executable: Path) -> BaseTool:
+    """Load the tool that names the configured shows, and nothing else."""
+    tools = await _load_tools(python_executable, (PODCAST_FEEDS_TOOL_NAME,))
+    return tools[0]
 
 
 async def load_podcast_transcription_tool(python_executable: Path) -> BaseTool:

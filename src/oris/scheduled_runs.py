@@ -18,6 +18,7 @@ from oris.podcast_catch_up import (
     PreparedPodcastCatchUpOutput,
     acknowledge_podcast_catch_up,
 )
+from oris.podcast_output import transcript_provenance
 from oris.schedules import (
     ConfiguredScheduledJob,
     JobId,
@@ -284,7 +285,8 @@ def _format_podcast_catch_up_report(
             f"### [{episode['title']}]({episode['url']})\n\n"
             f"- Show: {episode['show']}\n"
             f"- Published: `{episode['published_at']}`\n"
-            f"- Transcript: `{episode['transcript_backend']}`, `{transcript_status}`\n\n"
+            f"- Transcript: {transcript_provenance(episode)}, "
+            f"`{transcript_status}`\n\n"
             f"{episode['summary']}"
         )
     episodes = "\n\n".join(episode_sections) or "No episodes were summarized."

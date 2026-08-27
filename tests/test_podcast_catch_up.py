@@ -400,7 +400,43 @@ def test_a_machine_transcribed_episode_says_so_in_its_caveats() -> None:
 
     result = asyncio.run(graph.ainvoke({}))
 
-    assert any("machine-transcribed" in caveat for caveat in result["caveats"])
+    # Said once for the run. Which episodes it applies to is on each episode's
+    # own line now, and repeating the same warning per episode buried every
+    # other caveat under it.
+    assert result["caveats"] == [
+        "Machine-transcribed episodes are marked below. Names, acronyms, and "
+        "version numbers in those are less reliable."
+    ]
+    assert result["episodes"][0]["transcript_created_now"] is True
+
+
+def test_a_transcript_an_earlier_run_made_is_not_reported_as_new_work() -> None:
+    """ "Whisper" does not mean "just now", and the difference is the point.
+
+    A scheduled run's machine transcript is served straight from Net-Razor's
+    store the next morning and arrives looking identical to one produced a
+    minute ago. Reporting both the same way makes a recap indistinguishable
+    from a catch-up, which is exactly the question the reader is asking.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "Stored machine words.", backend="whisper"),
+            transcript_page("call-1", "Stored machine words.", backend="whisper"),
+        ],
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    tools["transcription"].ainvoke.assert_not_awaited()
+    assert result["episodes"][0]["transcript_backend"] == "whisper"
+    assert result["episodes"][0]["transcript_created_now"] is False
 
 
 def test_the_show_and_episode_come_from_net_razors_own_fields() -> None:
@@ -504,6 +540,7 @@ def test_the_scheduled_report_says_where_each_transcript_came_from() -> None:
                 "url": "https://example.com/episode-1",
                 "summary": "Summary 1",
                 "transcript_backend": "whisper",
+                "transcript_created_now": True,
                 "transcript_truncated": False,
             }
         ],
@@ -513,7 +550,7 @@ def test_the_scheduled_report_says_where_each_transcript_came_from() -> None:
 
     report = _format_podcast_catch_up_report(job, UUID(int=1), result)
 
-    assert "- Transcript: `whisper`, `complete`" in report
+    assert "- Transcript: transcribed by ORIS during this run, `complete`" in report
     assert "machine-transcribed" in report
     assert "receipt-1" not in report
 

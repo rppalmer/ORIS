@@ -811,3 +811,62 @@ def test_a_show_whose_name_merely_starts_with_recap_is_still_a_show() -> None:
     podcast_graph.ainvoke.assert_awaited_once_with(
         {"thread_id": "", "show": "Recapped Weekly"}
     )
+
+
+def test_the_episode_list_says_where_each_transcript_came_from() -> None:
+    """The reader has to be able to tell machine words from the publisher's.
+
+    Whisper gets names, acronyms, and version numbers wrong, so how much of an
+    episode summary to trust depends entirely on which of these it was. The
+    list used to be bare numbered links built from the digest's citations: no
+    titles, no shows, no provenance, and nothing at all when the digest cited
+    nothing.
+    """
+    graph, podcast_graph = _podcast_graph_and_double()
+    podcast_graph.ainvoke = AsyncMock(
+        return_value={
+            "answer": "Two episodes were summarized.",
+            "cited_urls": [],
+            "episodes": [
+                {
+                    "episode_id": "episode-1",
+                    "title": "Episode 1",
+                    "show": "Example Show",
+                    "published_at": "2026-08-01T12:00:00+00:00",
+                    "url": "https://example.com/episode-1",
+                    "summary": "Summary 1",
+                    "transcript_backend": "publisher",
+                    "transcript_created_now": False,
+                    "transcript_truncated": False,
+                },
+                {
+                    "episode_id": "episode-2",
+                    "title": "Episode 2",
+                    "show": "Other Show",
+                    "published_at": "2026-08-02T12:00:00+00:00",
+                    "url": "https://example.com/episode-2",
+                    "summary": "Summary 2",
+                    "transcript_backend": "whisper",
+                    "transcript_created_now": True,
+                    "transcript_truncated": False,
+                },
+            ],
+            "caveats": [],
+        }
+    )
+
+    result = asyncio.run(
+        graph.ainvoke(
+            {"messages": [HumanMessage(content="")], "mode": "podcast_catch_up"}
+        )
+    )
+
+    answer = result["messages"][-1].content
+    assert (
+        "1. [Episode 1](https://example.com/episode-1) — Example Show, "
+        "publisher's transcript" in answer
+    )
+    assert (
+        "2. [Episode 2](https://example.com/episode-2) — Other Show, "
+        "transcribed by ORIS during this run" in answer
+    )

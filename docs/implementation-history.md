@@ -1533,3 +1533,61 @@ answer above it.
 The key now says which specialists store evidence and stops.
 
 Deterministic baseline: 320 passing, 15 skipped, clean lint and formatting.
+
+### Recaps, and saying where a transcript came from — 2026-08-26
+
+Two of the podcast items from the plan, done together because the second is
+what makes the first legible.
+
+**A scheduled run's work was unreachable the morning after.** The run marks its
+episodes processed, and Net-Razor leaves processed episodes out of the queue
+from then on. So an ordinary catch-up the next morning reported no new episodes
+— correctly, because the scheduled run had already taken them — and nothing in
+ORIS could ask for them back.
+
+Net-Razor's episode tool has always accepted `include_processed`. ORIS passed a
+hardcoded `false`. It is now part of the request, reached from chat by putting
+`recap` in front of a `/podcasts` command, with or without a show name after
+it. That gives all four of the intended paths: transcribe one show, transcribe
+what is new, re-read one show, re-read everything already transcribed.
+
+A recap reads and never writes, which took two guards rather than one. It does
+not transcribe, because turning "show me last night's work" into another hour of
+Whisper is not what was asked. And it does not acknowledge — that one is the
+subtle half. A recap that happened to pick up a new episode with a publisher
+transcript would otherwise mark it processed and take it out of the next real
+catch-up without ever transcribing it.
+
+**A machine transcript no longer looks like a publisher's, and neither looks
+like the other one's age.** There are three states worth telling apart and only
+two were represented. `transcript_backend` distinguishes `publisher` from
+`whisper`, but a Whisper transcript from last night's scheduled run is served
+straight from Net-Razor's store and arrives identical to one produced a minute
+ago. Episodes now also carry whether this run made the transcript, which is
+recorded where it is actually known: at the point the transcription tool is
+called.
+
+Both front ends now say it in words — "publisher's transcript", "transcribed by
+ORIS during this run", "transcribed by ORIS earlier" — rather than printing a
+backend name that only means something to someone who already knows. The wording
+lives in one place because two copies of a phrase like that drift until they
+contradict each other.
+
+The per-episode "was machine-transcribed" caveat is now one line per run. Which
+episodes it applies to is on each episode's own line, and repeating the warning
+per episode was the same problem as the no-transcript caveat earlier the same
+day: one fact, stated so many times that everything else was pushed off the end.
+
+**Two things this exposed.** The chat episode list was bare numbered links built
+from the digest's citations — no titles, no shows, and nothing at all when the
+digest cited nothing, which is precisely when the caveat telling the reader to
+"see the episode list below" fires. It now lists every episode the run covered.
+
+And moving the rendering out revealed a layering fault. Putting it in the
+specialist module meant chat imported the specialist, which imports the
+Net-Razor tool names, which pulls in the MCP client — breaking the test that
+asserts the terminal interface starts without it. The public output shape and
+how to render it now live in their own module that imports nothing but `typing`.
+The graph is not the output.
+
+Deterministic baseline: 329 passing, 15 skipped, clean lint and formatting.

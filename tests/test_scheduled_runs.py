@@ -97,6 +97,7 @@ def podcast_result(*, empty: bool = False) -> dict:
                 "url": "https://example.com/episode-1",
                 "summary": "The episode explains one useful idea.",
                 "transcript_backend": "whisper",
+                "transcript_created_now": True,
                 "transcript_truncated": True,
             }
         ],
@@ -274,7 +275,9 @@ def test_scheduled_podcast_persists_before_acknowledgement(tmp_path) -> None:
     assert "A concise scheduled digest." in report
     assert "[Episode 1](https://example.com/episode-1)" in report
     assert "The episode explains one useful idea." in report
-    assert "`whisper`" in report
+    # Not the backend name: the reader is being told how much to trust the
+    # words, and "whisper" only says that to someone who already knows.
+    assert "transcribed by ORIS during this run" in report
     assert "Transcript truncated for Episode 1." in report
     # Receipts are internal plumbing and never belong in a deliverable.
     assert "transcript-call-1" not in report

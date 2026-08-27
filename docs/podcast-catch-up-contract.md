@@ -59,6 +59,16 @@ Hacker News, or YouTube tools.
   remain authoritative.
 - `max_episodes`: total episodes processed in one run, default `5`, minimum `1`,
   maximum `10`.
+- `include_processed`: optional, default `false`. A catch-up asks for what
+  Net-Razor has not yet handed over. A recap asks for episodes it already has,
+  which is the only route back to a scheduled run's work: that run acknowledged
+  its episodes, so they are absent from the catch-up queue from then on.
+
+  A recap reads and never writes. It does not transcribe, because turning "show
+  me last night's work" into another hour of Whisper is not what was asked. It
+  does not acknowledge either — a recap that picked up a new episode with a
+  publisher transcript would otherwise mark it processed and remove it from the
+  next real catch-up without ever transcribing it.
 - `show`: optional. When given, the run covers the newest episode of the
   configured show whose name contains it, and nothing else. Asking about one
   podcast is asking what its latest instalment said, not for a catch-up, so the
@@ -76,8 +86,9 @@ feed rather than per run.
 ## Fixed workflow
 
 1. Validate `max_episodes` before any external call.
-2. Call `net_razor_podcast_new_episodes` once with `include_processed=false`,
-   and `days` only when supplied.
+2. Call `net_razor_podcast_new_episodes` once with `days` only when supplied,
+   and `include_processed` set from the request: `false` for a catch-up, `true`
+   for a recap.
 3. Select `max_episodes` entries by taking one from each feed before a second
    from any, keeping each feed's newest-first order. Net-Razor caps per feed,
    and taking the newest N globally discards that: measured on 2026-08-25, a
@@ -146,13 +157,21 @@ not instruct the model or change the graph's behavior.
 
 Public output contains `answer`, `cited_urls`, `episodes`, and `caveats`. Each
 episode carries its ID, title, show, publication time, canonical URL, summary,
-**transcript backend**, and truncation status.
+**transcript backend**, **whether this run made that transcript**, and
+truncation status.
 
 `transcript_backend` is `publisher` or `whisper`, taken from Net-Razor's
-`source_backend` rather than inferred from which tool was called. It reaches the
-report, and a machine-transcribed episode also produces a named caveat, because
-Whisper gets names, acronyms, and version numbers wrong and a digest that cannot
-tell will repeat them as fact, cited to the episode.
+`source_backend` rather than inferred from which tool was called. Whisper gets
+names, acronyms, and version numbers wrong, and a digest that cannot tell will
+repeat them as fact, cited to the episode.
+
+`transcript_created_now` separates a machine transcript this run produced from
+one an earlier run left in Net-Razor's store. The backend alone cannot answer
+that: a stored transcript is served immediately and looks identical to one that
+took eight minutes of Whisper. The distinction is what separates a recap from a
+catch-up, so both front ends state it per episode in words rather than printing
+the backend name. One caveat per run says machine transcripts are less reliable;
+which episodes those are is on each episode's own line.
 
 Titles, shows, publication times, IDs, and URLs come from Net-Razor; the model
 does not recreate them. Full transcripts are never returned in public output or

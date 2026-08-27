@@ -20,6 +20,7 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
 from oris.net_razor import PODCAST_CATCH_UP_TOOL_NAMES
+from oris.podcast_output import PodcastEpisodeSummary
 from oris.prompts import load_system_prompt
 from oris.search import NonEmptyText
 from oris.threat_reports import ThreatReportStore
@@ -79,19 +80,6 @@ class PodcastCatchUpAnswer(BaseModel):
     )
 
 
-class PodcastEpisodeSummary(TypedDict):
-    """One summarized episode returned in public graph output."""
-
-    episode_id: str
-    title: str
-    show: str
-    published_at: str
-    url: str
-    summary: str
-    transcript_backend: str
-    transcript_truncated: bool
-
-
 class PodcastCatchUpInput(TypedDict):
     """Public input accepted by Podcast Catch-up."""
 
@@ -127,6 +115,7 @@ class PodcastCatchUpState(TypedDict):
     include_processed: NotRequired[bool]
     discovered_episodes: NotRequired[list[dict[str, Any]]]
     transcript_backends: NotRequired[dict[str, str]]
+    transcribed_this_run: NotRequired[list[str]]
     transcript_call_ids: NotRequired[list[str]]
     episodes: NotRequired[list[PodcastEpisodeSummary]]
     caveats: NotRequired[list[str]]
@@ -349,6 +338,11 @@ def create_podcast_catch_up_preparation_graph(
         model calls carry no such deadline.
         """
         backends: dict[str, str] = {}
+        # Which transcripts this run made, as opposed to found. The backend
+        # alone cannot answer that: a Whisper transcript from last night's
+        # scheduled run is served straight from Net-Razor's store and looks
+        # identical to one produced a minute ago.
+        transcribed_this_run: list[str] = []
         caveats = list(state["caveats"])
         # Collected per show and reported once at the end. Publishing no
         # transcript is a fact about a feed, not about an episode, and a feed
@@ -403,6 +397,7 @@ def create_podcast_catch_up_preparation_graph(
             backends[episode["source_id"]] = transcribed.get(
                 "source_backend", "whisper"
             )
+            transcribed_this_run.append(episode["source_id"])
 
         # The show's name, never the episode's: the advice is to ask for it by
         # name, and naming a show is what the narrowing matches on. Printing the
@@ -423,7 +418,11 @@ def create_podcast_catch_up_preparation_graph(
                 f"{show_name} has an episode nothing has transcribed yet, so "
                 "this recap does not cover it."
             )
-        return {"transcript_backends": backends, "caveats": caveats}
+        return {
+            "transcript_backends": backends,
+            "transcribed_this_run": transcribed_this_run,
+            "caveats": caveats,
+        }
 
     async def summarize_part(
         episode: dict[str, Any],
@@ -468,6 +467,7 @@ def create_podcast_catch_up_preparation_graph(
         transcript_call_ids: list[str] = []
         caveats = list(state["caveats"])
         backends = state["transcript_backends"]
+        made_here = set(state["transcribed_this_run"])
         parts_remaining = MAX_TRANSCRIPT_PARTS_PER_RUN
 
         for episode in state["discovered_episodes"]:
@@ -534,12 +534,6 @@ def create_podcast_catch_up_preparation_graph(
             if not part_summaries:
                 continue
 
-            if backend == "whisper":
-                caveats.append(
-                    f"{episode['title']} was machine-transcribed; names, "
-                    "acronyms, and version numbers in it are less reliable."
-                )
-
             transcripts.append(
                 {
                     "title": episode["title"],
@@ -547,6 +541,7 @@ def create_podcast_catch_up_preparation_graph(
                     "published_at": episode["published_at"],
                     "url": episode["canonical_url"],
                     "transcript_backend": backend,
+                    "transcript_created_now": episode["source_id"] in made_here,
                     "transcript_truncated": truncated,
                     "transcript": "".join(transcript_parts),
                 }
@@ -560,10 +555,22 @@ def create_podcast_catch_up_preparation_graph(
                     "url": episode["canonical_url"],
                     "summary": "\n\n".join(part_summaries),
                     "transcript_backend": backend,
+                    "transcript_created_now": episode["source_id"] in made_here,
                     "transcript_truncated": truncated,
                 }
             )
             transcript_call_ids.append(transcript_call_id)
+
+        # Said once for the run, not once per episode. Which episodes were
+        # machine-transcribed is now on each episode's own line, so repeating
+        # the warning per episode only buried the other caveats.
+        if any(
+            backends.get(summary["episode_id"]) == "whisper" for summary in summaries
+        ):
+            caveats.append(
+                "Machine-transcribed episodes are marked below. Names, "
+                "acronyms, and version numbers in those are less reliable."
+            )
 
         _store_transcripts(state, transcripts)
         return {

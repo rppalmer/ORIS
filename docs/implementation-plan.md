@@ -283,12 +283,21 @@ That is why the run had nothing to work with.
   scheduler involved. This path has never been run end to end. Proving it works
   is the point of doing it manually, and it is also the whole "transcribe
   everything" capability that chat does not offer.
-- [ ] **Ask Net-Razor for a tool that lists the configured feeds.** Something
-  small and read-only returning each feed's display name, with no fetching. ORIS
-  cannot do this itself: the only list it can build is inferred from whoever
-  published recently, so a show quiet for a month would be missing from it, and
-  a list that silently omits shows is worse than no list. This is a Net-Razor
-  capability gap and is reported rather than worked around.
+- [x] **Ask Net-Razor for a tool that lists the configured feeds.** Already
+  built: `net_razor_podcast_feeds` returns each show by name, plus a
+  `publishes_transcripts` hint read from its newest episode. It reads every feed
+  so it takes about a second. Found on 2026-08-27 in the local Net-Razor
+  checkout, which is ahead of what the Mac mini is running.
+- [ ] **Use `net_razor_podcast_feeds` in ORIS.** It is on the allowlist nowhere
+  yet. Two things it unlocks: `/podcasts` with no argument could list the shows
+  instead of guessing, and `publishes_transcripts` tells a catch-up in advance
+  which shows will need transcribing rather than discovering it one failed
+  transcript call at a time.
+- [ ] **Update Net-Razor on the Mac mini.** Its `doctor` on 2026-08-27 still
+  reported a `yt` source block, a `channels.txt`, and a
+  `youtube_search_configured` check, none of which exist in the current
+  checkout. The mini is behind, which also means it does not have the feed
+  listing tool.
 - [x] **Split the request into four explicit paths.** Done 2026-08-26.
   `/podcasts` catches up, `/podcasts <show>` narrows and transcribes, and
   `recap` in front of either reads what already has a transcript.

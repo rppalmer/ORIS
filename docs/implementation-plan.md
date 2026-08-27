@@ -258,6 +258,66 @@ than a follow-up.
     stated rules, not against observed failures. Cases earn their place by
     catching something; these have not been run yet.
 
+### Podcast Catch-up
+
+Agreed on 2026-08-26, after a real catch-up came back as a wall of "publishes no
+transcript" and nothing else. In order, because each item makes the next one
+testable.
+
+The background is worth stating once. Chat deliberately never transcribes a
+whole catch-up, because Whisper takes minutes per episode and five in a row
+would hold the interface for most of an hour. So a catch-up only uses
+transcripts that already exist. The nightly job that would create them has never
+been configured, and most of the real feeds publish no transcript of their own.
+That is why the run had nothing to work with.
+
+- [ ] **Confirm Whisper is switched on for Net-Razor on the Mac mini.** The
+  setting is `podcast_whisper_enabled` and it defaults to false. With it off,
+  every transcription attempt returns `not_configured` and nothing below can be
+  tested. This is the first thing to check and it costs a minute.
+- [ ] **Run the scheduled podcast path by hand before trusting it to a cron
+  entry.** `oris-run-scheduled <job-id>` runs one job to completion with no
+  scheduler involved. This path has never been run end to end. Proving it works
+  is the point of doing it manually, and it is also the whole "transcribe
+  everything" capability that chat does not offer.
+- [ ] **Ask Net-Razor for a tool that lists the configured feeds.** Something
+  small and read-only returning each feed's display name, with no fetching. ORIS
+  cannot do this itself: the only list it can build is inferred from whoever
+  published recently, so a show quiet for a month would be missing from it, and
+  a list that silently omits shows is worse than no list. This is a Net-Razor
+  capability gap and is reported rather than worked around.
+- [ ] **Split the request into four explicit paths.** Today there is one
+  command, `/podcasts`, with an optional show name, and what it does depends on
+  facts the reader cannot see. The four intended paths are: transcribe one named
+  show's newest episode; transcribe everything new; summarise one show from
+  transcripts that already exist; and summarise everything already transcribed,
+  each show on its own. The last two are the ones with no route at all today.
+- [ ] **Fix the trap the four paths expose.** A scheduled run marks its episodes
+  processed, and `/podcasts` asks Net-Razor for unprocessed episodes only. So
+  the morning after a nightly run, a catch-up reports no new episodes — because
+  the nightly run already took them. Net-Razor's episode tool accepts
+  `include_processed`; ORIS never passes it. The two "already transcribed" paths
+  need it. Until then the honest answer is `/recall`: the nightly run files its
+  full digest into the archive, so it is already searchable there.
+- [ ] **Say plainly, for every episode, whether its transcript was already there
+  or was made just now.** The information exists — each summary carries a
+  `transcript_backend` of `publisher` or `whisper` — but it only reaches the
+  reader as a caveat about machine transcription being unreliable. Where it
+  came from and when it was made should be visible on the episode itself.
+- [ ] **Let a job run in the background instead of holding a chat turn.** The
+  worker already exists: `oris-run-scheduled` does the whole job outside chat.
+  What is missing is starting it without blocking the turn and delivering the
+  result afterwards, which the interface's worker system already supports. Build
+  it as "run any job now, in the background" rather than as a podcast feature,
+  so the news job gets it too. Two cautions: Whisper competes with the chat
+  model for the same machine, which has not been measured; and if this turns out
+  worse than it looks, waiting for a single named show is acceptable and was
+  agreed as the fallback.
+
+Schedule management in the interface is the last step and is tracked under
+Interfaces below. It is deliberately last: an interface for scheduling a job
+that has never successfully run would be scheduling a guess.
+
 ### Interfaces
 
 - [ ] Add schedule management to the terminal interface: list the jobs in
@@ -266,7 +326,8 @@ than a follow-up.
   question — `schedules.toml` is version-controlled and project-owned by ADR
   002, and an interface that writes it becomes a second source of truth. Start
   read-only plus a manual trigger, which is what the missed-run diagnosis
-  actually needed.
+  actually needed. Do this after the podcast items above: scheduling a job that
+  has never successfully run would be scheduling a guess.
 - [ ] Decide whether a long turn needs a cancel key. Per-step status now names
   the running graph node, which was the larger half of the complaint; whether
   the remaining wait is worth interrupting is a question for real use.
@@ -426,8 +487,12 @@ answers to questions that keep getting asked again.
 The core milestone is complete, the August 13 foundation review is closed out,
 and everything has been exercised against live services.
 
-Take "Answer quality" next. It is the only work on this roadmap that changes
-what an investigation actually tells you; everything else changes what ORIS can
+Take the Podcast Catch-up items first, in the order they are listed. They are
+short, they are blocking real use, and the first two are checks rather than
+code. Then "Answer quality".
+
+"Answer quality" is the only work on this roadmap that changes what an
+investigation actually tells you; everything else changes what ORIS can
 reach or how comfortable it is to drive. The current date is done. The
 evaluation cases were run for the first time on 2026-08-18 and found three
 defects, all recorded in the history. What they still lack is a recorded verdict

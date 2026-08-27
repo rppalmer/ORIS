@@ -1508,3 +1508,28 @@ configuration gap, not a code one, and it is the reason the run was mostly
 caveats.
 
 Deterministic baseline: 319 passing, 15 skipped, clean lint and formatting.
+
+### A run was handed somebody else's evidence — 2026-08-26
+
+Two Community Research searches came back with nothing useful. Opening the
+evidence for either one showed a podcast catch-up about the Detroit Pistons.
+
+Community Research stores no evidence at all. Only Threat Intel and Podcast
+Catch-up do. So the run genuinely had none — and the evidence key, finding none,
+fell through to a fallback that opens the newest report in the whole store.
+The newest report was the last podcast run.
+
+The fallback itself is correct where it belongs. Typing `/threat show` with no
+ID means "the most recent one", and that is the behaviour it was written for.
+The mistake was letting a second, different question reach it. "No ID was
+typed" and "this run collected none" have the same empty answer and completely
+different right responses.
+
+Showing the wrong run's data under the right run's name is worse than showing
+nothing. Someone reading it has no way to know it is unrelated, and the whole
+point of stored evidence is that it can be trusted to be what produced the
+answer above it.
+
+The key now says which specialists store evidence and stops.
+
+Deterministic baseline: 320 passing, 15 skipped, clean lint and formatting.

@@ -1036,9 +1036,27 @@ class OrisTui(App):
         )
 
     def action_open_evidence(self) -> None:
+        """Open the selected run's evidence, and nobody else's.
+
+        "No ID given" and "this run stored none" are different questions with
+        the same empty answer, and falling through from the second to the first
+        showed the newest report in the store instead. A Community Research run
+        — which stores no evidence at all — opened the last podcast catch-up and
+        presented it as that search's evidence, which is worse than showing
+        nothing: it is the wrong run's data under the right run's name.
+        """
         trace = self._selected_trace()
-        report_id = self._evidence_ids.get(trace.trace_id) if trace else None
-        self._show_evidence(report_id or "")
+        if trace is None:
+            self.notify("No run selected.")
+            return
+        report_id = self._evidence_ids.get(trace.trace_id)
+        if report_id is None:
+            self.notify(
+                "This run stored no evidence. Threat Intel and Podcast "
+                "Catch-up store theirs; the other specialists do not."
+            )
+            return
+        self._show_evidence(report_id)
 
     def _show_evidence(self, report_id: str) -> None:
         """Open one stored report, newest when no ID is given.

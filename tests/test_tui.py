@@ -632,6 +632,37 @@ def test_evidence_from_another_conversation_never_attaches(tmp_path: Path) -> No
     assert _run(drive()) == {}
 
 
+def test_a_run_that_stored_nothing_opens_nothing(tmp_path: Path) -> None:
+    """A run with no evidence must not be handed somebody else's.
+
+    Observed in real use: a Community Research search, which stores no evidence
+    at all, opened the newest podcast catch-up in the store and presented it as
+    that search's evidence. "No ID was typed" and "this run collected none" are
+    different questions, and the newest-report fallback belongs only to the
+    first. Showing the wrong run's data under the right run's name is worse than
+    showing nothing.
+    """
+
+    async def drive() -> type:
+        app, _, _ = _build(tmp_path, evidence=False)
+        # A report exists and is the newest in the store, so the fallback has
+        # something to wrongly return.
+        app.threat_report_store.save(
+            "podcasts Locked On Pistons",
+            {"episodes": []},
+            thread_id="a-different-conversation",
+            now=STARTED_AT + timedelta(seconds=2),
+        )
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            await pilot.press("e")
+            await pilot.pause()
+            return type(app.screen)
+
+    assert _run(drive()) is not EvidenceScreen
+
+
 def test_prompts_open_for_the_selected_run(tmp_path: Path) -> None:
     """Which prompt produced this answer is a question about a specific run."""
 

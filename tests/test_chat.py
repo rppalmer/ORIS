@@ -749,3 +749,65 @@ def test_a_named_show_narrows_the_podcast_run() -> None:
     podcast_graph.ainvoke.assert_awaited_once_with(
         {"thread_id": "", "show": "LINUX Unplugged"}
     )
+
+
+def test_recap_asks_for_episodes_that_already_have_transcripts() -> None:
+    """`/podcasts recap` is the only route back to a scheduled run's work.
+
+    That run acknowledged its episodes, so Net-Razor leaves them out of the
+    catch-up queue from then on and an ordinary catch-up the next morning
+    reports nothing new.
+    """
+    graph, podcast_graph = _podcast_graph_and_double()
+
+    asyncio.run(
+        graph.ainvoke(
+            {
+                "messages": [HumanMessage(content="recap")],
+                "mode": "podcast_catch_up",
+            }
+        )
+    )
+
+    podcast_graph.ainvoke.assert_awaited_once_with(
+        {"thread_id": "", "include_processed": True}
+    )
+
+
+def test_recap_and_a_show_name_are_independent() -> None:
+    """Which episodes to read and whose are two separate parts of the request."""
+    graph, podcast_graph = _podcast_graph_and_double()
+
+    asyncio.run(
+        graph.ainvoke(
+            {
+                "messages": [HumanMessage(content="Recap LINUX Unplugged")],
+                "mode": "podcast_catch_up",
+            }
+        )
+    )
+
+    podcast_graph.ainvoke.assert_awaited_once_with(
+        {"thread_id": "", "include_processed": True, "show": "LINUX Unplugged"}
+    )
+
+
+def test_a_show_whose_name_merely_starts_with_recap_is_still_a_show() -> None:
+    """The word is only the mode when it stands alone at the front.
+
+    A show actually called "Recapped" must not have its first word eaten.
+    """
+    graph, podcast_graph = _podcast_graph_and_double()
+
+    asyncio.run(
+        graph.ainvoke(
+            {
+                "messages": [HumanMessage(content="Recapped Weekly")],
+                "mode": "podcast_catch_up",
+            }
+        )
+    )
+
+    podcast_graph.ainvoke.assert_awaited_once_with(
+        {"thread_id": "", "show": "Recapped Weekly"}
+    )

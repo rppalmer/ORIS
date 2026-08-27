@@ -340,25 +340,38 @@ def create_oris_graph(
         state: ORISState,
         config: RunnableConfig,
     ) -> dict[str, list[AIMessage]]:
-        """Answer from the configured feeds, without transcription.
+        """Answer from the configured feeds, transcribing only a named show.
 
-        The graph reached from here never holds the transcription tool, so a
-        chat turn cannot start work that blocks for minutes. An episode with no
-        published transcript becomes a caveat here and is picked up by the
-        scheduled job, which does hold it.
+        A chat turn must not start work that blocks for minutes, so a catch-up
+        across every feed never transcribes; an episode with no published
+        transcript becomes a caveat and waits for the scheduled job. Naming one
+        show is at most one episode, which the MCP deadline already bounds, so
+        that case does transcribe.
         """
         if podcast_catch_up_graph is None:
             raise ValueError("Podcast Catch-up is not configured")
         # An empty request is the ordinary catch-up across every configured
         # feed. Anything else names one show and asks what its latest episode
         # said, which is a different question with a much smaller answer.
-        show = state["resolved_request"].strip()
+        #
+        # A leading "recap" asks a third question: what do we already have
+        # transcripts for. It is the only way to read a scheduled run's work
+        # again, because that run acknowledged its episodes and Net-Razor
+        # therefore leaves them out of the catch-up queue from then on.
+        words = state["resolved_request"].strip().split(maxsplit=1)
+        recap = bool(words) and words[0].casefold() == "recap"
+        if recap:
+            show = words[1].strip() if len(words) > 1 else ""
+        else:
+            show = state["resolved_request"].strip()
         # The conversation is passed for the same reason Threat Intel passes it:
         # the transcripts stored for this run outlive the turn, and deleting the
         # conversation has to be able to find them again.
         request: dict[str, object] = {
             "thread_id": config.get("configurable", {}).get("thread_id", "")
         }
+        if recap:
+            request["include_processed"] = True
         if show:
             request["show"] = show
         result = await podcast_catch_up_graph.ainvoke(request)

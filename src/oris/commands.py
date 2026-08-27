@@ -37,8 +37,8 @@ SLASH_COMMANDS = {
     ),
     "/podcasts": (
         "podcast_catch_up",
-        "[show]",
-        "Catch up on your feeds; name one show for its newest episode alone.",
+        "[recap] [show]",
+        "Catch up on new episodes; 'recap' re-reads already-transcribed ones.",
     ),
     "/threat": (
         "threat_intel",

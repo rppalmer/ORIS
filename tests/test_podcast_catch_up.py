@@ -992,3 +992,115 @@ def test_each_show_is_summarised_on_its_own(tmp_path: Path) -> None:
         "https://example.com/episode-1",
         "https://example.com/episode-3",
     ]
+
+
+def test_a_catch_up_asks_only_for_episodes_net_razor_has_not_handed_over() -> None:
+    """The default is the unprocessed queue, which is what a catch-up means."""
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "First words."),
+            transcript_page("call-1", "First words."),
+        ],
+    )
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+    )
+
+    asyncio.run(graph.ainvoke({}))
+
+    call = tools["discovery"].ainvoke.await_args.args[0]
+    assert call["args"]["include_processed"] is False
+
+
+def test_a_recap_reaches_episodes_a_scheduled_run_already_acknowledged() -> None:
+    """Otherwise last night's work is unreachable the morning after.
+
+    A scheduled run marks its episodes processed, and Net-Razor leaves those
+    out of the queue from then on. Without a way to ask for them, a catch-up
+    the next morning reports no new episodes — because the scheduled run
+    already took them — and there is no route back to what it produced.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "Stored words."),
+            transcript_page("call-1", "Stored words."),
+        ],
+    )
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({"include_processed": True}))
+
+    call = tools["discovery"].ainvoke.await_args.args[0]
+    assert call["args"]["include_processed"] is True
+    assert [episode["title"] for episode in result["episodes"]] == ["Episode 1"]
+
+
+def test_a_recap_never_transcribes_and_never_acknowledges() -> None:
+    """A recap reads what exists. Creating or consuming would both be wrong.
+
+    Transcribing would turn "show me what last night produced" into another
+    hour of Whisper. Acknowledging is worse: a recap that happened to pick up a
+    new episode with a publisher transcript would mark it processed and take it
+    out of the next real catch-up without ever transcribing it.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[transcript_error("no_transcript_found")],
+    )
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({"include_processed": True}))
+
+    tools["transcription"].ainvoke.assert_not_awaited()
+    tools["acknowledgement"].ainvoke.assert_not_awaited()
+    assert result["caveats"] == [
+        "Example Show has an episode nothing has transcribed yet, so this "
+        "recap does not cover it."
+    ]
+
+
+def test_a_named_show_recap_still_narrows_to_that_show() -> None:
+    """Both halves of the request are independent: which episodes, and whose."""
+    tools = make_tools(
+        episodes=[
+            make_episode_for("feed-a", "Wanted Show", 1),
+            make_episode_for("feed-b", "Other Show", 2),
+        ],
+        transcript_pages=[
+            transcript_page("call-1", "Stored words."),
+            transcript_page("call-1", "Stored words."),
+        ],
+    )
+    graph = create_podcast_catch_up_graph(
+        tools["discovery"],
+        tools["transcript"],
+        tools["acknowledgement"],
+        make_model(),
+        transcription_tool=tools["transcription"],
+    )
+
+    result = asyncio.run(graph.ainvoke({"include_processed": True, "show": "Wanted"}))
+
+    assert (
+        tools["discovery"].ainvoke.await_args.args[0]["args"]["include_processed"]
+        is True
+    )
+    assert [episode["show"] for episode in result["episodes"]] == ["Wanted Show"]
+    tools["transcription"].ainvoke.assert_not_awaited()

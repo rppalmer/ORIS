@@ -99,6 +99,7 @@ class PodcastCatchUpInput(TypedDict):
     max_episodes: NotRequired[int]
     show: NotRequired[str]
     thread_id: NotRequired[str]
+    include_processed: NotRequired[bool]
 
 
 class PodcastCatchUpOutput(TypedDict):
@@ -123,6 +124,7 @@ class PodcastCatchUpState(TypedDict):
     max_episodes: NotRequired[int]
     show: NotRequired[str]
     thread_id: NotRequired[str]
+    include_processed: NotRequired[bool]
     discovered_episodes: NotRequired[list[dict[str, Any]]]
     transcript_backends: NotRequired[dict[str, str]]
     transcript_call_ids: NotRequired[list[str]]
@@ -267,7 +269,13 @@ def create_podcast_catch_up_preparation_graph(
         if not isinstance(max_episodes, int) or not 1 <= max_episodes <= MAX_EPISODES:
             raise ValueError(f"max_episodes must be between 1 and {MAX_EPISODES}")
 
-        tool_args: dict[str, object] = {"include_processed": False}
+        # A catch-up asks for what Net-Razor has not yet handed over. A recap
+        # asks for episodes it already has, which is the only way to read a
+        # scheduled run's work again: that run acknowledged its episodes, so
+        # they are gone from the catch-up queue by morning.
+        tool_args: dict[str, object] = {
+            "include_processed": state.get("include_processed", False)
+        }
         if "days" in state:
             tool_args["days"] = state["days"]
 
@@ -348,6 +356,8 @@ def create_podcast_catch_up_preparation_graph(
         # every other caveat in the run under repetition.
         no_transcription_available: list[str] = []
         transcription_needs_a_name: list[str] = []
+        not_transcribed_yet: list[str] = []
+        recap = state.get("include_processed", False)
 
         for episode in state["discovered_episodes"]:
             if not isinstance(episode, dict):
@@ -364,6 +374,14 @@ def create_podcast_catch_up_preparation_graph(
 
             if error_type != NO_TRANSCRIPT_ERROR:
                 caveats.append(f"Transcript unavailable for {title}: {error_type}.")
+                continue
+
+            # A recap reads transcripts that already exist and never makes
+            # one. Transcribing here would quietly turn "show me what last
+            # night produced" into another hour of Whisper.
+            if recap:
+                if show_name not in not_transcribed_yet:
+                    not_transcribed_yet.append(show_name)
                 continue
 
             if transcription_tool is None:
@@ -399,6 +417,11 @@ def create_podcast_catch_up_preparation_graph(
                 f"{show_name} publishes no transcript. Run "
                 f"`/podcasts {show_name}` to have its newest episode "
                 "transcribed."
+            )
+        for show_name in not_transcribed_yet:
+            caveats.append(
+                f"{show_name} has an episode nothing has transcribed yet, so "
+                "this recap does not cover it."
             )
         return {"transcript_backends": backends, "caveats": caveats}
 
@@ -715,7 +738,13 @@ def create_acknowledging_podcast_catch_up_graph(
     async def prepare(state: PodcastCatchUpState) -> dict:
         request = {
             key: state[key]
-            for key in ("days", "max_episodes", "show", "thread_id")
+            for key in (
+                "days",
+                "max_episodes",
+                "show",
+                "thread_id",
+                "include_processed",
+            )
             if key in state
         }
         return await preparation_graph.ainvoke(request)
@@ -727,7 +756,14 @@ def create_acknowledging_podcast_catch_up_graph(
         validated digest already exists by this point, and failing here would
         discard it while leaving some episodes acknowledged. The safe direction
         is for an episode to appear again, never to vanish.
+
+        A recap acknowledges nothing. Its episodes were acknowledged by
+        whatever produced them, and a recap that happened to pick up a new
+        episode with a publisher transcript would otherwise mark it processed
+        and take it out of the next real catch-up without ever transcribing it.
         """
+        if state.get("include_processed", False):
+            return {}
         try:
             await acknowledge_podcast_catch_up(
                 acknowledgement_tool,

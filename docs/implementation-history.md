@@ -1642,3 +1642,43 @@ This was done on the MacBook only. The Mac mini has its own trace database and
 its own artifact directory, and neither has been touched.
 
 Deterministic baseline: 329 passing, 15 skipped, clean lint and formatting.
+
+### ORIS can name the shows it is configured with — 2026-08-27
+
+Net-Razor's `doctor` output, read for an unrelated reason, showed that the local
+checkout was well ahead of the Mac mini — and that it had already grown
+`net_razor_podcast_feeds`, the tool the plan was about to ask for. It returns
+each configured show by name, plus whether that show publishes transcripts, read
+from its newest episode.
+
+ORIS had no route to it. That mattered more than "a missing convenience": a
+catch-up is narrowed by naming a show, the configuration is a list of feed URLs,
+and Net-Razor is the only place a show's name exists. So ORIS could not answer
+"which podcasts do you cover?" about its own setup, and naming one was guesswork
+against a name nobody had ever been shown.
+
+`/podcasts list` answers it.
+
+**The tool is loaded separately and kept off the catch-up allowlist.** A catch-up
+must not be able to call it. It reads every configured feed, which costs about a
+second, and a catch-up already learns each show's name from the episodes it
+fetches — so the call would be pure cost. This is the same split transcription
+already uses, and for the same reason: the allowlist is what a specialist can
+reach, not a list of everything the server offers.
+
+**Listing branches at the graph entry.** It shares none of a catch-up's work, so
+a flag checked inside every node downstream would have been five checks for one
+decision.
+
+**It makes no model call.** The answer is a list Net-Razor already has, and
+asking a model to restate it could only introduce a show that does not exist.
+
+**The `publishes_transcripts` hint is shown, not acted on.** It would be
+tempting to use it to skip straight to Whisper for a show that publishes
+nothing. That would be wrong twice over: it reads the newest episode only, and
+Net-Razor's transcript store is first-writer-wins, so transcribing an episode
+whose publisher transcript was never fetched forecloses the better version
+permanently. The hint tells a reader which show will be slow to ask about. The
+decision stays per episode, on what the publisher actually returned.
+
+Deterministic baseline: 334 passing, 15 skipped, clean lint and formatting.

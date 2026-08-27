@@ -288,12 +288,13 @@ That is why the run had nothing to work with.
   `publishes_transcripts` hint read from its newest episode. It reads every feed
   so it takes about a second. Found on 2026-08-27 in the local Net-Razor
   checkout, which is ahead of what the Mac mini is running.
-- [ ] **Use `net_razor_podcast_feeds` in ORIS.** It is on the allowlist nowhere
-  yet. Two things it unlocks: `/podcasts` with no argument could list the shows
-  instead of guessing, and `publishes_transcripts` tells a catch-up in advance
-  which shows will need transcribing rather than discovering it one failed
-  transcript call at a time.
-- [ ] **Update Net-Razor on the Mac mini.** Its `doctor` on 2026-08-27 still
+- [x] **Use `net_razor_podcast_feeds` in ORIS.** Done 2026-08-27 as
+  `/podcasts list`. The `publishes_transcripts` hint is shown per show so the
+  reader can tell in advance which shows will need Whisper; it is deliberately
+  not used to skip asking the publisher, because it reads the newest episode
+  only and Net-Razor's store is first-writer-wins.
+- [x] **Update Net-Razor on the Mac mini.** Done by Ryan on 2026-08-27.
+  Previously: Its `doctor` on 2026-08-27 still
   reported a `yt` source block, a `channels.txt`, and a
   `youtube_search_configured` check, none of which exist in the current
   checkout. The mini is behind, which also means it does not have the feed

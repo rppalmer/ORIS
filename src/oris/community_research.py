@@ -151,7 +151,7 @@ def create_community_research_graph(
                     f"{json.dumps(state['research_result'], ensure_ascii=False, indent=2)}",
                 ),
             ],
-            max_completion_tokens=512,
+            max_completion_tokens=1024,
         )
         return {
             "answer": response.answer,

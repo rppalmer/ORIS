@@ -1682,3 +1682,37 @@ permanently. The hint tells a reader which show will be slow to ask about. The
 decision stays per episode, on what the publisher actually returned.
 
 Deterministic baseline: 334 passing, 15 skipped, clean lint and formatting.
+
+### Community Research was capped at 150 words — 2026-08-27
+
+Running Net-Razor's `research` tool directly from an editor produced noticeably
+more useful summaries than asking ORIS the same thing. Same tool, same JSON, far
+thinner answer. The cause was entirely in ORIS: the prompt said "write two to
+four concise bullet points and no more than 150 words", over a token budget that
+allowed roughly 380.
+
+The 150 words are the wrong shape for what this specialist reads. Net-Razor
+returns up to ten posts per source, each with its own claim, and the raw result
+never survives the graph — `run_community_research` keeps the answer text and
+the cited URLs and discards the evidence. Anything not written into those 150
+words has to be paid for again with a second fan-out.
+
+**The length rule is now under 400 words with the budget raised to 1024
+tokens.** The ceiling still exists, because a bounded answer is the point of a
+synthesis step, but it no longer discards most of the space it was given.
+
+**Length alone would not have fixed it.** "Concise" is a shape instruction, not
+a quantity, and a model given more room to be vague uses it. So the prompt now
+borrows what Threat Intel already does: one bullet per post that carries a
+point, name the source it came from, and report the actual claim, number, name
+or version rather than characterising it — with a worked example of a useful
+bullet against a useless one.
+
+**"If the evidence is insufficient, say so" is gone.** Replaced with Threat
+Intel's "say what is uncertain and what would resolve it". The first invites a
+one-line dead end. Web Research and Local Knowledge still carry the old line;
+this is the first of the three.
+
+The evaluation case for a well-covered topic asked for "concise bullets", which
+would have scored the old behaviour as correct. It now asks for the specific
+claims each post carried.

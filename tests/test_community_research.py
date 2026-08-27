@@ -104,7 +104,7 @@ def test_community_research_calls_one_tool_and_synthesizes_once() -> None:
     assert messages[1][0] == "human"
     assert '"call_id": "net-razor-call-1"' in messages[1][1]
     assert "https://news.ycombinator.com/item?id=123" in messages[1][1]
-    assert structured_model.ainvoke.await_args.kwargs == {"max_completion_tokens": 512}
+    assert structured_model.ainvoke.await_args.kwargs == {"max_completion_tokens": 1024}
 
 
 def test_community_research_rejects_an_unapproved_source() -> None:

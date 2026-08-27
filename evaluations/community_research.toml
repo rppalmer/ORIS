@@ -17,7 +17,7 @@ specialist = "community_research"
 id = "active-technical-topic"
 category = "well-covered-topic"
 question = "LangGraph"
-evaluation_goal = "Produce concise bullets grounded in the returned posts, citing only supplied canonical URLs."
+evaluation_goal = "Report what each returned post actually claimed, with its specific names, numbers and versions, citing only supplied canonical URLs."
 
 [[cases]]
 id = "source-disagreement"

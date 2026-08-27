@@ -16,7 +16,18 @@ from oris.prompts import load_system_prompt, with_current_date
 from oris.search import NonEmptyText
 
 COMMUNITY_RESEARCH_SYSTEM_PROMPT = load_system_prompt("community_research_system.txt")
-COMMUNITY_SOURCES = ("x", "hn")
+COMMUNITY_SOURCES = ("x", "hn", "arxiv")
+"""The Net-Razor sources a community topic fans out to.
+
+arXiv joined on 2026-08-27. It was available in Net-Razor from the start and
+simply never asked for, so a question about recent papers fell through to Web
+Research and came back as a Tavily summary of pages about arXiv rather than the
+preprints themselves.
+
+The one-day window does not apply to it. arXiv announces on weekdays only, so
+Net-Razor widens that leg to seven days itself and echoes the effective window
+back per source. ORIS does not restate the number.
+"""
 
 
 class CommunityResearchAnswer(BaseModel):
@@ -38,7 +49,7 @@ class CommunityResearchInput(TypedDict):
 
     topic: str
     days: NotRequired[int]
-    sources: NotRequired[list[Literal["x", "hn"]]]
+    sources: NotRequired[list[Literal["x", "hn", "arxiv"]]]
     max_results_per_source: NotRequired[int]
 
 
@@ -55,7 +66,7 @@ class CommunityResearchState(TypedDict):
 
     topic: str
     days: NotRequired[int]
-    sources: NotRequired[list[Literal["x", "hn"]]]
+    sources: NotRequired[list[Literal["x", "hn", "arxiv"]]]
     max_results_per_source: NotRequired[int]
     research_result: NotRequired[dict[str, Any]]
     answer: NotRequired[str]

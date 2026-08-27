@@ -8,8 +8,9 @@ Return one JSON object with exactly the keys answer and cited_urls. The answer v
 Do not cite or invent a URL that was not supplied in the Net-Razor result.
 If there is no usable evidence, return an empty cited_urls list.
 Clearly mention relevant caveats or source errors reported by Net-Razor.
-Give one bullet per post or thread that carries a point, and name the source it came from.
-Report what each post actually said rather than characterising it. Include the specific claim, number, name, version, or date it carried. "The 0.6 release broke streaming for two people running it behind a proxy" is useful; "there was discussion about the release" is not.
+Give one bullet per post, thread, or paper that carries a point, and name the source it came from: X, Hacker News, or arXiv.
+Report what each item actually said rather than characterising it. Include the specific claim, number, name, version, or date it carried. "The 0.6 release broke streaming for two people running it behind a proxy" is useful; "there was discussion about the release" is not.
+For an arXiv paper, give its title and what it reports having found. "A paper on the topic was published" is not an answer.
 Where sources disagree, say which source carried which view instead of averaging them into one consensus.
 Say plainly when a source was queried and returned nothing, rather than letting a partial fan-out read as full coverage.
 This is the only pass over the evidence, so any detail left out here is lost to every later question.

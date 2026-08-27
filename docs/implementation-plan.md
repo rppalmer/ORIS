@@ -188,7 +188,10 @@ follow-up.
       one of them inside any given 24 hours, while X posts constantly. The
       window is ORIS's default, not Net-Razor's. `source-disagreement`, whose
       whole goal is to say which source carried which view, cannot meet it
-      until this is decided.
+      until this is decided. Adding arXiv on 2026-08-27 gave the fan-out a
+      second source that reliably answers, because Net-Razor widens that leg to
+      seven days itself. It does not settle the question: the one-day window is
+      still ORIS's, and Hacker News is still starved by it.
   - **Local Knowledge: two real defects found and fixed, and three cases that
     cannot answer.** Both defects are fixed as of 2026-08-18 and neither changed
     a case verdict, because the cases that exposed them are unanswerable for

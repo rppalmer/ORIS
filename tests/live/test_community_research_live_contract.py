@@ -47,7 +47,7 @@ def test_community_research_completes_one_bounded_live_request() -> None:
         request: dict[str, object] = {
             "topic": "LangGraph",
             "days": 30,
-            "sources": ["x", "hn"],
+            "sources": ["x", "hn", "arxiv"],
             "max_results_per_source": 3,
         }
         result = await graph.ainvoke(request)
@@ -62,7 +62,7 @@ def test_community_research_completes_one_bounded_live_request() -> None:
     research_result = result["research_result"]
     assert isinstance(research_result, dict)
     assert research_result["call_id"]
-    assert set(research_result["results"]) == {"x", "hn"}
+    assert set(research_result["results"]) == {"x", "hn", "arxiv"}
 
     generated_at = datetime.now(UTC)
     report = {

@@ -1,14 +1,14 @@
 version = 2
 specialist = "community_research"
 
-# X and Hacker News change by the week, so no case here asserts a fact. What is
-# stable is the shape: which sources answered, whether the answer separates them
-# instead of averaging them, and whether every URL it cites was actually
-# supplied. Those hold whatever the discussion happens to be that day.
+# X, Hacker News and arXiv change by the week, so no case here asserts a fact.
+# What is stable is the shape: which sources answered, whether the answer
+# separates them instead of averaging them, and whether every URL it cites was
+# actually supplied. Those hold whatever the discussion happens to be that day.
 #
 # Each question is a search topic, not a sentence. This specialist never sees a
 # question in production: the router strips the request down to a bare topic
-# before handing it over, because the topic goes straight to X and Hacker News
+# before handing it over, because the topic goes straight to all three sources
 # as the search term. The first version of this file asked full questions, and
 # every case returned zero results because Algolia was searching for the literal
 # sentence. Keep these short enough to be typed into a search box.
@@ -23,7 +23,7 @@ evaluation_goal = "Report what each returned post actually claimed, with its spe
 id = "source-disagreement"
 category = "conflicting-signals"
 question = "local LLM hosting"
-evaluation_goal = "Where X and Hacker News differ, say which source carried which view rather than merging them into one consensus."
+evaluation_goal = "Where the sources differ, say which one carried which view rather than merging them into one consensus."
 
 [[cases]]
 id = "obscure-topic"

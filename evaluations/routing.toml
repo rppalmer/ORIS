@@ -1,4 +1,4 @@
-version = 5
+version = 6
 
 [[cases]]
 id = "ordinary-writing"
@@ -23,6 +23,12 @@ id = "community-signals"
 request = "What are people on X and Hacker News saying about LangGraph?"
 expected_route = "community_research"
 evaluation_goal = "An explicit request for X and Hacker News discussion should use Community Research and produce a concise topic for Net-Razor."
+
+[[cases]]
+id = "recent-preprints"
+request = "Any new arXiv papers on speculative decoding this week?"
+expected_route = "community_research"
+evaluation_goal = "A request for recent preprints should reach Net-Razor's arXiv source through Community Research rather than a Tavily search about arXiv, and the topic handed over should be the search term alone."
 
 [[cases]]
 id = "ambiguous-framework-question"

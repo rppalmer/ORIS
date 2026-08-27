@@ -1747,3 +1747,40 @@ nothing in the old prompt discouraged it.
 
 "If the evidence is insufficient, say so" is replaced here too. Local Knowledge
 is now the only specialist still carrying the line.
+
+### arXiv was there the whole time — 2026-08-27
+
+Net-Razor's `research` tool fans out to X, Hacker News and arXiv. ORIS asked for
+two of them. `COMMUNITY_SOURCES` was `("x", "hn")` and the validator rejected
+anything else, so no ORIS call could ever reach the arXiv leg.
+
+The failure was quiet, which is why it lasted. Ask ORIS about recent papers and
+the router sent it to Web Research instead, because the request mentioned
+nothing about X or Hacker News. Tavily then returned pages *about* arXiv and a
+three-sentence summary of them. It looked like an answer. It was a different
+question.
+
+**arXiv is now in the default fan-out**, not an opt-in. A source nobody asks for
+is a source that does not exist, and the two-source default is exactly how this
+went unnoticed for as long as it did.
+
+**The seven-day window is Net-Razor's, and stays there.** arXiv announces on
+weekdays only, so a one-day window finds nothing; Net-Razor already widens that
+leg to seven days and echoes the effective window back per source. ORIS sends
+`days: 1` as before and does not special-case anything. Restating the seven here
+would be the same fact in two places, and the one in ORIS would be the one that
+went stale.
+
+**The router had to be told.** It chose Community Research only on an explicit
+mention of X or Hacker News, so "any new arXiv papers on X this week" still went
+to the open web. It now also matches papers and preprints, and strips those
+words out of the topic the same way it already strips "on Hacker News" — the
+search term goes straight to the sources, and "arXiv papers about attention" as
+a query returns papers about arXiv.
+
+The prompt asks for a paper's title and what it reports having found. "A paper
+on the topic was published" is the arXiv-shaped version of the vague bullet the
+length work was already trying to stop.
+
+A routing evaluation case covers it. The one-day window that starves Hacker News
+is untouched and still open in the plan.

@@ -28,7 +28,7 @@ SLASH_COMMANDS = {
     "/community": (
         "community_research",
         "<topic>",
-        "One day of X and Hacker News, 10 results per source.",
+        "One day of X and Hacker News, a week of arXiv, 10 results each.",
     ),
     "/recall": (
         "local_knowledge",

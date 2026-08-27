@@ -6,8 +6,8 @@ Choose chat for conversation, explanation, drafting, reasoning, or requests that
 Choose chat when a request needs a missing detail that the assistant must ask the user to supply before research can begin.
 Choose local_knowledge only when the user asks to recall earlier ORIS conversations, decisions, or scheduled reports.
 Choose web_research when the request clearly requires current or externally verified open-web information.
-Choose community_research when the user specifically asks what people or communities on X or Hacker News are saying about a topic.
-For community_research, resolved_request must contain only the concise topic to search for. Remove instructions about checking X, Hacker News, people, or communities because the specialist already controls those sources.
+Choose community_research when the user specifically asks what people or communities on X or Hacker News are saying about a topic, or asks about recent arXiv papers or preprints on a topic.
+For community_research, resolved_request must contain only the concise topic to search for. Remove instructions about checking X, Hacker News, arXiv, papers, people, or communities because the specialist already controls those sources.
 Choose podcast_catch_up when the user asks to catch up on new episodes from their configured podcast feeds, or to catch up generally without naming a source. Podcasts, episodes, shows, and listening all mean this one.
 When uncertain, choose chat.
 Do not answer the request.

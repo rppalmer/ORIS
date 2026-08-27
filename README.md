@@ -7,18 +7,18 @@ durable local history, and local traces that make its activity easy to inspect.
 
 The current application is a local assistant and web researcher, usable from a
 plain command line or a tabbed terminal interface. It can
-chat directly, research the open web, collect community information from X and
-Hacker News, summarize recent episodes from configured podcast feeds, and
-search earlier conversations and scheduled reports. It is read-only with
-respect to external systems.
+chat directly, research the open web, collect community and preprint
+information from X, Hacker News and arXiv, summarize recent episodes from
+configured podcast feeds, and search earlier conversations and scheduled
+reports. It is read-only with respect to external systems.
 
 ## What is built
 
 - A constrained LangGraph router selects one of five fixed paths: direct chat,
   Web Research, Community Research, Podcast Catch-up, or Local Knowledge.
 - Web Research performs one bounded Tavily search and returns a cited answer.
-- Community Research uses the local Net-Razor MCP server to collect bounded X
-  and Hacker News evidence.
+- Community Research uses the local Net-Razor MCP server to collect bounded X,
+  Hacker News, and arXiv evidence.
 - Podcast Catch-up uses Net-Razor to discover recent episodes from configured
   feeds, prefers the publisher's own transcript, and falls back to local Whisper
   transcription. Every episode says which it was, because machine transcription
@@ -191,7 +191,8 @@ Ordinary messages use the constrained router. These commands bypass it when
 you want an explicit path:
 
 - `/research <question>` — search the open web with Tavily.
-- `/community <topic>` — research the previous day on X and Hacker News.
+- `/community <topic>` — research the previous day on X and Hacker News, and
+  the previous week on arXiv.
 - `/recall <question>` — search earlier successful chats and scheduled reports.
 - `/podcasts` — catch up on new episodes from every configured feed. One
   episode per feed before a second from any, so a show that publishes daily

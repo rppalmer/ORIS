@@ -90,7 +90,7 @@ def test_community_research_calls_one_tool_and_synthesizes_once() -> None:
     assert tool_call["args"] == {
         "topic": "LangGraph",
         "days": 1,
-        "sources": ["x", "hn"],
+        "sources": ["x", "hn", "arxiv"],
         "max_results_per_source": 10,
     }
     model.with_structured_output.assert_called_once_with(

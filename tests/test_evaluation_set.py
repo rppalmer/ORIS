@@ -77,8 +77,8 @@ def test_routing_evaluation_set_is_valid() -> None:
         evaluation = tomllib.load(evaluation_file)
 
     cases = evaluation["cases"]
-    assert evaluation["version"] == 5
-    assert len(cases) == 7
+    assert evaluation["version"] == 6
+    assert len(cases) == 8
     assert len({case["id"] for case in cases}) == len(cases)
     assert {case["expected_route"] for case in cases} == {
         "chat",

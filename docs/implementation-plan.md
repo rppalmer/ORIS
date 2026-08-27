@@ -123,27 +123,19 @@ This is the work that changes what an investigation actually tells the user.
 Nothing else on this roadmap moves that number.
 
 The eleven system prompts were reviewed together on 2026-08-16. Findings are
-listed below, worst first. The one that needed no measurement — telling every
-synthesis prompt the current date — is done and recorded in the history. Each
-remaining item changes what an answer says and wants a before-and-after on
-fixed questions, which makes the evaluation-coverage item a prerequisite rather
-than a follow-up.
+listed below, worst first. Three are done and recorded in the history: telling
+every synthesis prompt the current date, and the length and specificity rules
+for Community Research and Web Research, both raised on 2026-08-27 after their
+answers were compared against the same evidence read directly. Each remaining
+item changes what an answer says and wants a before-and-after on fixed
+questions, which makes the evaluation-coverage item a prerequisite rather than a
+follow-up.
 
-- [ ] **Raise Web Research's ceiling and give it Threat Intel's specificity.**
-  Its entire length rule is "Write no more than three sentences", for the
-  specialist that reads up to five web sources. Its token budget allows roughly
-  380 words, so the prompt discards about ninety per cent of the space it has.
-  Threat Intel, doing structurally the same job, gets 350 words plus a worked
-  example of a useful answer against a useless one. Web Research also does not
-  retain raw evidence, so anything not written into those three sentences is
-  unrecoverable without paying for the search again. Measure before and after on
-  the four existing cases.
-- [ ] **Replace "If the evidence is insufficient, say so."** Web Research,
-  Community Research, and Local Knowledge use that exact line. Threat Intel
-  instead says what to produce: "say what is uncertain and what would resolve
-  it." The first invites a one-line dead end; the second hands the reader their
-  next move, which for investigation work is the most valuable sentence in the
-  system and is currently asked for by one specialist out of five.
+- [ ] **Replace "If the evidence is insufficient, say so." in Local
+  Knowledge.** Threat Intel instead says what to produce: "say what is uncertain
+  and what would resolve it." The first invites a one-line dead end; the second
+  hands the reader their next move. Web Research and Community Research were
+  changed on 2026-08-27; Local Knowledge is the one left.
 - [ ] **Resolve Threat Intel's two internal contradictions.** "Put the concise
   prose answer in the answer field" against "Give one bullet per source that
   answered"; and "any detail left out here is lost" against "Stay under 350

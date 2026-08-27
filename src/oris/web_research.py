@@ -167,7 +167,7 @@ def create_web_research_graph(
                     f"Evidence:\n{_format_evidence(search_response.results)}",
                 ),
             ],
-            max_completion_tokens=512,
+            max_completion_tokens=1024,
         )
         return {
             "answer": answer,

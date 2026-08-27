@@ -109,7 +109,7 @@ def test_web_research_validates_searches_and_synthesizes_once() -> None:
     assert '"source_number": 1' in messages[1][1]
     assert "LangGraph overview" in messages[1][1]
     assert "https://docs.langchain.com/oss/python/langgraph/overview" in messages[1][1]
-    assert answer_model.invoke.call_args.kwargs == {"max_completion_tokens": 512}
+    assert answer_model.invoke.call_args.kwargs == {"max_completion_tokens": 1024}
 
 
 def test_web_research_rejects_blank_input_before_searching() -> None:

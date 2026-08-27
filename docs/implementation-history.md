@@ -1716,3 +1716,34 @@ this is the first of the three.
 The evaluation case for a well-covered topic asked for "concise bullets", which
 would have scored the old behaviour as correct. It now asks for the specific
 claims each post carried.
+
+### Web Research had three sentences to say everything — 2026-08-27
+
+Same problem as Community Research, one step worse. The entire length rule was
+"Write no more than three sentences", for the specialist that reads up to five
+web sources over a budget that allowed roughly 380 words. The prompt threw away
+about ninety per cent of the space it had.
+
+The cost is not just brevity. `run_web_research` keeps the answer text and the
+source links and discards the search results, so a detail left out of those
+three sentences cannot be recovered without paying Tavily for the search again.
+
+**Now under 400 words at 1024 tokens, matching Community Research.** Both
+specialists do structurally the same job — read a fan-out, write one bounded
+answer, keep nothing — so their ceilings should not have differed by a factor of
+five for no recorded reason.
+
+**The specificity rules come from Threat Intel**, which had them already: report
+what the source actually says rather than characterising it, include the version
+numbers and dates and exact classifications it carried, and say which source
+carried which claim where they disagree. The worked example uses the Python
+security-release case from the evaluation set, because "a recent Python security
+update was released" is exactly the answer the old prompt rewarded.
+
+**One rule was added that Threat Intel does not have:** say plainly when the
+evidence does not cover part of the question. A three-sentence budget makes
+answering the easy half and stopping the cheapest possible behaviour, and
+nothing in the old prompt discouraged it.
+
+"If the evidence is insufficient, say so" is replaced here too. Local Knowledge
+is now the only specialist still carrying the line.

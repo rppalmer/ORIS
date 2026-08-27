@@ -352,7 +352,7 @@ does not yet exist.
 
 ## The parked YouTube Whisper plan is now dead
 
-[youtube-transcription-plan.md](youtube-transcription-plan.md) was parked on
+Whisper transcription for YouTube was parked on
 2026-08-18 pending a re-count of caption failures after a month of real
 scheduled runs.
 

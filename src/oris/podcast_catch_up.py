@@ -1,11 +1,9 @@
 """Fixed Podcast Catch-up workflow backed by Net-Razor MCP.
 
-Built to share no code with the YouTube specialist it was a candidate
-replacement for, on the reasoning that sharing would turn that specialist\'s
-removal into an untangling rather than a deletion. Net-Razor dropped its
-YouTube source on 2026-08-26 and ORIS followed the same day: every test in this
-module passed before a line of it was touched, which is what the separation was
-for.
+The only spoken-content specialist ORIS has. It was deliberately written to
+share nothing with the one it replaced, and that separation held: when that
+specialist was deleted, every test in this module passed before a line of it
+was touched.
 """
 
 import json

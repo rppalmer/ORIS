@@ -1,8 +1,8 @@
 """Tests for the fixed Podcast Catch-up graph.
 
-Deliberately shares no fixtures with the YouTube tests. Podcast Catch-up is a
-candidate replacement for that specialist rather than a sibling, and removing
-YouTube should be a deletion rather than an untangling.
+Deliberately shares no fixtures with the specialist this one replaced, so that
+removing that specialist would be a deletion rather than an untangling. It was,
+and these tests all passed before a line of them was touched.
 """
 
 import asyncio

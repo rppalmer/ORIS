@@ -1471,8 +1471,9 @@ Deterministic baseline: 325 passing, 17 skipped, clean lint and formatting.
 - The routing evaluation set swapped its YouTube case for the podcast one and
   its version was bumped, so an older report is not mistaken for the same set of
   questions.
-- **Kept:** `docs/youtube-transcription-plan.md`, already marked dead, which
-  records why the Whisper-for-YouTube work stopped. It is history, not a plan.
+- **Kept at the time:** `docs/youtube-transcription-plan.md`, already marked
+  dead, which recorded why the Whisper-for-YouTube work stopped. Deleted on
+  2026-08-26 in the sweep below; its reasoning survives in the entry above.
 - Net removal: 27 files, 1,810 lines deleted against 115 added.
 
 Deterministic baseline: 318 passing, 15 skipped, clean lint and formatting.
@@ -1589,5 +1590,55 @@ Net-Razor tool names, which pulls in the MCP client — breaking the test that
 asserts the terminal interface starts without it. The public output shape and
 how to render it now live in their own module that imports nothing but `typing`.
 The graph is not the output.
+
+Deterministic baseline: 329 passing, 15 skipped, clean lint and formatting.
+
+### Clearing out what was left of YouTube — 2026-08-26
+
+The specialist was deleted earlier the same day. This is the sweep for what the
+deletion did not reach: stored data, and documents still written as though it
+existed.
+
+**Trace data.** Three complete runs sat in the Phoenix database, eleven spans
+between them, still showing up in the activity tab as turns belonging to a
+specialist ORIS no longer has. Deleted by trace rather than by span, because
+the schema cascades from the trace and deleting spans alone would have left
+orphaned rows behind. Phoenix was stopped first and the database was copied
+before anything was removed.
+
+Worth recording how nearly this went wrong. A first pass matching "youtube"
+anywhere in a span's attributes found 428 spans across 48 traces. Almost all of
+them were podcast runs: a transcript that mentions YouTube, a model call
+carrying that transcript, a search result linking to a video. Deleting on that
+match would have destroyed most of the podcast trace history to remove three
+dead runs. The right filter was the span's own name, which is ORIS's own graph
+node and cannot be produced by anything a provider returned.
+
+**Evaluation reports.** Three `youtube-catch-up-*.json` reports removed. The
+routing reports were kept: four of them contain a `youtube_catch_up` expected
+route, but they are the audit trail of routing accuracy generally, and one stale
+case label is not a reason to delete a run's whole record. The routing set's
+version was bumped when the case was swapped, so nothing will mistake an old
+report for a current one.
+
+One Web Research report also matches "youtube" — a video URL in a search result.
+That is provider content, not our data, and stays.
+
+**The archive and the conversation checkpoints were already clean.** Nothing in
+either mentions YouTube. Nothing was deleted from them.
+
+**Documents.** `docs/youtube-transcription-plan.md` deleted. The 2026-08-26
+removal entry had kept it as history, which was the wrong call: it is a design
+for functionality that no longer exists and cannot, and the reasoning worth
+keeping is in the entry above it. Both podcast documents and both podcast module
+docstrings were still framed as "a candidate replacement for YouTube Catch-up",
+which is a description of something that has not been true since that specialist
+was deleted. They now describe what Podcast Catch-up is. The capability boundary
+no longer forbids YouTube tools, because there are none to forbid.
+
+The history keeps every mention. That is what it is for.
+
+This was done on the MacBook only. The Mac mini has its own trace database and
+its own artifact directory, and neither has been touched.
 
 Deterministic baseline: 329 passing, 15 skipped, clean lint and formatting.

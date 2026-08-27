@@ -10,10 +10,9 @@ Net-Razor. It is a read-only specialist for followed shows, not a general
 podcast search tool — Net-Razor has no keyword search over episodes and rejects
 podcasts in `net_razor_research`.
 
-It exists as a candidate **replacement** for YouTube Catch-up rather than a
-companion to it. Collecting from YouTube keeps getting harder and may stop
-working entirely. Nothing here is shared with that specialist, so removing it is
-a deletion rather than an untangling. See "Separation" below.
+It was built as a replacement for the YouTube specialist, which was removed on
+2026-08-26 once Net-Razor dropped that source. It is now the only spoken-content
+specialist ORIS has.
 
 ## Official components
 
@@ -50,8 +49,8 @@ entirely. That turned out to be the wrong line: three of the five feeds in real
 use publish no transcript at all, so naming a show — the only reason to ask
 about one — answered "nothing to summarise" almost every time.
 
-The specialist must not receive general search, diagnostic, audit-history, X,
-Hacker News, or YouTube tools.
+The specialist must not receive general search, diagnostic, audit-history, X, or
+Hacker News tools.
 
 ## Public input
 
@@ -189,8 +188,8 @@ remains traceable, and failing there would discard a whole night's digest to
 protect something the reader already has. Web Research is deliberately stricter
 because its sources exist nowhere else in its output.
 
-This resolves for podcasts the asymmetry the roadmap records as undecided for
-Community Research and YouTube Catch-up. Observed 2026-08-25 against the real
+This resolves for podcasts the asymmetry the roadmap still records as undecided
+for Community Research. Observed 2026-08-25 against the real
 feeds: the model wrote a good cross-cutting digest, cited nothing, and the run
 died.
 
@@ -205,7 +204,7 @@ a job still running at its next firing has that firing skipped in silence.
 Measured cost is about five minutes a night across eight feeds, with a
 three-hour episode the worst single case at 8.3 minutes of transcription.
 
-Completion order is persistence-first, matching the YouTube job: write the
+Completion order is persistence-first: write the
 `running` record, produce and validate the digest without acknowledging, write
 the report atomically, record its path, index it into Local Knowledge, then
 acknowledge, then mark the run succeeded. A failure before acknowledgement
@@ -236,12 +235,10 @@ rejected as `unknown_call_id` without affecting the rest of the batch.
 
 ## Separation
 
-Podcast Catch-up shares no code with YouTube Catch-up, including its prompts.
-Deleting the YouTube specialist and its tests, its two prompt files, its tool
-allowlist and loader, its builders, its scheduled job type and dispatch branch
-and report formatter, and its router destination, routing line and table rows
-must leave every podcast test passing. One edit needed inside a podcast file
-means the separation has failed.
+Podcast Catch-up was written to share no code with the YouTube specialist,
+including its prompts, so that removing that specialist would be a deletion
+rather than an untangling. The test of it came on 2026-08-26 and it held: every
+podcast test passed before a line of a podcast file was touched.
 
 `/podcasts` exists; there is deliberately no `/videos`. Adding one would be a new
 command for a specialist that may be deleted.

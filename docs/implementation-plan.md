@@ -271,7 +271,10 @@ transcripts that already exist. The nightly job that would create them has never
 been configured, and most of the real feeds publish no transcript of their own.
 That is why the run had nothing to work with.
 
-- [ ] **Confirm Whisper is switched on for Net-Razor on the Mac mini.** The
+- [ ] **Confirm Whisper is switched on for Net-Razor on the Mac mini.** Not
+  done: it needs the mini. Run `net-razor doctor` there and read
+  `whisper_enabled`. The setting is `PODCAST_WHISPER_ENABLED` in
+  `~/.net-razor/.env`, and it is `true` on the MacBook. The
   setting is `podcast_whisper_enabled` and it defaults to false. With it off,
   every transcription attempt returns `not_configured` and nothing below can be
   tested. This is the first thing to check and it costs a minute.
@@ -286,24 +289,26 @@ That is why the run had nothing to work with.
   published recently, so a show quiet for a month would be missing from it, and
   a list that silently omits shows is worse than no list. This is a Net-Razor
   capability gap and is reported rather than worked around.
-- [ ] **Split the request into four explicit paths.** Today there is one
-  command, `/podcasts`, with an optional show name, and what it does depends on
-  facts the reader cannot see. The four intended paths are: transcribe one named
-  show's newest episode; transcribe everything new; summarise one show from
-  transcripts that already exist; and summarise everything already transcribed,
-  each show on its own. The last two are the ones with no route at all today.
-- [ ] **Fix the trap the four paths expose.** A scheduled run marks its episodes
-  processed, and `/podcasts` asks Net-Razor for unprocessed episodes only. So
-  the morning after a nightly run, a catch-up reports no new episodes — because
-  the nightly run already took them. Net-Razor's episode tool accepts
-  `include_processed`; ORIS never passes it. The two "already transcribed" paths
-  need it. Until then the honest answer is `/recall`: the nightly run files its
-  full digest into the archive, so it is already searchable there.
-- [ ] **Say plainly, for every episode, whether its transcript was already there
-  or was made just now.** The information exists — each summary carries a
-  `transcript_backend` of `publisher` or `whisper` — but it only reaches the
-  reader as a caveat about machine transcription being unreliable. Where it
-  came from and when it was made should be visible on the episode itself.
+- [x] **Split the request into four explicit paths.** Done 2026-08-26.
+  `/podcasts` catches up, `/podcasts <show>` narrows and transcribes, and
+  `recap` in front of either reads what already has a transcript.
+- [ ] **Reconsider the wording once it has been used.** "recap" was chosen
+  because it is short and reads correctly in front of a show name. Whether it
+  is what anyone reaches for is a question for real use.
+- [x] **Fix the trap the four paths expose.** Done 2026-08-26. A scheduled run
+  marks its episodes processed, and `/podcasts` asked Net-Razor for unprocessed
+  episodes only. So the morning after a nightly run, a catch-up reported no new
+  episodes — because the nightly run had already taken them. Net-Razor's episode
+  tool has always accepted `include_processed`; ORIS passed a hardcoded false.
+  A recap now passes true, and reads without writing: it neither transcribes nor
+  acknowledges. `/recall` remains the other route to a scheduled run's work,
+  since the run files its digest into the archive.
+- [x] **Say plainly, for every episode, whether its transcript was already
+  there or was made just now.** Done 2026-08-26. Three states, not two: the
+  publisher's transcript, one this run made, and one an earlier run left in
+  Net-Razor's store. Both front ends now say which in words, per episode, and
+  the machine-transcription warning is one line per run instead of one per
+  episode.
 - [ ] **Let a job run in the background instead of holding a chat turn.** The
   worker already exists: `oris-run-scheduled` does the whole job outside chat.
   What is missing is starting it without blocking the turn and delivering the
@@ -462,21 +467,14 @@ answers to questions that keep getting asked again.
   `uvx` runs the collector as a child and left an orphan holding the port after
   a stop. Scheduler health does not depend on it, and a run never fails because
   the collector is absent.
-- **Whisper transcription for caption-less YouTube videos** (dead 2026-08-18).
-  Superseded before it started: YouTube audio can no longer be downloaded at
-  all, so there is no measurement that would revive this. Spoken content moved
-  to podcasts — see [podcast-catch-up-plan.md](podcast-catch-up-plan.md). The
-  original reasoning, kept because four of its findings carried over: Net-Razor was going to gain local Whisper transcription so videos
-  with no captions stopped being lost. The condition for building it was how
-  many videos are actually lost, and Net-Razor's audit history holds four
-  caption failures in total, roughly half of them the same video from one
-  channel. The agreed threshold was that a handful from a single channel means
-  drop it, so it is parked. The sample is development traffic across three
-  active weeks, not steady operation, so re-run the count after a month of the
-  scheduled catch-up job actually running; single digits then makes this
-  permanent. The full design and Net-Razor's five contract answers are kept in
-  [youtube-transcription-plan.md](youtube-transcription-plan.md) — do not
-  re-derive them.
+- **Whisper transcription for caption-less YouTube videos** (dead 2026-08-18,
+  design document deleted 2026-08-26). Superseded before it started: YouTube
+  audio can no longer be downloaded at all, so there is no measurement that
+  would revive it. Spoken content moved to podcasts, where local Whisper
+  transcription is now the working path — see
+  [podcast-catch-up-plan.md](podcast-catch-up-plan.md). The YouTube specialist
+  itself was removed on 2026-08-26 after Net-Razor dropped the source, and its
+  design document went with it. What carried over is in the history.
 - **No node-level timeouts on the search path** (2026-08-13). LangGraph refuses
   a `timeout=` on a synchronous node, so the foundation review's recommendation
   was not implementable as written. The deadline lives in the provider client

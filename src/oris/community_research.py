@@ -117,8 +117,8 @@ class ItemFindings(BaseModel):
     )
     cited_urls: tuple[NonEmptyText, ...] = Field(
         description=(
-            "This item's canonical_url if its findings rest on it. Use only URLs "
-            "supplied in the Net-Razor result."
+            "This item's canonical_url if its findings rest on it, and nothing "
+            "else. Links written inside the item's own text do not belong here."
         )
     )
 

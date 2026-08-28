@@ -201,6 +201,36 @@ def test_community_research_rejects_a_url_not_supplied_by_net_razor() -> None:
         asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
 
 
+def test_community_research_rejects_a_link_written_inside_an_item() -> None:
+    """A URL in an item's own text is not a citation, however relevant it looks.
+
+    Net-Razor supplies the whole post, so a project link inside the body is
+    technically "supplied" -- which is how the earlier wording read to a model
+    that followed it literally, and why every one of its runs was rejected.
+    Only the item's canonical_url identifies the item.
+    """
+    research_result = make_tool_result()
+    research_result["results"]["hn"][0]["text"] = (
+        "A discussion about LangGraph. Docs at https://docs.example.com"
+    )
+    tool_result = ToolMessage(
+        content="Net-Razor returned structured research data.",
+        artifact={"structured_content": research_result},
+        tool_call_id="test-tool-call",
+        name="net_razor_research",
+    )
+    tool, model, _ = make_dependencies(
+        tool_result=tool_result,
+        findings=ItemFindings(
+            findings="A claim.", cited_urls=("https://docs.example.com",)
+        ),
+    )
+    graph = create_community_research_graph(tool, model)
+
+    with pytest.raises(ValueError, match="cited unavailable URLs"):
+        asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
+
+
 def test_community_research_allows_no_citation_when_no_evidence_exists() -> None:
     """An honest insufficient-evidence response does not invent a citation."""
     empty_result = make_tool_result()

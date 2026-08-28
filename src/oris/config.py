@@ -38,6 +38,21 @@ matching environment variable still overrides it, which is how an existing
 installation keeps pointing at the directories it already has.
 """
 
+DEFAULT_LLM_TIMEOUT_SECONDS = 240.0
+"""How long one model call may take before the client gives up.
+
+Raised from 120 on 2026-08-27 after measuring the Community Research synthesis
+call, which is the longest in ORIS. It prefills about 12,000 evidence tokens and
+then generates up to a few thousand. Observed wall times for the same request on
+the same evidence ranged from 58 to 108 seconds, which put the old default
+inside the run-to-run spread rather than above it.
+
+A timeout that fires mid-generation loses the whole call: there is no partial
+answer to keep, and the fan-out that produced the evidence has already been
+paid for. This is a backstop against a hung server, so it belongs well clear of
+normal variation.
+"""
+
 DEFAULT_MAX_HISTORY_TOKENS = 8000
 """Conversation tokens sent to the model per turn, excluding the system prompt.
 
@@ -62,7 +77,7 @@ class Settings(BaseSettings):
     local_llm_model: NonEmptyString = Field(validation_alias="LOCAL_LLM_MODEL")
     local_llm_api_key: NonEmptySecret = Field(validation_alias="LOCAL_LLM_API_KEY")
     local_llm_timeout_seconds: float = Field(
-        default=120.0,
+        default=DEFAULT_LLM_TIMEOUT_SECONDS,
         gt=0,
         validation_alias="LOCAL_LLM_TIMEOUT_SECONDS",
     )

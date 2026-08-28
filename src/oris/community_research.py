@@ -16,6 +16,30 @@ from oris.prompts import load_system_prompt, with_current_date
 from oris.search import NonEmptyText
 
 COMMUNITY_RESEARCH_SYSTEM_PROMPT = load_system_prompt("community_research_system.txt")
+SYNTHESIS_TOKEN_BUDGET = 3072
+"""Completion tokens for the one synthesis call.
+
+Sized by measurement on 2026-08-27, not by taste. A three-source fan-out at ten
+results each gives the model twenty-one items to write up, and the JSON it
+returns carries the prose and the `cited_urls` list together. The URLs are the
+expensive half: about twenty-five tokens each, so a full citation list costs
+more than half of what the prose limit allows.
+
+Measured on one topic, same evidence, six budgets: 512, 1024 and 2048 all ran
+out; 3072 finished at 1,338 tokens and 417 words in 58 seconds; 4096 finished at
+1,787 tokens and 459 words in 74 seconds. The model settles around 1,300 to
+1,800 and does not use more when offered it, so 3072 is roughly double the
+observed need rather than a guess.
+
+Running out is not a short answer, which is why the earlier budgets were worse
+than they looked. Two things happen and neither is visible from the outside. The
+structured-output parser raises `LengthFinishReasonError` and the specialist
+dies; or the schema-constrained sampler closes the JSON early and returns prose
+cut off mid-sentence, which is a valid object and passes every check ORIS makes.
+The prompt line asking for grammatically complete sentences cannot prevent
+either, because neither is something the model chose.
+"""
+
 COMMUNITY_SOURCES = ("x", "hn", "arxiv")
 """The Net-Razor sources a community topic fans out to.
 
@@ -162,7 +186,7 @@ def create_community_research_graph(
                     f"{json.dumps(state['research_result'], ensure_ascii=False, indent=2)}",
                 ),
             ],
-            max_completion_tokens=1024,
+            max_completion_tokens=SYNTHESIS_TOKEN_BUDGET,
         )
         return {
             "answer": response.answer,

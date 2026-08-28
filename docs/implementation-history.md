@@ -1784,3 +1784,38 @@ length work was already trying to stop.
 
 A routing evaluation case covers it. The one-day window that starves Hacker News
 is untouched and still open in the plan.
+
+### The token budget was cutting answers off mid-sentence — 2026-08-27
+
+Raising Community Research to 400 words earlier the same day fixed the
+instruction and left the budget too small to obey it. Adding arXiv made it
+worse: three sources at ten results each is twenty-one items, and the JSON the
+model returns carries the prose and the citation list together. URLs cost about
+twenty-five tokens each, so a full list ate more than half the room the prose
+needed.
+
+Measured on one topic against fixed evidence, six budgets. 512, 1024 and 2048
+all ran out. 3072 finished at 1,338 completion tokens and 417 words in 58
+seconds; 4096 finished at 1,787 and 459 words in 74. The model settles between
+1,300 and 1,800 and does not spend more when offered it. The budget is 3072,
+roughly double the observed need.
+
+**Running out does not produce a short answer, which is why this was invisible.**
+It produces one of two things. Either the structured-output parser raises
+`LengthFinishReasonError` and the specialist dies with a stack trace, or the
+schema-constrained sampler closes the JSON early and returns prose stopped
+mid-sentence — a valid object that passes the citation validator and every other
+check ORIS makes. One observed answer ended "introduces residual distribution
+shaping to prevent". The prompt line asking for grammatically complete sentences
+cannot prevent either, because neither is a choice the model made.
+
+**The model call timeout went from 120 to 240 seconds.** The same request on the
+same evidence was measured between 58 and 108 seconds, so the old default sat
+inside the run-to-run spread rather than above it. A timeout that fires
+mid-generation loses the whole call, and the fan-out that produced the evidence
+has already been paid for.
+
+**The context window was never involved.** The full three-source prompt measures
+12,018 tokens against the model's configured 262,144 — under five per cent. No
+amount of additional context changes how long an answer is; that is the
+completion budget, which is a separate number.

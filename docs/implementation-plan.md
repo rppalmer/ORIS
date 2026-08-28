@@ -253,6 +253,55 @@ follow-up.
     stated rules, not against observed failures. Cases earn their place by
     catching something; these have not been run yet.
 
+### Structured output: is the JSON schema worth what it costs?
+
+Raised 2026-08-28 after a day of model comparison kept running into the same
+wall. Not scheduled — this is a review to decide from, and it may well conclude
+"leave it alone".
+
+Every specialist calls the model through `with_structured_output(...,
+method="json_schema")`. In oMLX that is a grammar constraint, and it was
+measured to disable three things at once:
+
+- **Reasoning never happens.** Qwen3.6 given one item produced 1,402 tokens and
+  5,200 characters of reasoning with no schema, and 87 tokens with zero
+  reasoning once the schema was attached.
+- **Speculative decoding never happens.** DFlash on and off measured 269s
+  against 267s and 273s, with identical output.
+- **Two installed models are unusable.** GLM-4.7-Flash emits malformed JSON;
+  gpt-oss-20b returns a message with no content field at all, having generated
+  65 tokens. Both answer well unconstrained.
+
+What the schema is actually buying in Community Research is smaller than it
+looks. `synthesize_answer` sends **one item per call**, so the `cited_urls` the
+model returns is a URL the calling code already holds in
+`item["canonical_url"]`. The model is being asked to hand back something known.
+
+What would have to survive a change:
+
+- `cited_urls` in the graph's output is a contract, not an internal detail. The
+  chat renderer numbers citations from it, `scheduled_runs` does the same, and
+  `evaluation.py` reads it to score a case. The state shape must not change
+  even if the model stops producing it.
+- The model currently signals "this item says nothing about the topic". Free
+  text needs another way to mark that, or the empty-source rule loses its input.
+- Without a grammar there is nothing forcing shape: preambles, markdown and
+  URLs in prose become prompt-and-cleanup problems rather than impossibilities.
+
+Scope matters. Nine call sites use structured output and they are not alike.
+Community Research, Web Research, Threat Intel and Podcast Catch-up ask for
+prose plus citations, which is the case examined here. Routing in `chat.py`,
+`search_planning` and Threat Intel's planner ask for a *decision* — a source
+list, a set of queries. Those want a schema and should keep it. A change here
+is per-call-site, never global.
+
+- [ ] **Decide, on measured evidence, whether Community Research should return
+  free text with citations recorded by the caller.** The comparison is the same
+  evidence through both paths, scored the way the model bake-off is scored:
+  numeric density, invented numbers and names, coverage, URLs in prose, meta
+  commentary. If free text does not win clearly, this stays as it is and the
+  question is closed.
+
 ### Podcast Catch-up
 
 Agreed on 2026-08-26, after a real catch-up came back as a wall of "publishes no

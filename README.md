@@ -191,8 +191,8 @@ Ordinary messages use the constrained router. These commands bypass it when
 you want an explicit path:
 
 - `/research <question>` — search the open web with Tavily.
-- `/community [x|hn|arxiv|all] <topic>` — research the previous day on X and
-  Hacker News, and the previous week on arXiv. Name one or more sources in
+- `/community [x|hn|arxiv|all] <topic>` — research the previous week on X,
+  Hacker News and arXiv, 25 results per source. Name one or more sources in
   front of the topic to search only those: `/community hn arxiv agent
   frameworks`. With no source named, all three are searched.
 - `/recall <question>` — search earlier successful chats and scheduled reports.

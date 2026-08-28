@@ -28,7 +28,7 @@ SLASH_COMMANDS = {
     "/community": (
         "community_research",
         "[x|hn|arxiv|all] <topic>",
-        "Name sources to narrow it; all three by default.",
+        "A week of X, Hacker News and arXiv; name sources to narrow it.",
     ),
     "/recall": (
         "local_knowledge",

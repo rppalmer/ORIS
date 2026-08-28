@@ -1932,3 +1932,33 @@ The cost is call volume: up to thirty calls where there was one. They run
 concurrently, share nothing, and each is small. On a batching local server that
 is 109 seconds rather than the 59 a single call took — the trade for an answer
 that covers everything it fetched.
+
+### A week of evidence, and a limit the server sets — 2026-08-28
+
+Community Research asked for one day and ten results per source. Both numbers
+were ORIS's, and neither came from anything measured: ten is below Net-Razor's
+own default of twenty-five, and one day is what starved Hacker News in every run
+across a day of testing — nought to two items, against ten from X.
+
+arXiv never had that problem, and only because Net-Razor widens that leg to a
+week itself. The same correction now applies to the whole fan-out. Seven days at
+twenty-five results took the same topic from 21 items to 58, and Hacker News
+from 1 to 8. That was the entire cause of its thin coverage; the model was never
+involved.
+
+**Fifty-eight concurrent calls killed the run.** oMLX answered "Scheduler
+waiting queue full (32/32)" with a 503. The queue is the server's to set and it
+is right to enforce it; not exceeding it is ORIS's job, so item calls now run
+eight at a time.
+
+**Eight, not thirty-one, because raising it buys almost nothing.** The same 58
+items took 350 seconds at eight and 319 at sixteen — nine per cent, for double
+the footprint on a server the chat, the scheduler and Threat Intel also use. The
+limit is how fast the model generates, not how deep the queue is.
+
+So a full three-source run is about six minutes and three thousand words, where
+it was under two minutes and one thousand. The number to turn is
+`DEFAULT_RESULTS_PER_SOURCE`: lowering it costs coverage rather than quality,
+because every item that is covered is still written up by its own call. The
+seven-day window is the part worth keeping regardless — it is what makes Hacker
+News answer at all.

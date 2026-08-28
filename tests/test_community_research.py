@@ -103,9 +103,9 @@ def test_community_research_describes_every_item_in_its_own_call() -> None:
     tool_call = tool.ainvoke.await_args.args[0]
     assert tool_call["args"] == {
         "topic": "LangGraph",
-        "days": 1,
+        "days": 7,
         "sources": ["x", "hn", "arxiv"],
-        "max_results_per_source": 10,
+        "max_results_per_source": 25,
     }
     model.with_structured_output.assert_called_once_with(
         ItemFindings,

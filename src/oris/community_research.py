@@ -30,6 +30,53 @@ failure. Sized per item it stops moving, because it no longer depends on how
 many sources were asked for or how much each returned.
 """
 
+MAX_CONCURRENT_ITEM_CALLS = 8
+"""How many item descriptions may be in flight at once.
+
+oMLX rejects work past a fixed waiting queue: "Scheduler waiting queue full
+(32/32)". A week of three sources at twenty-five results each is fifty-eight
+items, and firing them together returned 503 and killed the run. The server
+owns that limit and is right to enforce it; what ORIS owns is not exceeding it.
+
+Eight rather than thirty-one because the server is shared and raising it buys
+almost nothing. A `/community` run must not fill the queue that the interactive
+chat, a scheduled report, or a Threat Intel lookup is waiting in. Measured on
+the same fifty-eight items: eight at a time took 350 seconds, sixteen took 319.
+Nine per cent, for double the footprint. The limit is how fast the model
+generates, not how many calls are queued behind it.
+
+This is an ORIS-owned limit, not a Net-Razor one. It bounds model calls in one
+graph run, which no MCP contract expresses.
+"""
+
+DEFAULT_RESEARCH_DAYS = 7
+"""How far back a community topic looks, in days.
+
+Raised from one on 2026-08-28. A single day starved Hacker News: every run
+across a day of testing returned nought to two items from it, against ten from
+X, because a niche technical topic does not produce a Hacker News story every
+twenty-four hours. arXiv never had the problem, and only because Net-Razor
+widens that leg to a week itself — which is the same correction, already made
+once, for the same reason.
+
+Net-Razor allows up to 3,650. Seven is a week of reading rather than a limit
+found by experiment, and the number ORIS asks for is deliberately the same one
+Net-Razor already forces on arXiv.
+"""
+
+DEFAULT_RESULTS_PER_SOURCE = 25
+"""How many items each source is asked for.
+
+Raised from ten, which was below Net-Razor's own default of twenty-five and
+appears to have been chosen before anything measured it. Fifty is the ceiling
+the provider allows.
+
+Each item is described by its own model call, so this sets how long a run takes
+much more directly than it sets how much is read. It is the number to lower if
+runs feel slow, and lowering it costs coverage rather than quality: the items
+that are covered are written up exactly the same way.
+"""
+
 COMMUNITY_SOURCES = ("x", "hn", "arxiv")
 """The Net-Razor sources a community topic fans out to.
 
@@ -175,9 +222,11 @@ def create_community_research_graph(
             )
 
         return {
-            "days": state.get("days", 1),
+            "days": state.get("days", DEFAULT_RESEARCH_DAYS),
             "sources": sources,
-            "max_results_per_source": state.get("max_results_per_source", 10),
+            "max_results_per_source": state.get(
+                "max_results_per_source", DEFAULT_RESULTS_PER_SOURCE
+            ),
         }
 
     async def collect_evidence(
@@ -250,8 +299,16 @@ def create_community_research_graph(
             for item in grouped.get(source, [])
             if isinstance(item, dict)
         ]
+        in_flight = asyncio.Semaphore(MAX_CONCURRENT_ITEM_CALLS)
+
+        async def describe_when_free(
+            source: str, item: object
+        ) -> tuple[str, ItemFindings]:
+            async with in_flight:
+                return await describe(source, item)
+
         described = await asyncio.gather(
-            *(describe(source, item) for source, item in jobs)
+            *(describe_when_free(source, item) for source, item in jobs)
         )
 
         by_source: dict[str, list[ItemFindings]] = {

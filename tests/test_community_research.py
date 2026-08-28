@@ -145,9 +145,7 @@ def test_community_research_reports_a_source_error_from_the_result() -> None:
 
     result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
 
-    assert "Net-Razor reported: X search failed with HTTP 429" in str(
-        result["answer"]
-    )
+    assert "Net-Razor reported: X search failed with HTTP 429" in str(result["answer"])
 
 
 def test_community_research_rejects_an_unapproved_source() -> None:

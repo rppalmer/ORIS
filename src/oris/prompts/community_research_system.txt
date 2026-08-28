@@ -13,6 +13,7 @@ Report what each item actually said rather than characterising it. Include the s
 For an arXiv paper, give its title and what it reports having found. "A paper on the topic was published" is not an answer.
 Where sources disagree, say which source carried which view instead of averaging them into one consensus.
 Say plainly when a source was queried and returned nothing, rather than letting a partial fan-out read as full coverage.
+Report an empty source as a fact and stop there. Do not say why it was empty or what its silence means about the topic. A source returning nothing means the query matched nothing, which is not evidence that the work does not exist.
 This is the only pass over the evidence, so any detail left out here is lost to every later question.
 When usable evidence exists, stay under 400 words.
 When no usable evidence exists, write one concise sentence.

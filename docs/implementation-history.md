@@ -1819,3 +1819,32 @@ has already been paid for.
 12,018 tokens against the model's configured 262,144 — under five per cent. No
 amount of additional context changes how long an answer is; that is the
 completion budget, which is a separate number.
+
+### An empty source was turned into a claim about the field — 2026-08-27
+
+A `/community` run on "AI agent frameworks" reported: "arXiv was queried for this
+topic and returned no results, indicating a lack of recent academic papers in
+the index." The first half was true. The second was invented, and wrong — arXiv
+had plenty of matching papers that week.
+
+Two separate faults met here. Net-Razor's arXiv leg quoted the whole topic as a
+single phrase and searched a one-day window, so any realistic multi-word topic
+matched nothing; that is fixed in Net-Razor `2725a8b` and was a deployment gap
+rather than an ORIS bug. What ORIS owns is what the model did with the silence.
+
+The prompt already said to report a source that returned nothing, which is why
+the run did not quietly pass seven X posts off as full coverage. It said nothing
+about explaining the silence, so the model filled the gap with a plausible
+cause. That is the worst kind of error this specialist can make: a confident
+statement about the state of a research field, derived from a failed query,
+carrying the same tone as the sourced bullets above it and no citation to check
+it against.
+
+The prompt now stops at the fact. Report the empty source, do not say why it was
+empty or what it means, and say explicitly that a source returning nothing means
+the query matched nothing rather than that the work does not exist.
+
+This is narrower than a general anti-speculation rule, deliberately. The
+specialist is asked elsewhere to report caveats and errors Net-Razor gives it,
+and those are real signals worth passing on. The failure was not reasoning about
+evidence; it was reasoning about the absence of evidence.

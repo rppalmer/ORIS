@@ -1848,3 +1848,45 @@ This is narrower than a general anti-speculation rule, deliberately. The
 specialist is asked elsewhere to report caveats and errors Net-Razor gives it,
 and those are real signals worth passing on. The failure was not reasoning about
 evidence; it was reasoning about the absence of evidence.
+
+### `/community` takes its sources from the reader — 2026-08-27
+
+"Research AI agent frameworks across Hacker News and arXiv" returned seven X
+posts, one Hacker News item and no arXiv. The sources named in the request were
+not ignored by accident: the routing prompt is told to delete words like "Hacker
+News" from the topic, because the topic goes straight to the providers as the
+search term and "AI agent frameworks on Hacker News" finds nothing anywhere.
+Community Research then fanned out to all three regardless.
+
+So the request was understood, stripped, and then answered as though it had
+never been narrowed. That is worse than refusing, because nothing in the answer
+says a source the reader asked for was joined by one they did not.
+
+`/community hn arxiv agent frameworks` now searches those two. `x`, `hn`,
+`arxiv` and `all` are read off the front of the request, in any combination, and
+a bare topic still searches everything.
+
+**The keywords are read by the command, not inferred from prose.** Teaching the
+router to extract sources would mean reversing the rule that strips them, on the
+one component whose mistakes are hardest to see — a bad route produces a
+confident answer from the wrong specialist. The typed form has no such failure:
+either the word is there or it is not. Plain-English requests keep fanning out
+to all three.
+
+**`all` and a bare topic take the same code path.** Both return `None` and let
+the specialist apply its own default, so the word cannot come to mean something
+different from the default it names.
+
+**A source word only counts when a non-source word follows it.** `/community x`
+looks up the topic "x" and `/community hn arxiv` looks up "hn arxiv", rather
+than starting a fan-out with nothing to search for. No typed input is dropped
+and the node needs no error path.
+
+**Only the front of the request is read**, so "papers about hn" keeps its last
+word. The accepted cost is the mirror image: a topic whose first word is one of
+the four loses it, and `/community all things agentic` searches everything for
+"things agentic". `/podcasts recap` has carried the same collision since it
+shipped. Quoting would fix it and is not worth a parser.
+
+Parsing is a pure function tested on twelve cases; one graph test proves it is
+wired to the specialist rather than stopping at the parser.

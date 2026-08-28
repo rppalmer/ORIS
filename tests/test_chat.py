@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -12,6 +13,7 @@ from oris.chat import (
     LazyMCPSpecialist,
     RoutingDecision,
     create_oris_graph,
+    split_community_sources,
 )
 from oris.knowledge import KnowledgeDocument
 from oris.search import WebSearchResult
@@ -906,4 +908,73 @@ def test_a_show_called_list_something_is_still_a_show() -> None:
 
     podcast_graph.ainvoke.assert_awaited_once_with(
         {"thread_id": "", "show": "List Notes Weekly"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("request_text", "expected_topic", "expected_sources"),
+    [
+        ("LangGraph", "LangGraph", None),
+        ("x LangGraph", "LangGraph", ["x"]),
+        ("hn LangGraph", "LangGraph", ["hn"]),
+        ("arxiv LangGraph", "LangGraph", ["arxiv"]),
+        ("hn arxiv LangGraph", "LangGraph", ["hn", "arxiv"]),
+        ("all LangGraph", "LangGraph", None),
+        ("HN LangGraph", "LangGraph", ["hn"]),
+        ("hn hn LangGraph", "LangGraph", ["hn"]),
+        ("all hn LangGraph", "LangGraph", None),
+        ("x", "x", None),
+        ("hn arxiv", "hn arxiv", None),
+        ("agent frameworks", "agent frameworks", None),
+    ],
+)
+def test_community_source_words_are_read_off_the_front(
+    request_text: str, expected_topic: str, expected_sources: list[str] | None
+) -> None:
+    """Leading source words narrow the fan-out; everything else is the topic.
+
+    The invariant is that no typed input is lost. A word is only read as a
+    source when at least one word remains to search for, which is why "x" alone
+    is a topic rather than a fan-out with nothing to look up.
+    """
+    assert split_community_sources(request_text) == (expected_topic, expected_sources)
+
+
+def test_community_topic_keeps_a_trailing_source_word() -> None:
+    """Only the front of the request selects sources.
+
+    Without this, a topic that happens to mention a source by name would come
+    back shortened, and the shortening would be invisible in the answer.
+    """
+    assert split_community_sources("papers about hn") == ("papers about hn", None)
+
+
+def test_oris_passes_selected_community_sources_to_the_specialist() -> None:
+    """The parsed sources reach the graph rather than stopping at the parser."""
+    community_research_graph = Mock()
+    community_research_graph.ainvoke = AsyncMock(
+        return_value={
+            "answer": "Hacker News and arXiv were quiet.",
+            "cited_urls": [],
+            "research_result": {"call_id": "net-razor-call-1"},
+        }
+    )
+    graph = create_oris_graph(
+        Mock(),
+        Mock(),
+        community_research_graph,
+        Mock(),
+    )
+
+    asyncio.run(
+        graph.ainvoke(
+            {
+                "messages": [HumanMessage(content="hn arxiv LangGraph")],
+                "mode": "community_research",
+            }
+        )
+    )
+
+    community_research_graph.ainvoke.assert_awaited_once_with(
+        {"topic": "LangGraph", "sources": ["hn", "arxiv"]}
     )

@@ -133,6 +133,72 @@ class ORISState(MessagesState):
     request_error: NotRequired[str | None]
 
 
+COMMUNITY_SOURCE_WORDS = {"x": "x", "hn": "hn", "arxiv": "arxiv"}
+"""What a reader may type in front of a `/community` topic to narrow it.
+
+Only the names Net-Razor itself uses. Spelling variants are deliberately absent:
+the command reference lists these four words, and a near-miss like "hackernews"
+is better read as the start of a topic than silently corrected into a source the
+reader did not name.
+"""
+
+ALL_COMMUNITY_SOURCES_WORD = "all"
+"""Says out loud what leaving the word off already does.
+
+It exists because the alternative to naming the default is guessing at it, which
+is what the router used to do with "on Hacker News" in a sentence.
+"""
+
+
+def split_community_sources(request: str) -> tuple[str, list[str] | None]:
+    """Read leading source words off a `/community` request.
+
+    Returns the topic and the sources to search, or `None` for the specialist's
+    own default. `all` returns `None` for the same reason a bare topic does:
+    both mean the full fan-out, and giving them one code path means the default
+    cannot drift apart from the word that claims to name it.
+
+    Source words are only read as sources when a word that is not itself a
+    source name follows them, so there is always something left to search for.
+    `/community x` looks up the topic "x", and `/community hn arxiv` looks up
+    "hn arxiv". Neither starts a fan-out with nothing to find, and no typed
+    input is ever dropped.
+
+    Only the front of the request is read. A topic that mentions a source later
+    keeps it, because shortening a topic mid-phrase would change what was
+    searched without saying so anywhere in the answer.
+
+    The cost is a collision: a topic whose own first word is one of these four
+    loses it, so `/community all things agentic` searches everything for "things
+    agentic". `/podcasts recap` has the same collision with a show called
+    "recap" and it has not bitten. Quoting would fix it and is not worth a
+    parser.
+    """
+    words = request.split()
+    selected: list[str] = []
+    everything = False
+    index = 0
+    while index < len(words):
+        word = words[index].casefold()
+        if word == ALL_COMMUNITY_SOURCES_WORD:
+            everything = True
+        elif word in COMMUNITY_SOURCE_WORDS:
+            source = COMMUNITY_SOURCE_WORDS[word]
+            if source not in selected:
+                selected.append(source)
+        else:
+            break
+        index += 1
+
+    if index == len(words):
+        return " ".join(words), None
+
+    topic = " ".join(words[index:])
+    if everything or not selected:
+        return topic, None
+    return topic, selected
+
+
 def validate_request(state: ORISState) -> dict:
     """Accept one text request and clear any earlier failure state."""
     messages = state["messages"]
@@ -326,8 +392,11 @@ def create_oris_graph(
     async def run_community_research(
         state: ORISState,
     ) -> dict[str, list[AIMessage]]:
-        query = state["resolved_request"]
-        result = await community_research_graph.ainvoke({"topic": query})
+        topic, sources = split_community_sources(state["resolved_request"])
+        request: dict[str, object] = {"topic": topic}
+        if sources is not None:
+            request["sources"] = sources
+        result = await community_research_graph.ainvoke(request)
         source_links = "\n".join(
             f"[{number}]({url})"
             for number, url in enumerate(result["cited_urls"], start=1)

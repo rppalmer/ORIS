@@ -303,7 +303,7 @@ def test_run_chat_rejects_community_without_a_topic(
 
     graph.calls.assert_not_called()
     knowledge_repository.add_exchange.assert_not_called()
-    assert "Usage: /community <topic>" in capsys.readouterr().out
+    assert "Usage: /community [x|hn|arxiv|all] <topic>" in capsys.readouterr().out
 
 
 def test_run_chat_rejects_recall_without_a_question(

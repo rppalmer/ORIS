@@ -92,9 +92,9 @@ def test_community_research_describes_every_item_in_its_own_call() -> None:
 
     assert result == {
         "answer": (
-            "X\n- Queried, and returned nothing.\n\n"
-            "Hacker News\n- The community discussed LangGraph.\n\n"
-            "arXiv\n- Queried, and returned nothing."
+            "X\nQueried, and returned nothing.\n\n"
+            "Hacker News\nThe community discussed LangGraph.\n\n"
+            "arXiv\nQueried, and returned nothing."
         ),
         "cited_urls": ["https://news.ycombinator.com/item?id=123"],
         "research_result": make_tool_result(),
@@ -145,7 +145,7 @@ def test_community_research_reports_a_source_error_from_the_result() -> None:
 
     result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
 
-    assert "Net-Razor reported an error: X search failed with HTTP 429" in str(
+    assert "Net-Razor reported: X search failed with HTTP 429" in str(
         result["answer"]
     )
 
@@ -223,9 +223,9 @@ def test_community_research_allows_no_citation_when_no_evidence_exists() -> None
     result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
 
     assert result["answer"] == (
-        "X\n- Queried, and returned nothing.\n\n"
-        "Hacker News\n- Queried, and returned nothing.\n\n"
-        "arXiv\n- Queried, and returned nothing."
+        "X\nQueried, and returned nothing.\n\n"
+        "Hacker News\nQueried, and returned nothing.\n\n"
+        "arXiv\nQueried, and returned nothing."
     )
 
 

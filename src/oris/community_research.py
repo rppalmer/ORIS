@@ -264,12 +264,17 @@ def create_community_research_graph(
         cited_urls: list[str] = []
         for source in state["sources"]:
             entries = by_source[source]
-            lines = [f"- {entry.findings}" for entry in entries]
-            if not lines:
-                lines.append("- Queried, and returned nothing.")
-            for error in _reported_errors(reported.get(source)):
-                lines.append(f"- Net-Razor reported an error: {error}")
-            blocks.append(f"{SOURCE_LABELS.get(source, source)}\n" + "\n".join(lines))
+            # Joined into a paragraph rather than a bullet per item. The items
+            # are described one at a time because that is the only way this
+            # model keeps their specifics, but that is a fact about how the
+            # answer is produced, and a reader should not have to see it.
+            summary = " ".join(entry.findings.strip() for entry in entries)
+            if not summary:
+                summary = "Queried, and returned nothing."
+            errors = _reported_errors(reported.get(source))
+            if errors:
+                summary = f"{summary} Net-Razor reported: {'; '.join(errors)}."
+            blocks.append(f"{SOURCE_LABELS.get(source, source)}\n{summary}")
             for entry in entries:
                 for url in entry.cited_urls:
                     if url not in cited_urls:

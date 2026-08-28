@@ -10,8 +10,8 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 
 from oris.community_research import (
-    SYNTHESIS_TOKEN_BUDGET,
-    CommunityResearchAnswer,
+    ITEM_TOKEN_BUDGET,
+    ItemFindings,
     create_community_research_graph,
 )
 
@@ -47,9 +47,14 @@ def make_tool_result() -> dict:
 def make_dependencies(
     *,
     tool_result: ToolMessage | None = None,
-    answer: CommunityResearchAnswer | None = None,
+    findings: ItemFindings | None = None,
 ) -> tuple[Mock, Mock, AsyncMock]:
-    """Create controlled MCP-tool and model doubles."""
+    """Create controlled MCP-tool and model doubles.
+
+    The model double answers every source with the same findings, because what
+    these tests check is the call the graph makes and the answer it assembles,
+    not what a model would say about one source rather than another.
+    """
     research_result = make_tool_result()
     tool = Mock(spec=BaseTool)
     tool.name = "net_razor_research"
@@ -64,30 +69,38 @@ def make_dependencies(
     )
     model = Mock(spec=BaseChatModel)
     structured_model = AsyncMock()
-    structured_model.ainvoke.return_value = answer or CommunityResearchAnswer(
-        answer="The community discussed LangGraph.",
+    structured_model.ainvoke.return_value = findings or ItemFindings(
+        findings="The community discussed LangGraph.",
         cited_urls=("https://news.ycombinator.com/item?id=123",),
     )
     model.with_structured_output.return_value = structured_model
     return tool, model, structured_model
 
 
-def test_community_research_calls_one_tool_and_synthesizes_once() -> None:
-    """One request follows the fixed MCP-call and synthesis path."""
+def test_community_research_describes_every_item_in_its_own_call() -> None:
+    """Each returned item gets a call that saw only that item.
+
+    Two invariants, both structural rather than asked of the model. Coverage:
+    one call per item, so an item cannot be skipped. Filing: the heading its
+    findings appear under is chosen by ORIS from the source that returned it,
+    so an item cannot be reported under another source.
+    """
     tool, model, structured_model = make_dependencies()
     graph = create_community_research_graph(tool, model)
 
     result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
 
     assert result == {
-        "answer": "The community discussed LangGraph.",
+        "answer": (
+            "X\n- Queried, and returned nothing.\n\n"
+            "Hacker News\n- The community discussed LangGraph.\n\n"
+            "arXiv\n- Queried, and returned nothing."
+        ),
         "cited_urls": ["https://news.ycombinator.com/item?id=123"],
         "research_result": make_tool_result(),
     }
     tool.ainvoke.assert_awaited_once()
     tool_call = tool.ainvoke.await_args.args[0]
-    assert tool_call["type"] == "tool_call"
-    assert tool_call["name"] == "net_razor_research"
     assert tool_call["args"] == {
         "topic": "LangGraph",
         "days": 1,
@@ -95,19 +108,46 @@ def test_community_research_calls_one_tool_and_synthesizes_once() -> None:
         "max_results_per_source": 10,
     }
     model.with_structured_output.assert_called_once_with(
-        CommunityResearchAnswer,
+        ItemFindings,
         method="json_schema",
     )
+
+    # One item was returned, by Hacker News, so exactly one call is made.
     structured_model.ainvoke.assert_awaited_once()
-    messages = structured_model.ainvoke.await_args.args[0]
-    assert messages[0][0] == "system"
-    assert date.today().isoformat() in messages[0][1]
-    assert messages[1][0] == "human"
-    assert '"call_id": "net-razor-call-1"' in messages[1][1]
-    assert "https://news.ycombinator.com/item?id=123" in messages[1][1]
-    assert structured_model.ainvoke.await_args.kwargs == {
-        "max_completion_tokens": SYNTHESIS_TOKEN_BUDGET
-    }
+    call = structured_model.ainvoke.await_args
+    assert call.kwargs == {"max_completion_tokens": ITEM_TOKEN_BUDGET}
+    system, human = call.args[0]
+    assert date.today().isoformat() in system[1]
+    assert "Source: Hacker News" in human[1]
+    assert '"source_id": "123"' in human[1]
+
+
+def test_community_research_reports_a_source_error_from_the_result() -> None:
+    """A failed source is named as failed, not left looking merely quiet.
+
+    Copied from Net-Razor rather than summarised: a source that errored and a
+    source that found nothing read identically otherwise, and only one of them
+    means nothing was said.
+    """
+    failed = make_tool_result()
+    failed["sources"]["x"]["errors"] = [
+        {"type": "rate_limited", "message": "X search failed with HTTP 429"}
+    ]
+    tool, model, _ = make_dependencies(
+        tool_result=ToolMessage(
+            content="Net-Razor returned structured research data.",
+            artifact={"structured_content": failed},
+            tool_call_id="test-tool-call",
+            name="net_razor_research",
+        )
+    )
+    graph = create_community_research_graph(tool, model)
+
+    result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
+
+    assert "Net-Razor reported an error: X search failed with HTTP 429" in str(
+        result["answer"]
+    )
 
 
 def test_community_research_rejects_an_unapproved_source() -> None:
@@ -142,10 +182,7 @@ def test_community_research_requires_structured_json() -> None:
 def test_community_research_requires_a_citation_when_evidence_exists() -> None:
     """An evidence-backed answer must contain at least one Markdown link."""
     tool, model, _ = make_dependencies(
-        answer=CommunityResearchAnswer(
-            answer="The community discussed LangGraph.",
-            cited_urls=(),
-        )
+        findings=ItemFindings(findings="The community discussed it.", cited_urls=())
     )
     graph = create_community_research_graph(tool, model)
 
@@ -156,9 +193,8 @@ def test_community_research_requires_a_citation_when_evidence_exists() -> None:
 def test_community_research_rejects_a_url_not_supplied_by_net_razor() -> None:
     """A model cannot introduce a source URL absent from the MCP result."""
     tool, model, _ = make_dependencies(
-        answer=CommunityResearchAnswer(
-            answer="A claim.",
-            cited_urls=("https://example.com/invented",),
+        findings=ItemFindings(
+            findings="A claim.", cited_urls=("https://example.com/invented",)
         )
     )
     graph = create_community_research_graph(tool, model)
@@ -178,16 +214,19 @@ def test_community_research_allows_no_citation_when_no_evidence_exists() -> None
             tool_call_id="test-tool-call",
             name="net_razor_research",
         ),
-        answer=CommunityResearchAnswer(
-            answer="The supplied evidence is insufficient.",
-            cited_urls=(),
+        findings=ItemFindings(
+            findings="The supplied evidence is insufficient.", cited_urls=()
         ),
     )
     graph = create_community_research_graph(tool, model)
 
     result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
 
-    assert result["answer"] == "The supplied evidence is insufficient."
+    assert result["answer"] == (
+        "X\n- Queried, and returned nothing.\n\n"
+        "Hacker News\n- Queried, and returned nothing.\n\n"
+        "arXiv\n- Queried, and returned nothing."
+    )
 
 
 def test_community_research_has_only_the_approved_path() -> None:

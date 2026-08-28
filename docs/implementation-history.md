@@ -1890,3 +1890,45 @@ shipped. Quoting would fix it and is not worth a parser.
 
 Parsing is a pure function tested on twelve cases; one graph test proves it is
 wired to the specialist rather than stopping at the parser.
+
+### One model call per item — 2026-08-28
+
+The answer is now a section per source, each listing every item that source
+returned. Getting there meant removing two jobs from the model rather than
+explaining them better.
+
+**Filing.** A single call reading all three sources put every arXiv paper and
+the Hacker News item inside X's section, then repeated them correctly under
+their own headings. Nothing in the evidence was ambiguous: every item carries
+its own `source` field, and none of the arXiv titles appeared anywhere in the X
+results. The model simply wrote into the first container it opened.
+
+**Coverage.** Splitting into one call per source fixed the filing and broke
+something else. Handed ten arXiv papers, the model described the first and
+stopped. Four prompt wordings were measured against the same ten: one bullet per
+paper, an explicit ban on stopping early, two-to-three sentences per item, and
+numbering the items in the evidence so the count was a fact rather than a rule.
+Every one returned a single paper.
+
+So the list itself was the problem. A call given one item has nothing to stop
+partway through. Ten parallel per-item calls covered all ten papers in 52
+seconds; the full twenty-one-item fan-out takes 109 and produces about 1,000
+words with every item present.
+
+**What the model no longer decides.** Which heading its words appear under, and
+whether an item is worth reaching. Both are now decided here from the source
+that returned the item.
+
+**Source errors are copied, not summarised.** `_reported_errors` reads them
+straight from the result. A source that failed and a source that found nothing
+read identically otherwise, and only one of them means nothing was said.
+
+**The token budget stopped moving.** It had been raised twice chasing the same
+truncation, because it had to cover a whole fan-out. Per item it is 512 for two
+or three sentences, and no longer depends on how many sources were asked for or
+how much each returned.
+
+The cost is call volume: up to thirty calls where there was one. They run
+concurrently, share nothing, and each is small. On a batching local server that
+is 109 seconds rather than the 59 a single call took — the trade for an answer
+that covers everything it fetched.

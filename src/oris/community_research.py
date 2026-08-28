@@ -1,5 +1,6 @@
 """Fixed community-research workflow backed by Net-Razor MCP."""
 
+import asyncio
 import json
 from typing import Any, Literal, NotRequired, TypedDict
 from uuid import uuid4
@@ -16,28 +17,17 @@ from oris.prompts import load_system_prompt, with_current_date
 from oris.search import NonEmptyText
 
 COMMUNITY_RESEARCH_SYSTEM_PROMPT = load_system_prompt("community_research_system.txt")
-SYNTHESIS_TOKEN_BUDGET = 3072
-"""Completion tokens for the one synthesis call.
+ITEM_TOKEN_BUDGET = 512
+"""Completion tokens for one item's description.
 
-Sized by measurement on 2026-08-27, not by taste. A three-source fan-out at ten
-results each gives the model twenty-one items to write up, and the JSON it
-returns carries the prose and the `cited_urls` list together. The URLs are the
-expensive half: about twenty-five tokens each, so a full citation list costs
-more than half of what the prose limit allows.
+An item gets two or three sentences, about 80 tokens, plus its own
+`canonical_url` in `cited_urls` at roughly 25 more. 512 is far above that on
+purpose: the cost of overshooting is not a short answer but a dead specialist
+or prose cut off mid-sentence, and at this size the headroom is nearly free.
 
-Measured on one topic, same evidence, six budgets: 512, 1024 and 2048 all ran
-out; 3072 finished at 1,338 tokens and 417 words in 58 seconds; 4096 finished at
-1,787 tokens and 459 words in 74 seconds. The model settles around 1,300 to
-1,800 and does not use more when offered it, so 3072 is roughly double the
-observed need rather than a guess.
-
-Running out is not a short answer, which is why the earlier budgets were worse
-than they looked. Two things happen and neither is visible from the outside. The
-structured-output parser raises `LengthFinishReasonError` and the specialist
-dies; or the schema-constrained sampler closes the JSON early and returns prose
-cut off mid-sentence, which is a valid object and passes every check ORIS makes.
-The prompt line asking for grammatically complete sentences cannot prevent
-either, because neither is something the model chose.
+The budget used to cover a whole fan-out and was raised twice chasing the same
+failure. Sized per item it stops moving, because it no longer depends on how
+many sources were asked for or how much each returned.
 """
 
 COMMUNITY_SOURCES = ("x", "hn", "arxiv")
@@ -53,17 +43,35 @@ Net-Razor widens that leg to seven days itself and echoes the effective window
 back per source. ORIS does not restate the number.
 """
 
+SOURCE_LABELS = {"x": "X", "hn": "Hacker News", "arxiv": "arXiv"}
+"""How each source is titled in the assembled answer.
 
-class CommunityResearchAnswer(BaseModel):
-    """Structured local-model response for Community Research."""
+The heading is written here rather than asked of the model. A source's name is
+a fixed fact about the fan-out, and the run that made this file necessary spent
+its whole budget on formatting instructions it then narrated back.
+"""
+
+
+class ItemFindings(BaseModel):
+    """What one returned item carried, written by a call that saw only it.
+
+    One call per item rather than one per source, because a call handed a list
+    summarised the first entry and stopped. Four prompt wordings were measured
+    against ten arXiv papers — asking for a bullet each, forbidding an early
+    stop, setting sentences per item, and numbering the items in the evidence
+    — and every one returned a single paper. A call given one item has no list
+    to stop partway through, so coverage stops being a choice the model makes.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    answer: NonEmptyText = Field(description="Concise answer text without source URLs.")
+    findings: NonEmptyText = Field(
+        description="What this item carried, in two or three sentences, without URLs."
+    )
     cited_urls: tuple[NonEmptyText, ...] = Field(
         description=(
-            "Canonical evidence URLs supporting the answer. Use only URLs supplied "
-            "in the Net-Razor result."
+            "This item's canonical_url if its findings rest on it. Use only URLs "
+            "supplied in the Net-Razor result."
         )
     )
 
@@ -116,6 +124,30 @@ def _canonical_urls(research_result: dict[str, Any]) -> set[str]:
     return urls
 
 
+def _reported_errors(report: object) -> list[str]:
+    """Read the errors Net-Razor recorded for one source.
+
+    Rendered from the result rather than asked of a model. An error is the one
+    part of a fan-out a reader must be able to trust completely: a source that
+    failed and a source that found nothing look identical in the answer
+    otherwise, and only one of them means "nothing was said".
+    """
+    if not isinstance(report, dict):
+        return []
+    errors = report.get("errors")
+    if not isinstance(errors, list):
+        return []
+    messages: list[str] = []
+    for error in errors:
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("type")
+            if isinstance(message, str) and message:
+                messages.append(message)
+        elif isinstance(error, str) and error:
+            messages.append(error)
+    return messages
+
+
 def create_community_research_graph(
     research_tool: BaseTool,
     model: BaseChatModel,
@@ -128,7 +160,7 @@ def create_community_research_graph(
             f"not {research_tool.name}"
         )
     structured_model = model.with_structured_output(
-        CommunityResearchAnswer,
+        ItemFindings,
         method="json_schema",
     )
 
@@ -175,23 +207,75 @@ def create_community_research_graph(
 
     async def synthesize_answer(
         state: CommunityResearchState,
-    ) -> dict[str, str]:
-        response = await structured_model.ainvoke(
-            [
-                ("system", with_current_date(COMMUNITY_RESEARCH_SYSTEM_PROMPT)),
-                (
-                    "human",
-                    f"Research topic:\n{state['topic']}\n\n"
-                    "Net-Razor result:\n"
-                    f"{json.dumps(state['research_result'], ensure_ascii=False, indent=2)}",
-                ),
-            ],
-            max_completion_tokens=SYNTHESIS_TOKEN_BUDGET,
+    ) -> dict[str, object]:
+        """Describe every returned item, then assemble the answer per source.
+
+        Two things used to be asked of one model call and are now structural.
+        Filing: a single call reading all three sources put every arXiv paper
+        inside X's section, though each item carries its own `source` field.
+        Coverage: a call given one source's ten papers described the first and
+        stopped, under four different prompt wordings.
+
+        Both were the model choosing, so both are removed rather than argued
+        with. A call sees one item, and where its findings appear is decided
+        here. What a source returned nothing about, and what errors it
+        reported, is copied from Net-Razor rather than summarised, because
+        those are facts about the fan-out that no model needs to restate.
+
+        The calls run concurrently because they share nothing.
+        """
+        research_result = state["research_result"]
+        grouped = research_result.get("results", {})
+        reported = research_result.get("sources", {})
+
+        async def describe(source: str, item: object) -> tuple[str, ItemFindings]:
+            findings = await structured_model.ainvoke(
+                [
+                    ("system", with_current_date(COMMUNITY_RESEARCH_SYSTEM_PROMPT)),
+                    (
+                        "human",
+                        f"Research topic:\n{state['topic']}\n\n"
+                        f"Source: {SOURCE_LABELS.get(source, source)}\n\n"
+                        "One item returned by that source:\n"
+                        f"{json.dumps(item, ensure_ascii=False, indent=2)}",
+                    ),
+                ],
+                max_completion_tokens=ITEM_TOKEN_BUDGET,
+            )
+            return source, findings
+
+        jobs = [
+            (source, item)
+            for source in state["sources"]
+            for item in grouped.get(source, [])
+            if isinstance(item, dict)
+        ]
+        described = await asyncio.gather(
+            *(describe(source, item) for source, item in jobs)
         )
-        return {
-            "answer": response.answer,
-            "cited_urls": list(response.cited_urls),
+
+        by_source: dict[str, list[ItemFindings]] = {
+            source: [] for source in state["sources"]
         }
+        for source, findings in described:
+            by_source[source].append(findings)
+
+        blocks: list[str] = []
+        cited_urls: list[str] = []
+        for source in state["sources"]:
+            entries = by_source[source]
+            lines = [f"- {entry.findings}" for entry in entries]
+            if not lines:
+                lines.append("- Queried, and returned nothing.")
+            for error in _reported_errors(reported.get(source)):
+                lines.append(f"- Net-Razor reported an error: {error}")
+            blocks.append(f"{SOURCE_LABELS.get(source, source)}\n" + "\n".join(lines))
+            for entry in entries:
+                for url in entry.cited_urls:
+                    if url not in cited_urls:
+                        cited_urls.append(url)
+
+        return {"answer": "\n\n".join(blocks), "cited_urls": cited_urls}
 
     def validate_citations(state: CommunityResearchState) -> dict:
         available_urls = _canonical_urls(state["research_result"])

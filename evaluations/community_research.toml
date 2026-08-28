@@ -17,13 +17,13 @@ specialist = "community_research"
 id = "active-technical-topic"
 category = "well-covered-topic"
 question = "LangGraph"
-evaluation_goal = "Report what each returned post actually claimed, with its specific names, numbers and versions, citing only supplied canonical URLs."
+evaluation_goal = "Report what each returned post actually claimed, with its specific names, numbers and versions, under a heading for its own source, citing only supplied canonical URLs."
 
 [[cases]]
 id = "source-disagreement"
 category = "conflicting-signals"
 question = "local LLM hosting"
-evaluation_goal = "Where the sources differ, say which one carried which view rather than merging them into one consensus."
+evaluation_goal = "Keep each source in its own section, so a view carried by one is never blended into another. The answer must not open with a cross-source summary."
 
 [[cases]]
 id = "obscure-topic"

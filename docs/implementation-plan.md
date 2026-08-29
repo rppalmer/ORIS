@@ -309,7 +309,12 @@ anything measured while ranking last three times out of three. gpt-oss earned
 its place in that top three while running 2.1 times slower than Qwen3.5 in wall
 clock, despite being the smaller model: it always reasons, and the thinking
 toggle does not change that. Twelve items, same word count, 7,879 generated
-tokens against Qwen3.5's 1,471. Density separates bad from good. It does not separate good from good, and it rewards terseness, so
+tokens against Qwen3.5's 1,471. The toggle is not the only control, though:
+passing `reasoning_effort: "low"` on the request cut the same twelve items from
+157s to 68s and from 7,131 tokens to 1,575, level with Qwen3.5, at the cost of
+three unsupported figures where there had been none. gpt-oss is not inherently
+slow here. It was measured with its reasoning uncapped. Density separates bad
+from good. It does not separate good from good, and it rewards terseness, so
 figures per item is the better of the two measures.
 
 The schema's real cost is therefore narrower than it looked. It excludes gpt-oss

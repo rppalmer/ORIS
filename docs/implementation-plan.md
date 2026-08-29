@@ -269,9 +269,13 @@ measured to disable three things at once:
   reasoning once the schema was attached.
 - **Speculative decoding never happens.** DFlash on and off measured 269s
   against 267s and 273s, with identical output.
-- **Two installed models are unusable.** GLM-4.7-Flash emits malformed JSON;
-  gpt-oss-20b returns a message with no content field at all. Both answer well
-  unconstrained.
+- **Two installed models are unusable.** GLM-4.7-Flash emits malformed JSON.
+  gpt-oss-20b emits *correct* JSON and then never stops: under the grammar it
+  wrote the same valid object three times over and ran out of budget, finishing
+  on `length` rather than `stop`. Asked again on 2026-08-29 with the same schema
+  described in the prompt instead of enforced, it answered correctly on the
+  first try in 5.4 seconds. The model is not the problem here; oMLX's
+  constrained decoding is.
 
 All three costs are real. They are also all smaller than what the schema buys.
 
@@ -301,8 +305,11 @@ summarised the same three items. The labels were stripped and the summaries
 shuffled. Qwen3.5, Qwen3.6 and gpt-oss scored exactly level; Gemma was fourth
 and LFM2.5 fifth on every item. A 32% density gap between Qwen3.5 and Qwen3.6
 produced no perceptible preference, and LFM2.5 had the highest density of
-anything measured while ranking last three times out of three. Density separates
-bad from good. It does not separate good from good, and it rewards terseness, so
+anything measured while ranking last three times out of three. gpt-oss earned
+its place in that top three while running 2.1 times slower than Qwen3.5 in wall
+clock, despite being the smaller model: it always reasons, and the thinking
+toggle does not change that. Twelve items, same word count, 7,879 generated
+tokens against Qwen3.5's 1,471. Density separates bad from good. It does not separate good from good, and it rewards terseness, so
 figures per item is the better of the two measures.
 
 The schema's real cost is therefore narrower than it looked. It excludes gpt-oss

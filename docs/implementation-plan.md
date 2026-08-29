@@ -253,11 +253,12 @@ follow-up.
     stated rules, not against observed failures. Cases earn their place by
     catching something; these have not been run yet.
 
-### Structured output: is the JSON schema worth what it costs?
+### Structured output: is the JSON schema worth what it costs? — answered
 
 Raised 2026-08-28 after a day of model comparison kept running into the same
-wall. Not scheduled — this is a review to decide from, and it may well conclude
-"leave it alone".
+wall. Measured and closed 2026-08-29. **Community Research keeps the schema.**
+The rest of this entry is the evidence, because it is a natural question to ask
+again.
 
 Every specialist calls the model through `with_structured_output(...,
 method="json_schema")`. In oMLX that is a grammar constraint, and it was
@@ -269,69 +270,59 @@ measured to disable three things at once:
 - **Speculative decoding never happens.** DFlash on and off measured 269s
   against 267s and 273s, with identical output.
 - **Two installed models are unusable.** GLM-4.7-Flash emits malformed JSON;
-  gpt-oss-20b returns a message with no content field at all, having generated
-  65 tokens. Both answer well unconstrained.
+  gpt-oss-20b returns a message with no content field at all. Both answer well
+  unconstrained.
 
-What the schema is actually buying in Community Research is smaller than it
-looks. `synthesize_answer` sends **one item per call**, so the `cited_urls` the
-model returns is a URL the calling code already holds in
-`item["canonical_url"]`. The model is being asked to hand back something known.
+All three costs are real. They are also all smaller than what the schema buys.
 
-What would have to survive a change:
+**Removing the schema made the deployed model worse.** Qwen3.5 ran the whole
+pipeline three times over two evidence sets, once through the schema and once as
+free text with the same prompt. Figures per item fell from 2.00 to 1.68 on the
+58-item set, and from 3.39 to 2.48 on the 31-item set. Nothing improved. Free
+text also let a URL and a line of meta commentary back into the prose, which the
+grammar had made impossible.
 
-- `cited_urls` in the graph's output is a contract, not an internal detail. The
-  chat renderer numbers citations from it, `scheduled_runs` does the same, and
-  `evaluation.py` reads it to score a case. The state shape must not change
-  even if the model stops producing it.
-- The model currently signals "this item says nothing about the topic". Free
-  text needs another way to mark that, or the empty-source rule loses its input.
-- Without a grammar there is nothing forcing shape: preambles, markdown and
-  URLs in prose become prompt-and-cleanup problems rather than impossibilities.
+**Reasoning is not worth its price here.** Twelve items, thinking on, no schema.
+Qwen3.5 took 912 seconds, against 67 seconds for the same items with thinking
+off. That is 13.6 times the wall clock. It bought 8.16 figures per 100 words
+against 7.48, wrote ten times as many words, and added eight instances of meta
+commentary. Qwen3.6 took 520 seconds against 60. Gemma took 846 seconds against
+46 and failed four of the twelve items outright. On a real 58-item run that
+trade turns a five-minute command into an hour-long one, for no gain a reader
+would notice.
 
-Scope matters. Nine call sites use structured output and they are not alike.
-Community Research, Web Research, Threat Intel and Podcast Catch-up ask for
-prose plus citations, which is the case examined here. Routing in `chat.py`,
-`search_planning` and Threat Intel's planner ask for a *decision* — a source
-list, a set of queries. Those want a schema and should keep it. A change here
-is per-call-site, never global.
+**The grammar is the only thing stopping fabrication in the weaker models.**
+GLM-4.7-Flash wrote 90 unsupported figures as free text, and zero under the
+schema. LFM2.5 invented eleven figures across two free-text runs. The constraint
+is not only about shape.
 
-Part of this was already done and it paid. `cited_urls` left the schema on
-2026-08-28 because the model was being asked to retype a 19-digit X status id
-it was never the authority on. That removed a failure that cost a run in three
-on X-heavy topics, and made the same work 12% faster. The schema got smaller
-and everything improved. That is the argument for looking at the rest of it.
+**A blind read settled the model question and undercut the metric.** Five models
+summarised the same three items. The labels were stripped and the summaries
+shuffled. Qwen3.5, Qwen3.6 and gpt-oss scored exactly level; Gemma was fourth
+and LFM2.5 fifth on every item. A 32% density gap between Qwen3.5 and Qwen3.6
+produced no perceptible preference, and LFM2.5 had the highest density of
+anything measured while ranking last three times out of three. Density separates
+bad from good. It does not separate good from good, and it rewards terseness, so
+figures per item is the better of the two measures.
 
-The reason to care is not tidiness. Recent models increasingly put their
-capability behind a reasoning pass, and the schema switches that off — so each
-newer model arrives with more of itself disabled than the last. Measured across
-six models on 2026-08-28, newer consistently lost: Qwen3.5 beat Qwen3.6 by 35%
-and 61% on numeric density, and a Qwen3.5 fine-tuned for agent work wrote 20%
-more words carrying 33% fewer figures than its own base. Whether reasoning
-would reverse that is unknown, because there is no way to ask the question
-without removing the constraint.
+The schema's real cost is therefore narrower than it looked. It excludes gpt-oss
+and GLM, and it forecloses reasoning. Neither turned out to be worth having.
 
-- [ ] **Measure what a reasoning pass is worth here.** One specialist, one
-  evidence set, free text with citations recorded by the caller, thinking
-  enabled — against the same evidence through the schema. Score it the way the
-  model bake-off is scored: numeric density, invented numbers and names,
-  coverage, URLs in prose, meta commentary. Note that ITEM_TOKEN_BUDGET is 512
-  and one item with reasoning measured 1,402 tokens, so the budget moves too.
-- [ ] **Re-run the model comparison if the schema goes.** The nine models
-  measured on 2026-08-28 were all measured with thinking off, because the
-  schema allows nothing else. That ranking answers "best with thinking off",
-  not "best", and the models it punished hardest are the ones that would gain
-  most: gpt-oss-20b exhausted its whole 512-token budget on reasoning and never
-  answered, yet unconstrained it produced the most specific single summary
-  anything wrote that day. Choosing a model before settling this fixes a choice
-  made under a constraint that may not survive. Note the mechanism is not
-  established for the pair that decided it -- Qwen3.5 beat Qwen3.6 with
-  thinking off, and under a schema it is 3.5 that leaks reasoning into the
-  answer field while 3.6 suppresses it cleanly, which points the other way.
-- [ ] **Then decide whether Community Research keeps the schema.** If free text
-  with reasoning does not win clearly, this stays as it is and the question is
-  closed. A win is not automatically worth taking either: reasoning cost 41
-  seconds for one item unconstrained, against about 5 with the schema, and 58
-  items at that rate is a different command from the one this is today.
+Part of the schema did come off, and it paid. `cited_urls` left on 2026-08-28,
+because the model was being asked to retype a 19-digit X status id it was never
+the authority on. That removed a failure costing a run in three on X-heavy
+topics, and made the same work 12% faster. Trimming the schema helped. Removing
+it did not.
+
+Two things worth remembering if this comes up again:
+
+- Scope was never global. Routing in `chat.py`, `search_planning` and Threat
+  Intel's planner ask the model for a *decision*, not prose. Those want a schema
+  and were never in question. A change would have been per-call-site.
+- Reasoning was only ever tested as a whole-pipeline swap, one call per item.
+  The untested case is a single planning call — search planning, the Threat
+  Intel planner, the podcast digest — where one reasoning pass costs seconds
+  rather than an hour. That is a different question and is still open.
 
 ### Podcast Catch-up
 

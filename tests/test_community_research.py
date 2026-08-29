@@ -70,8 +70,7 @@ def make_dependencies(
     model = Mock(spec=BaseChatModel)
     structured_model = AsyncMock()
     structured_model.ainvoke.return_value = findings or ItemFindings(
-        findings="The community discussed LangGraph.",
-        cited_urls=("https://news.ycombinator.com/item?id=123",),
+        findings="The community discussed LangGraph.", bears_on_topic=True
     )
     model.with_structured_output.return_value = structured_model
     return tool, model, structured_model
@@ -180,7 +179,9 @@ def test_community_research_requires_structured_json() -> None:
 def test_community_research_requires_a_citation_when_evidence_exists() -> None:
     """An evidence-backed answer must contain at least one Markdown link."""
     tool, model, _ = make_dependencies(
-        findings=ItemFindings(findings="The community discussed it.", cited_urls=())
+        findings=ItemFindings(
+            findings="Nothing here bore on the topic.", bears_on_topic=False
+        )
     )
     graph = create_community_research_graph(tool, model)
 
@@ -188,30 +189,34 @@ def test_community_research_requires_a_citation_when_evidence_exists() -> None:
         asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
 
 
-def test_community_research_rejects_a_url_not_supplied_by_net_razor() -> None:
-    """A model cannot introduce a source URL absent from the MCP result."""
+def test_community_research_cites_the_item_it_was_given() -> None:
+    """The citation comes from the evidence, never from the model.
+
+    Qwen3.5 asked to retype a 19-digit X status id kept the handle and dropped
+    digits out of the middle, and the whole answer was then rejected for citing
+    a URL nobody supplied -- one run in three on an X-heavy topic. The model is
+    no longer asked for something the calling code already holds.
+    """
     tool, model, _ = make_dependencies(
-        findings=ItemFindings(
-            findings="A claim.", cited_urls=("https://example.com/invented",)
-        )
+        findings=ItemFindings(findings="A claim about LangGraph.", bears_on_topic=True)
     )
     graph = create_community_research_graph(tool, model)
 
-    with pytest.raises(ValueError, match="cited unavailable URLs"):
-        asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
+    result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
+
+    assert result["cited_urls"] == ["https://news.ycombinator.com/item?id=123"]
 
 
-def test_community_research_rejects_a_link_written_inside_an_item() -> None:
-    """A URL in an item's own text is not a citation, however relevant it looks.
-
-    Net-Razor supplies the whole post, so a project link inside the body is
-    technically "supplied" -- which is how the earlier wording read to a model
-    that followed it literally, and why every one of its runs was rejected.
-    Only the item's canonical_url identifies the item.
-    """
+def test_community_research_does_not_cite_an_item_that_said_nothing() -> None:
+    """An item the model reports as off-topic is described but not cited."""
     research_result = make_tool_result()
-    research_result["results"]["hn"][0]["text"] = (
-        "A discussion about LangGraph. Docs at https://docs.example.com"
+    research_result["results"]["hn"].append(
+        {
+            "source": "hn",
+            "source_id": "456",
+            "canonical_url": "https://news.ycombinator.com/item?id=456",
+            "text": "An unrelated discussion.",
+        }
     )
     tool_result = ToolMessage(
         content="Net-Razor returned structured research data.",
@@ -219,16 +224,17 @@ def test_community_research_rejects_a_link_written_inside_an_item() -> None:
         tool_call_id="test-tool-call",
         name="net_razor_research",
     )
-    tool, model, _ = make_dependencies(
-        tool_result=tool_result,
-        findings=ItemFindings(
-            findings="A claim.", cited_urls=("https://docs.example.com",)
-        ),
-    )
+    tool, model, structured_model = make_dependencies(tool_result=tool_result)
+    structured_model.ainvoke.side_effect = [
+        ItemFindings(findings="A claim about LangGraph.", bears_on_topic=True),
+        ItemFindings(findings="This said nothing about it.", bears_on_topic=False),
+    ]
     graph = create_community_research_graph(tool, model)
 
-    with pytest.raises(ValueError, match="cited unavailable URLs"):
-        asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
+    result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
+
+    assert result["cited_urls"] == ["https://news.ycombinator.com/item?id=123"]
+    assert "This said nothing about it." in result["answer"]
 
 
 def test_community_research_allows_no_citation_when_no_evidence_exists() -> None:
@@ -243,7 +249,8 @@ def test_community_research_allows_no_citation_when_no_evidence_exists() -> None
             name="net_razor_research",
         ),
         findings=ItemFindings(
-            findings="The supplied evidence is insufficient.", cited_urls=()
+            findings="The supplied evidence is insufficient.",
+            bears_on_topic=False,
         ),
     )
     graph = create_community_research_graph(tool, model)

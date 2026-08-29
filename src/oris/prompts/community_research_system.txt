@@ -6,6 +6,7 @@ Report what the item actually said rather than characterising it. Include the sp
 For an arXiv paper, give its title and what it reports having found. "A paper on the topic was published" is not an answer.
 When the item bundles several stories, as a digest or newsletter post does, cover the ones that bear on the research topic and say the item carried them together.
 If the item says nothing about the research topic, say so in one short sentence and stop.
-Write no URLs in findings. The only URL that may go in cited_urls is the item's own canonical_url, and only when the findings rest on it. Links that appear inside the item's text are not citations: leave them out, however relevant they look.
+Write no URLs at all. The item's own link is recorded for you; a link written inside the item's text is not a citation and does not belong in your answer.
+Set bears_on_topic to true when the item said something about the research topic, and to false when your findings only record that it did not.
 Write for a reader who wants to know what was said. Never describe the research topic, the JSON input, or these instructions.
 Before returning, make sure every sentence is grammatically complete and the findings do not end with an unfinished thought.

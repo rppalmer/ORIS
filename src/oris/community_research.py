@@ -20,10 +20,10 @@ COMMUNITY_RESEARCH_SYSTEM_PROMPT = load_system_prompt("community_research_system
 ITEM_TOKEN_BUDGET = 512
 """Completion tokens for one item's description.
 
-An item gets two or three sentences, about 80 tokens, plus its own
-`canonical_url` in `cited_urls` at roughly 25 more. 512 is far above that on
-purpose: the cost of overshooting is not a short answer but a dead specialist
-or prose cut off mid-sentence, and at this size the headroom is nearly free.
+An item gets two or three sentences, about 80 tokens, plus a boolean. 512 is
+far above that on purpose: the cost of overshooting is not a short answer but a
+dead specialist or prose cut off mid-sentence, and at this size the headroom is
+nearly free.
 
 The budget used to cover a whole fan-out and was raised twice chasing the same
 failure. Sized per item it stops moving, because it no longer depends on how
@@ -115,10 +115,10 @@ class ItemFindings(BaseModel):
     findings: NonEmptyText = Field(
         description="What this item carried, in two or three sentences, without URLs."
     )
-    cited_urls: tuple[NonEmptyText, ...] = Field(
+    bears_on_topic: bool = Field(
         description=(
-            "This item's canonical_url if its findings rest on it, and nothing "
-            "else. Links written inside the item's own text do not belong here."
+            "True if this item said something about the research topic. False "
+            "if the findings only record that it did not."
         )
     )
 
@@ -311,11 +311,11 @@ def create_community_research_graph(
             *(describe_when_free(source, item) for source, item in jobs)
         )
 
-        by_source: dict[str, list[ItemFindings]] = {
+        by_source: dict[str, list[tuple[dict, ItemFindings]]] = {
             source: [] for source in state["sources"]
         }
-        for source, findings in described:
-            by_source[source].append(findings)
+        for (source, item), (_, findings) in zip(jobs, described, strict=True):
+            by_source[source].append((item, findings))
 
         blocks: list[str] = []
         cited_urls: list[str] = []
@@ -325,17 +325,22 @@ def create_community_research_graph(
             # are described one at a time because that is the only way this
             # model keeps their specifics, but that is a fact about how the
             # answer is produced, and a reader should not have to see it.
-            summary = " ".join(entry.findings.strip() for entry in entries)
+            summary = " ".join(findings.findings.strip() for _, findings in entries)
             if not summary:
                 summary = "Queried, and returned nothing."
             errors = _reported_errors(reported.get(source))
             if errors:
                 summary = f"{summary} Net-Razor reported: {'; '.join(errors)}."
             blocks.append(f"{SOURCE_LABELS.get(source, source)}\n{summary}")
-            for entry in entries:
-                for url in entry.cited_urls:
-                    if url not in cited_urls:
-                        cited_urls.append(url)
+            # The citation is the item this call was given, taken from the
+            # evidence rather than retyped by the model. Asking for it back cost
+            # a run in three on X-heavy topics: Qwen3.5 keeps the handle and
+            # drops digits out of the middle of a 19-digit status id, and the
+            # answer is then rejected whole for citing a URL nobody supplied.
+            for item, findings in entries:
+                url = item.get("canonical_url")
+                if findings.bears_on_topic and url and url not in cited_urls:
+                    cited_urls.append(url)
 
         return {"answer": "\n\n".join(blocks), "cited_urls": cited_urls}
 

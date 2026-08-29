@@ -295,12 +295,32 @@ prose plus citations, which is the case examined here. Routing in `chat.py`,
 list, a set of queries. Those want a schema and should keep it. A change here
 is per-call-site, never global.
 
-- [ ] **Decide, on measured evidence, whether Community Research should return
-  free text with citations recorded by the caller.** The comparison is the same
-  evidence through both paths, scored the way the model bake-off is scored:
-  numeric density, invented numbers and names, coverage, URLs in prose, meta
-  commentary. If free text does not win clearly, this stays as it is and the
-  question is closed.
+Part of this was already done and it paid. `cited_urls` left the schema on
+2026-08-28 because the model was being asked to retype a 19-digit X status id
+it was never the authority on. That removed a failure that cost a run in three
+on X-heavy topics, and made the same work 12% faster. The schema got smaller
+and everything improved. That is the argument for looking at the rest of it.
+
+The reason to care is not tidiness. Recent models increasingly put their
+capability behind a reasoning pass, and the schema switches that off — so each
+newer model arrives with more of itself disabled than the last. Measured across
+six models on 2026-08-28, newer consistently lost: Qwen3.5 beat Qwen3.6 by 35%
+and 61% on numeric density, and a Qwen3.5 fine-tuned for agent work wrote 20%
+more words carrying 33% fewer figures than its own base. Whether reasoning
+would reverse that is unknown, because there is no way to ask the question
+without removing the constraint.
+
+- [ ] **Measure what a reasoning pass is worth here.** One specialist, one
+  evidence set, free text with citations recorded by the caller, thinking
+  enabled — against the same evidence through the schema. Score it the way the
+  model bake-off is scored: numeric density, invented numbers and names,
+  coverage, URLs in prose, meta commentary. Note that ITEM_TOKEN_BUDGET is 512
+  and one item with reasoning measured 1,402 tokens, so the budget moves too.
+- [ ] **Then decide whether Community Research keeps the schema.** If free text
+  with reasoning does not win clearly, this stays as it is and the question is
+  closed. A win is not automatically worth taking either: reasoning cost 41
+  seconds for one item unconstrained, against about 5 with the schema, and 58
+  items at that rate is a different command from the one this is today.
 
 ### Podcast Catch-up
 

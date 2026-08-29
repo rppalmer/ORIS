@@ -316,6 +316,17 @@ without removing the constraint.
   model bake-off is scored: numeric density, invented numbers and names,
   coverage, URLs in prose, meta commentary. Note that ITEM_TOKEN_BUDGET is 512
   and one item with reasoning measured 1,402 tokens, so the budget moves too.
+- [ ] **Re-run the model comparison if the schema goes.** The nine models
+  measured on 2026-08-28 were all measured with thinking off, because the
+  schema allows nothing else. That ranking answers "best with thinking off",
+  not "best", and the models it punished hardest are the ones that would gain
+  most: gpt-oss-20b exhausted its whole 512-token budget on reasoning and never
+  answered, yet unconstrained it produced the most specific single summary
+  anything wrote that day. Choosing a model before settling this fixes a choice
+  made under a constraint that may not survive. Note the mechanism is not
+  established for the pair that decided it -- Qwen3.5 beat Qwen3.6 with
+  thinking off, and under a schema it is 3.5 that leaks reasoning into the
+  answer field while 3.6 suppresses it cleanly, which points the other way.
 - [ ] **Then decide whether Community Research keeps the schema.** If free text
   with reasoning does not win clearly, this stays as it is and the question is
   closed. A win is not automatically worth taking either: reasoning cost 41

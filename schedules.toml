@@ -8,3 +8,15 @@ task = "web_research"
 prompt = "Research the most important AI-agent developments from yesterday."
 date_window = "previous_day"
 search_category = "news"
+
+# Deliberately small for its first runs. max_episodes is an ORIS budget, not a
+# Net-Razor one, and a run that transcribes its whole budget can last a long
+# time -- a job still running when its next firing is due has that firing
+# skipped in silence. Raise it once the path has proven itself.
+[[jobs]]
+id = "overnight-podcast-catch-up"
+enabled = true
+cron = "0 3 * * *"
+task = "podcast_catch_up"
+days = 3
+max_episodes = 2

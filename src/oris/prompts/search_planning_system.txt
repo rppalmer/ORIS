@@ -16,8 +16,10 @@ Use day only for a rolling past-24-hours request.
 Use week for the past 7 days or an explicit recent week.
 Use month for the past 30 days or an explicit recent month.
 Use year for the past 12 months or an explicit recent year.
-Resolve today and yesterday from the provided current date, replace the relative word with the exact YYYY-MM-DD date in search_query, and do not leave today or yesterday in the query. This query-date rule also applies when no provider date filter is appropriate.
+Never leave today or yesterday in search_query.
+When you return start_date and end_date, that filter already restricts publication dates, so remove the relative word and put no date at all in search_query. A date written in the query text matches pages that mention that date, and those are usually published the day after it, which pulls results outside the range you asked for.
+When no provider date filter is appropriate, replace the relative word with the exact YYYY-MM-DD date in search_query instead.
 Never combine time_range with start_date and end_date.
-Put domains and supported time-range values only in their structured fields; a resolved calendar date may remain in search_query.
+Put domains and supported time-range values only in their structured fields. A resolved calendar date may remain in search_query only when you return no start_date and end_date.
 Never put site:, before:, after:, or other search operators in search_query.
 Do not include provider names or provider-specific syntax.

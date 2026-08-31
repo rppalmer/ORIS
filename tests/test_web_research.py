@@ -155,7 +155,7 @@ def test_web_research_forwards_explicit_search_controls() -> None:
 
     assert search.requests == [
         WebSearchRequest(
-            query="AI-agent developments 2026-08-07",
+            query="AI-agent developments",
             include_domains=("example.com",),
             search_category="news",
             start_date=date(2026, 8, 7),
@@ -183,7 +183,7 @@ def test_web_research_uses_the_planned_search_category() -> None:
 
     assert search.requests == [
         WebSearchRequest(
-            query="AI-agent news published 2026-08-08",
+            query="AI-agent news published",
             search_category="news",
             start_date=date(2026, 8, 8),
             end_date=date(2026, 8, 9),

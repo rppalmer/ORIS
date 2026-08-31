@@ -247,9 +247,11 @@ def test_tavily_web_search_uses_news_dates_and_normalizes_publication_time() -> 
     )
 
     general_tool.ainvoke.assert_not_called()
+    # The request drops the date from the query text: a bounded search must not
+    # also chase pages that merely mention the day, which publish a day later.
     news_tool.ainvoke.assert_called_once_with(
         {
-            "query": "AI-agent developments 2026-08-07",
+            "query": "AI-agent developments",
             "start_date": "2026-08-07",
             "end_date": "2026-08-08",
         }

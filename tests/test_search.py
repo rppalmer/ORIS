@@ -90,3 +90,41 @@ def test_web_search_result_serializes_url_as_a_string() -> None:
     assert result.model_dump()["url"] == (
         "https://docs.langchain.com/oss/python/langgraph/overview"
     )
+
+
+def test_request_drops_a_resolved_date_from_a_publication_bounded_query() -> None:
+    """A date in the query text pulls results out of the range it asks for.
+
+    Measured against Tavily on 2026-08-31 for the `weekday-ai-news` job. The
+    same query over the same one-day bound returned four articles from the
+    requested day without the date in the text, and five from the day after
+    with it. Pages that mention a date are usually published the day after it,
+    so the text date fights the filter, and the scheduled run died on the empty
+    result set that left.
+    """
+    request = WebSearchRequest(
+        query="most important AI-agent developments 2026-08-30",
+        search_category="news",
+        start_date=date(2026, 8, 30),
+        end_date=date(2026, 8, 31),
+    )
+
+    assert request.query == "most important AI-agent developments"
+
+
+def test_request_keeps_a_date_in_the_query_without_a_date_filter() -> None:
+    """Unbounded, the date in the text is the only thing narrowing the search."""
+    request = WebSearchRequest(query="Detroit weather 2026-08-30")
+
+    assert request.query == "Detroit weather 2026-08-30"
+
+
+def test_request_keeps_a_query_that_is_only_a_date() -> None:
+    """Stripping must never leave a request without a query at all."""
+    request = WebSearchRequest(
+        query="2026-08-30",
+        start_date=date(2026, 8, 30),
+        end_date=date(2026, 8, 31),
+    )
+
+    assert request.query == "2026-08-30"

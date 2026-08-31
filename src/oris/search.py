@@ -1,5 +1,6 @@
 """Application-owned contracts for web search."""
 
+import re
 from datetime import date
 from typing import Annotated, Literal, Protocol
 
@@ -34,6 +35,8 @@ DomainName = Annotated[
 SearchTimeRange = Literal["day", "week", "month", "year"]
 SearchCategory = Literal["general", "news"]
 
+_ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+
 
 class WebSearchRequest(BaseModel):
     """A provider-independent web-search request."""
@@ -56,6 +59,33 @@ class WebSearchRequest(BaseModel):
             raise ValueError("start_date must be earlier than end_date")
         if self.time_range is not None and self.start_date is not None:
             raise ValueError("time_range cannot be combined with absolute dates")
+        return self
+
+    @model_validator(mode="after")
+    def drop_a_bounded_date_from_the_query(self) -> "WebSearchRequest":
+        """Remove a calendar date from the query text when dates already bound it.
+
+        A date in the query does not restrict publication dates. It matches
+        pages that *mention* that date, and those are usually published the day
+        after it, so it pulls results out of the very range `start_date` and
+        `end_date` ask for. Measured against Tavily on 2026-08-31: the same
+        query over the same one-day bound returned four articles from the
+        requested day with no date in the text, and five from the day after with
+        it. The `weekday-ai-news` scheduled run then failed outright, because an
+        empty result set is a hard error.
+
+        The planning prompt asks for this too, but a prompt is advice, and the
+        bounds do not always come from the plan -- a caller can supply them,
+        which is what every scheduled job does. This is the one place every
+        request passes through, so the rule is enforced here.
+        """
+        if self.start_date is None:
+            return self
+        stripped = " ".join(_ISO_DATE.sub("", self.query).split())
+        if stripped and stripped != self.query:
+            # The model is frozen, and Pydantic requires an after-validator to
+            # return `self` rather than a copy, so the field is set directly.
+            object.__setattr__(self, "query", stripped)
         return self
 
 

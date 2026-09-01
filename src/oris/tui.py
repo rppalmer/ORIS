@@ -54,6 +54,7 @@ from oris.commands import (
     command_table,
     phase_label,
     read_command,
+    run_table,
     working_label,
 )
 from oris.config import Settings
@@ -72,6 +73,7 @@ from oris.observability import (
     system_prompts_for_trace,
     trace_count,
 )
+from oris.scheduled_run_history import DEFAULT_ROOT, ScheduledRunHistory
 from oris.sessions import (
     SessionSummary,
     delete_session,
@@ -651,7 +653,20 @@ class OrisTui(App):
                 )
             elif parsed.name == "new":
                 self.action_new_session()
-            else:
+            elif parsed.name == "show_runs":
+                self._say(
+                    Static(
+                        run_table(
+                            ScheduledRunHistory(DEFAULT_ROOT).recent(
+                                job_id=parsed.argument or None
+                            )
+                        )
+                    )
+                )
+            # Named rather than left to `else`: a new self-handled command
+            # added to the vocabulary would otherwise land here silently and
+            # open stored evidence instead of doing its own job.
+            elif parsed.name == "show_evidence":
                 self._show_evidence(parsed.argument)
             return
 

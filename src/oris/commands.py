@@ -8,16 +8,21 @@ supporting a command the other does not.
 What each interface then *does* about a command is its own: the command line
 prints, the terminal interface writes to a log and opens panes. This module
 decides what was asked for and stops there. The single exception is the command
-reference itself, which both render identically from the same table — building
-it twice was how the reason for using `Text` ended up recorded in only one of
-them.
+reference itself and the scheduled-run listing, which both render identically
+from the same tables — building the reference twice was how the reason for
+using `Text` ended up recorded in only one of them, and a listing whose
+truncation notice appeared in one interface and not the other would be the
+same mistake with worse consequences.
 """
 
 from dataclasses import dataclass
 from typing import Literal
 
+from rich.console import Group, RenderableType
 from rich.table import Table
 from rich.text import Text
+
+from oris.scheduled_run_history import ScheduledRunListing
 
 SLASH_COMMANDS = {
     "/research": (
@@ -62,6 +67,10 @@ SIMPLE_COMMANDS = (
     (
         "/threat show [id] [source]",
         "Print stored evidence, newest by default. Not sent to chat.",
+    ),
+    (
+        "/runs [job]",
+        "List scheduled runs, newest first, including the ones that failed.",
     ),
     ("/session", "Show the active session ID."),
     ("/new", "Start a new conversation session."),
@@ -113,7 +122,9 @@ PHASE_LABELS = {
     "mark_processed": "acknowledging episodes",
 }
 
-SelfHandledName = Literal["exit", "help", "session", "new", "show_evidence"]
+SelfHandledName = Literal[
+    "exit", "help", "session", "new", "show_evidence", "show_runs"
+]
 
 
 @dataclass(frozen=True)
@@ -190,6 +201,9 @@ def read_command(query: str) -> Routed | SelfHandled | Rejected:
     if query.startswith("/threat show"):
         return SelfHandled("show_evidence", query.removeprefix("/threat show").strip())
 
+    if query == "/runs" or query.startswith("/runs "):
+        return SelfHandled("show_runs", query.removeprefix("/runs").strip())
+
     command = query.split(maxsplit=1)[0]
     if command in SLASH_COMMANDS:
         mode, argument, _description = SLASH_COMMANDS[command]
@@ -224,6 +238,94 @@ def command_table(command: str = "") -> Table:
         if command in ("", usage.split()[0]):
             table.add_row(Text(usage), Text(description))
     return table
+
+
+STATUS_STYLES = {
+    "succeeded": "green",
+    "failed": "red",
+    "running": "yellow",
+    "unreadable": "red",
+}
+
+
+def _when(run) -> str:
+    return "unknown" if run.started_at is None else f"{run.started_at:%b %d %H:%M}"
+
+
+def _took(run) -> str:
+    seconds = run.duration_seconds
+    if seconds is None:
+        return "—"
+    if seconds < 90:
+        return f"{seconds:.0f}s"
+    return f"{seconds / 60:.0f}m"
+
+
+MAX_ERROR_CHARS = 96
+"""How much of a failure reason a listing row shows.
+
+Enough for the sentence that names the fault, short enough that one stack
+trace cannot push every other column off the screen. The full text is in the
+run record.
+"""
+
+
+def run_table(listing: ScheduledRunListing) -> RenderableType:
+    """Render one scheduled-run listing for either interface.
+
+    Everything here guards the same thing: that the reader cannot be misled
+    about what the list left out.
+
+    Failures are rows like any other, with the reason on the row. A failed run
+    deletes its report, so a listing that only showed runs worth opening would
+    hide failures entirely -- which is how two of them went unnoticed in this
+    project for three weeks.
+
+    A truncated listing says so and gives the total. An empty one says whether
+    it is empty because nothing has run or because nothing matched the job it
+    was narrowed to; those are different facts and rendering them alike told
+    the reader there was no history when there were nine runs.
+    """
+    if not listing.runs:
+        message = (
+            f"No scheduled runs recorded for {listing.job_id!r}."
+            if listing.job_id
+            else "No scheduled runs recorded yet."
+        )
+        return Text(message, style="dim")
+
+    table = Table(show_header=True, box=None, padding=(0, 2, 0, 0))
+    table.add_column("ID", style="bold cyan", no_wrap=True)
+    table.add_column("Job", no_wrap=True)
+    table.add_column("Started", style="dim", no_wrap=True)
+    table.add_column("Took", style="dim", justify="right", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    for run in listing.runs:
+        status = Text(run.status, style=STATUS_STYLES.get(run.status, ""))
+        if run.error:
+            # On the same row rather than beneath it. A second row put the
+            # reason in the Job column and stretched it to the width of the
+            # longest error in the listing.
+            reason = run.error
+            if len(reason) > MAX_ERROR_CHARS:
+                reason = reason[: MAX_ERROR_CHARS - 1] + "\u2026"
+            status.append(f" — {reason}", style="red")
+        table.add_row(
+            Text(run.short_id),
+            Text(run.job_id),
+            Text(_when(run)),
+            Text(_took(run)),
+            status,
+        )
+
+    scope = f" for {listing.job_id}" if listing.job_id else ""
+    plural = "" if listing.total == 1 else "s"
+    note = (
+        f"Showing {len(listing.runs)} of {listing.total} runs{scope}."
+        if listing.truncated
+        else f"{listing.total} run{plural}{scope}."
+    )
+    return Group(table, Text(note, style="dim"))
 
 
 def working_label(mode: str) -> str:

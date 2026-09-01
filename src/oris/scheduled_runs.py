@@ -19,6 +19,7 @@ from oris.podcast_catch_up import (
     acknowledge_podcast_catch_up,
 )
 from oris.podcast_output import transcript_provenance
+from oris.scheduled_run_history import DEFAULT_ROOT
 from oris.schedules import (
     ConfiguredScheduledJob,
     JobId,
@@ -112,7 +113,7 @@ def _run_scheduled_web_research_job(
     knowledge_repository: KnowledgeRepository,
     *,
     current_date: date,
-    artifact_root: Path = Path("artifacts/scheduled"),
+    artifact_root: Path = DEFAULT_ROOT,
 ) -> ScheduledRunRecord:
     """Run one enabled Web Research job and retain its outputs."""
     if not job.enabled:
@@ -204,7 +205,7 @@ def run_scheduled_job(
     knowledge_repository: KnowledgeRepository,
     *,
     current_date: date,
-    artifact_root: Path = Path("artifacts/scheduled"),
+    artifact_root: Path = DEFAULT_ROOT,
     build_podcast_catch_up: PodcastCatchUpBuilder | None = None,
 ) -> ScheduledRunRecordBase:
     """Run one configured job through its fixed specialist path."""
@@ -318,7 +319,7 @@ async def run_scheduled_podcast_catch_up_job(
     build_podcast_catch_up: PodcastCatchUpBuilder,
     knowledge_repository: KnowledgeRepository,
     *,
-    artifact_root: Path = Path("artifacts/scheduled"),
+    artifact_root: Path = DEFAULT_ROOT,
 ) -> PodcastCatchUpScheduledRunRecord:
     """Run one podcast job, persist its report, then acknowledge its episodes."""
     if not job.enabled:

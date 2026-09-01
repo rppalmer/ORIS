@@ -1,5 +1,7 @@
 """Tests for the command vocabulary both front ends read."""
 
+from datetime import UTC, datetime
+
 from rich.console import Console
 
 from oris.commands import (
@@ -8,8 +10,10 @@ from oris.commands import (
     SelfHandled,
     command_table,
     read_command,
+    run_table,
     working_label,
 )
+from oris.scheduled_run_history import ScheduledRun, ScheduledRunListing
 
 
 def test_command_help_shows_bracketed_usage_verbatim(capsys) -> None:
@@ -162,3 +166,115 @@ def test_help_for_one_command_shows_that_command_alone(capsys) -> None:
     assert "[report] [enrich|ref] <target>" in printed
     assert "/threat show [id] [source]" in printed
     assert "/podcasts" not in printed
+
+
+def test_runs_is_answered_by_the_interface() -> None:
+    """Listing what ran reads files; it must not cost a model call."""
+    assert read_command("/runs") == SelfHandled("show_runs", "")
+
+
+def test_runs_narrows_to_one_job() -> None:
+    """`/runs <job>` answers "how has this one been doing"."""
+    assert read_command("/runs weekday-ai-news") == SelfHandled(
+        "show_runs", "weekday-ai-news"
+    )
+
+
+def test_runs_appears_in_its_own_help() -> None:
+    """A command absent from the reference is a command nobody finds."""
+    console = Console(width=100)
+    with console.capture() as captured:
+        console.print(command_table("/runs"))
+
+    assert "/runs" in captured.get()
+
+
+def _rendered(listing) -> str:
+    console = Console(width=110)
+    with console.capture() as captured:
+        console.print(run_table(listing))
+    return captured.get()
+
+
+def test_run_table_shows_a_failure_and_its_reason() -> None:
+    """A failed run has no report, so the row is the only place to see it."""
+    listing = ScheduledRunListing(
+        runs=(
+            ScheduledRun(
+                run_id="818183b8-7c5e-46bd",
+                job_id="weekday-ai-news",
+                status="failed",
+                started_at=datetime(2026, 8, 18, 11, 0, tzinfo=UTC),
+                finished_at=datetime(2026, 8, 18, 11, 0, 2, tzinfo=UTC),
+                error="APIConnectionError: Connection error.",
+                report_path=None,
+                task="web_research",
+            ),
+        ),
+        total=1,
+        truncated=False,
+    )
+
+    output = _rendered(listing)
+
+    assert "818183b8" in output
+    assert "failed" in output
+    assert "APIConnectionError" in output
+
+
+def test_run_table_says_when_it_did_not_show_everything() -> None:
+    """Silent truncation is the failure this listing exists to avoid."""
+    run = ScheduledRun(
+        run_id="b20ba821-7bc4",
+        job_id="weekday-ai-news",
+        status="succeeded",
+        started_at=datetime(2026, 8, 31, 17, 42, tzinfo=UTC),
+        finished_at=datetime(2026, 8, 31, 17, 42, 16, tzinfo=UTC),
+        error=None,
+        report_path="weekday-ai-news/x.md",
+        task="web_research",
+    )
+
+    output = _rendered(ScheduledRunListing(runs=(run,), total=9, truncated=True))
+
+    assert "9" in output
+    assert "16s" in output
+
+
+def test_run_table_says_plainly_when_nothing_has_run() -> None:
+    """An empty history is an ordinary state and must not render as a blank."""
+    output = _rendered(ScheduledRunListing(runs=(), total=0, truncated=False))
+
+    assert "No scheduled runs" in output
+
+
+def test_run_table_names_the_job_when_that_job_has_no_runs() -> None:
+    """Nine runs existing and this one having none are different facts."""
+    output = _rendered(
+        ScheduledRunListing(runs=(), total=0, truncated=False, job_id="absent-job")
+    )
+
+    assert "absent-job" in output
+
+
+def test_run_table_keeps_a_long_error_from_stretching_the_columns() -> None:
+    """A stack trace in one row must not push every other column off screen."""
+    listing = ScheduledRunListing(
+        runs=(
+            ScheduledRun(
+                run_id="818183b8-7c5e",
+                job_id="news",
+                status="failed",
+                started_at=datetime(2026, 8, 18, 11, 0, tzinfo=UTC),
+                finished_at=datetime(2026, 8, 18, 11, 0, 2, tzinfo=UTC),
+                error="SearchProviderError: " + "x" * 400,
+                report_path=None,
+                task="web_research",
+            ),
+        ),
+        total=1,
+        truncated=False,
+    )
+
+    for line in _rendered(listing).splitlines():
+        assert len(line) <= 110

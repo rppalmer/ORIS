@@ -29,9 +29,11 @@ from oris.commands import (
     command_table,
     phase_label,
     read_command,
+    run_table,
     working_label,
 )
 from oris.knowledge import KnowledgeRepository
+from oris.scheduled_run_history import DEFAULT_ROOT, ScheduledRunHistory
 from oris.sessions import (
     ACTIVE_SESSION_FILENAME,
     load_or_create_session,
@@ -219,12 +221,27 @@ async def run_chat(
             elif parsed.name == "new":
                 thread_id = start_new_session(session_file_path)
                 console.print(Text(f"Started new session: {thread_id}", style="dim"))
-            elif threat_report_store is None:
+            elif parsed.name == "show_runs":
                 console.print(
-                    Text("Stored evidence reports are not configured.", style="yellow")
+                    run_table(
+                        ScheduledRunHistory(DEFAULT_ROOT).recent(
+                            job_id=parsed.argument or None
+                        )
+                    )
                 )
-            else:
-                show_threat_report(console, threat_report_store, parsed.argument)
+            # Named rather than left to `else`: a new self-handled command
+            # added to the vocabulary would otherwise land here silently and
+            # print stored evidence instead of doing its own job.
+            elif parsed.name == "show_evidence":
+                if threat_report_store is None:
+                    console.print(
+                        Text(
+                            "Stored evidence reports are not configured.",
+                            style="yellow",
+                        )
+                    )
+                else:
+                    show_threat_report(console, threat_report_store, parsed.argument)
             continue
 
         mode, query = parsed.mode, parsed.request

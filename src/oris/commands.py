@@ -16,13 +16,21 @@ same mistake with worse consequences.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from rich.console import Group, RenderableType
 from rich.table import Table
 from rich.text import Text
 
 from oris.scheduled_run_history import ScheduledRunHistory, ScheduledRunListing
+from oris.schedules import (
+    DEFAULT_SCHEDULE_FILE,
+    load_schedule_config,
+    next_run_time,
+)
 
 SLASH_COMMANDS = {
     "/research": (
@@ -71,6 +79,10 @@ SIMPLE_COMMANDS = (
     (
         "/runs [job|id]",
         "List scheduled runs, or print one by its ID. Not sent to chat.",
+    ),
+    (
+        "/schedule",
+        "Show the configured jobs and when each one next runs.",
     ),
     ("/session", "Show the active session ID."),
     ("/new", "Start a new conversation session."),
@@ -123,7 +135,13 @@ PHASE_LABELS = {
 }
 
 SelfHandledName = Literal[
-    "exit", "help", "session", "new", "show_evidence", "show_runs"
+    "exit",
+    "help",
+    "session",
+    "new",
+    "show_evidence",
+    "show_runs",
+    "show_schedule",
 ]
 
 
@@ -203,6 +221,9 @@ def read_command(query: str) -> Routed | SelfHandled | Rejected:
 
     if query == "/runs" or query.startswith("/runs "):
         return SelfHandled("show_runs", query.removeprefix("/runs").strip())
+
+    if query == "/schedule":
+        return SelfHandled("show_schedule")
 
     command = query.split(maxsplit=1)[0]
     if command in SLASH_COMMANDS:
@@ -372,6 +393,56 @@ def render_runs(history: ScheduledRunHistory, argument: str) -> RenderableType:
         style="dim",
     )
     return Group(header, Text(""), Text(report))
+
+
+def render_schedule(
+    path: Path = DEFAULT_SCHEDULE_FILE,
+    *,
+    now: datetime | None = None,
+) -> RenderableType:
+    """Show the configured jobs and when each next fires.
+
+    Times are in the schedule's own timezone, because a schedule written for
+    Detroit answered in UTC is a schedule read wrong.
+
+    A disabled job gets no next-run time. Computing one would be accurate about
+    the cron and wrong about what will happen.
+
+    A cron this cannot read is named on its own row rather than taking the
+    command down. `ScheduleConfig` only requires that `cron` is a non-empty
+    string, so a malformed expression loads happily and fails much later when
+    the scheduler starts -- which is exactly when a person wants to have been
+    told.
+    """
+    try:
+        config = load_schedule_config(path)
+    except FileNotFoundError:
+        return Text(f"No schedule file at {path}.", style="yellow")
+    except (OSError, ValueError) as error:
+        return Text(f"Could not read {path}: {error}", style="yellow")
+
+    if not config.jobs:
+        return Text(f"{path} configures no jobs.", style="dim")
+
+    after = now or datetime.now(ZoneInfo(config.timezone))
+    table = Table(show_header=True, box=None, padding=(0, 2, 0, 0))
+    table.add_column("Job", style="bold cyan", no_wrap=True)
+    table.add_column("Task", no_wrap=True)
+    table.add_column("Cron", style="dim", no_wrap=True)
+    table.add_column("Next run", no_wrap=True)
+    for job in config.jobs:
+        if not job.enabled:
+            when = Text("disabled", style="dim")
+        else:
+            try:
+                fires = next_run_time(job.cron, config.timezone, after=after)
+            except ValueError as error:
+                when = Text(f"invalid cron: {error}", style="red")
+            else:
+                when = Text(f"{fires:%b %d %H:%M}", style="green")
+        table.add_row(Text(job.id), Text(job.task), Text(job.cron), when)
+
+    return Group(table, Text(f"Times are {config.timezone}.", style="dim"))
 
 
 def working_label(mode: str) -> str:

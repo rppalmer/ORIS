@@ -55,6 +55,7 @@ from oris.commands import (
     phase_label,
     read_command,
     render_runs,
+    render_schedule,
     working_label,
 )
 from oris.config import Settings
@@ -653,6 +654,8 @@ class OrisTui(App):
                 )
             elif parsed.name == "new":
                 self.action_new_session()
+            elif parsed.name == "show_schedule":
+                self._say(Static(render_schedule()))
             elif parsed.name == "show_runs":
                 self._say(
                     Static(

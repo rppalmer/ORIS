@@ -1,11 +1,13 @@
 """Tests for project-owned schedule configuration."""
 
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
 
-from oris.schedules import load_schedule_config
+from oris.schedules import load_schedule_config, next_run_time
 
 
 def test_project_schedule_file_contains_approved_weekday_job() -> None:
@@ -136,3 +138,44 @@ def test_a_podcast_job_states_its_own_run_budget(tmp_path) -> None:
     assert job.task == "podcast_catch_up"
     assert job.days == 1
     assert job.max_episodes == 5
+
+
+def test_next_run_time_is_in_the_schedule_timezone() -> None:
+    """A schedule written for Detroit must not be answered in UTC."""
+    detroit = ZoneInfo("America/Detroit")
+
+    when = next_run_time(
+        "0 7 * * mon-fri",
+        "America/Detroit",
+        after=datetime(2026, 8, 31, 8, 0, tzinfo=detroit),
+    )
+
+    assert when == datetime(2026, 9, 1, 7, 0, tzinfo=detroit)
+
+
+def test_next_run_time_skips_the_weekend_for_a_weekday_job() -> None:
+    """The point of showing it is catching a cron that means something else."""
+    detroit = ZoneInfo("America/Detroit")
+
+    when = next_run_time(
+        "0 7 * * mon-fri",
+        "America/Detroit",
+        after=datetime(2026, 9, 4, 8, 0, tzinfo=detroit),
+    )
+
+    assert when.strftime("%a") == "Mon"
+
+
+def test_next_run_time_rejects_a_cron_it_cannot_read() -> None:
+    """The schedule file only checks that cron is a non-empty string.
+
+    A malformed expression is accepted at load and only fails when the
+    scheduler starts, so the one command that shows schedules has to be able
+    to say which line is wrong.
+    """
+    with pytest.raises(ValueError):
+        next_run_time(
+            "not a cron",
+            "America/Detroit",
+            after=datetime(2026, 8, 31, 8, 0, tzinfo=ZoneInfo("America/Detroit")),
+        )

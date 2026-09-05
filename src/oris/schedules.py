@@ -1,10 +1,12 @@
 """Validated configuration for scheduled ORIS jobs."""
 
 import tomllib
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -98,7 +100,32 @@ class ScheduleConfig(BaseModel):
         return self
 
 
-def load_schedule_config(path: Path = Path("schedules.toml")) -> ScheduleConfig:
+DEFAULT_SCHEDULE_FILE = Path("schedules.toml")
+"""Where the schedule lives, relative to the working directory.
+
+One constant rather than the same literal in each caller, so a command that
+shows the schedule cannot end up reading a different file from the one the
+scheduler runs.
+"""
+
+
+def next_run_time(cron: str, timezone: str, *, after: datetime) -> datetime:
+    """When a cron expression next fires, in its own timezone.
+
+    Raises `ValueError` for an expression this cannot read. The schedule file
+    only checks that `cron` is a non-empty string, so a malformed one loads
+    happily and fails later when the scheduler starts. Anything showing a
+    schedule has to be able to name the line that is wrong rather than fall
+    over on it.
+    """
+    trigger = CronTrigger.from_crontab(cron, timezone=ZoneInfo(timezone))
+    when = trigger.get_next_fire_time(None, after)
+    if when is None:
+        raise ValueError(f"Cron expression never fires: {cron}")
+    return when
+
+
+def load_schedule_config(path: Path = DEFAULT_SCHEDULE_FILE) -> ScheduleConfig:
     """Load and validate a TOML schedule file."""
     with path.open("rb") as schedule_file:
         values = tomllib.load(schedule_file)

@@ -14,7 +14,12 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from oris.scheduled_runs import run_scheduled_job
-from oris.schedules import ScheduleConfig, ScheduledJob, load_schedule_config
+from oris.schedules import (
+    DEFAULT_SCHEDULE_FILE,
+    ScheduleConfig,
+    ScheduledJob,
+    load_schedule_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +66,7 @@ def main() -> None:
     parser.add_argument(
         "--schedule-file",
         type=Path,
-        default=Path("schedules.toml"),
+        default=DEFAULT_SCHEDULE_FILE,
         help="Schedule configuration path (default: schedules.toml)",
     )
     args = parser.parse_args()

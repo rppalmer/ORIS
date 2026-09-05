@@ -21,6 +21,7 @@ from oris.podcast_catch_up import (
 from oris.podcast_output import transcript_provenance
 from oris.scheduled_run_history import DEFAULT_ROOT
 from oris.schedules import (
+    DEFAULT_SCHEDULE_FILE,
     ConfiguredScheduledJob,
     JobId,
     PodcastCatchUpScheduledJob,
@@ -236,7 +237,7 @@ def main() -> None:
     parser.add_argument(
         "--schedule-file",
         type=Path,
-        default=Path("schedules.toml"),
+        default=DEFAULT_SCHEDULE_FILE,
         help="Schedule configuration path (default: schedules.toml)",
     )
     args = parser.parse_args()

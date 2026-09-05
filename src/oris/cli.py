@@ -30,6 +30,7 @@ from oris.commands import (
     phase_label,
     read_command,
     render_runs,
+    render_schedule,
     working_label,
 )
 from oris.knowledge import KnowledgeRepository
@@ -221,6 +222,8 @@ async def run_chat(
             elif parsed.name == "new":
                 thread_id = start_new_session(session_file_path)
                 console.print(Text(f"Started new session: {thread_id}", style="dim"))
+            elif parsed.name == "show_schedule":
+                console.print(render_schedule())
             elif parsed.name == "show_runs":
                 console.print(
                     render_runs(ScheduledRunHistory(DEFAULT_ROOT), parsed.argument)

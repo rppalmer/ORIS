@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from rich.console import Console
 
@@ -12,6 +13,7 @@ from oris.commands import (
     command_table,
     read_command,
     render_runs,
+    render_schedule,
     run_table,
     working_label,
 )
@@ -366,3 +368,83 @@ def test_render_runs_reports_an_unknown_handle(tmp_path) -> None:
     _write(tmp_path, "news", "b20ba821-aaaa")
 
     assert "zzzzzzzz" in _runs_output(tmp_path, "zzzzzzzz")
+
+
+SCHEDULE = """
+timezone = "America/Detroit"
+
+[[jobs]]
+id = "weekday-ai-news"
+enabled = true
+cron = "0 7 * * mon-fri"
+task = "web_research"
+prompt = "Research the most important AI-agent developments from yesterday."
+date_window = "previous_day"
+search_category = "news"
+
+[[jobs]]
+id = "paused-job"
+enabled = false
+cron = "0 3 * * *"
+task = "podcast_catch_up"
+days = 3
+max_episodes = 2
+"""
+
+
+def _schedule_output(path, now=None) -> str:
+    console = Console(width=110)
+    detroit = ZoneInfo("America/Detroit")
+    with console.capture() as captured:
+        console.print(
+            render_schedule(
+                path, now=now or datetime(2026, 8, 31, 8, 0, tzinfo=detroit)
+            )
+        )
+    return captured.get()
+
+
+def test_schedule_shows_each_job_and_when_it_next_runs(tmp_path) -> None:
+    """The question this answers is "is this going to happen, and when"."""
+    path = tmp_path / "schedules.toml"
+    path.write_text(SCHEDULE, encoding="utf-8")
+
+    output = _schedule_output(path)
+
+    assert "weekday-ai-news" in output
+    assert "Sep 01 07:00" in output
+
+
+def test_schedule_gives_a_disabled_job_no_next_run(tmp_path) -> None:
+    """A disabled job has no next run, and saying one would be a lie."""
+    path = tmp_path / "schedules.toml"
+    path.write_text(SCHEDULE, encoding="utf-8")
+
+    output = _schedule_output(path)
+
+    assert "paused-job" in output
+    assert "disabled" in output
+
+
+def test_schedule_names_a_cron_it_cannot_read(tmp_path) -> None:
+    """A malformed cron loads fine and only fails when the scheduler starts."""
+    path = tmp_path / "schedules.toml"
+    path.write_text(
+        SCHEDULE.replace('cron = "0 7 * * mon-fri"', 'cron = "not a cron"'),
+        encoding="utf-8",
+    )
+
+    output = _schedule_output(path)
+
+    assert "weekday-ai-news" in output
+    assert "invalid" in output.lower()
+
+
+def test_schedule_says_plainly_when_there_is_no_schedule_file(tmp_path) -> None:
+    """A missing file must not surface as a traceback in the interface."""
+    assert "No schedule file" in _schedule_output(tmp_path / "absent.toml")
+
+
+def test_schedule_is_answered_by_the_interface() -> None:
+    """Reading a config file must not cost a model call."""
+    assert read_command("/schedule") == SelfHandled("show_schedule")

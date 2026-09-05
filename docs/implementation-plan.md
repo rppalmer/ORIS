@@ -63,10 +63,14 @@ history are working. The scheduler can run Web Research or Podcast
 Catch-up directly from a validated `schedules.toml` entry. Only the scheduled
 path transcribes a whole catch-up; in chat, only a named show does. No recurring
 catch-up job is enabled in the committed schedule because its timing and work
-budget have not been chosen, and the scheduled podcast path has still never been
-run end to end. Both the scheduler and Phoenix run as transitional per-user
-LaunchAgents managed by `orisctl <service> <action>`, rendered from one set of
-rules so no service has its own path convention.
+budget have not been chosen. The scheduled podcast path ran end to end for the
+first time on 2026-09-05, transcribing two episodes with local Whisper.
+
+The scheduler and Phoenix install as system LaunchDaemons through
+`orisctl <service> <action>`, rendered from one set of rules so no service has
+its own path convention. They run as an ordinary account rather than root, and
+start at boot with nobody logged in -- as does oMLX, which moved to a daemon on
+the same day. Nothing on the Mac mini now waits for a person to sign in.
 
 Everything ORIS holds as personal data now lives under a fixed `~/.oris`:
 configuration, conversation state, the `/recall` archive, stored Threat Intel
@@ -74,8 +78,10 @@ evidence, exported activity, and local traces. Those paths used to be relative
 and resolved against whatever directory a process started in, so the
 interactive session and the scheduler quietly kept separate archives. Each has
 an environment override for pointing an existing installation at directories it
-already has. Scheduled reports and run history are the remaining exception and
-are listed under open questions.
+already has. Scheduled reports and run history are the remaining exception. Under launchd
+they resolve correctly, because the rendered plist pins `WorkingDirectory` to
+the checkout; run by hand from elsewhere they still follow the working
+directory, which is why this stays under open questions.
 
 All seventeen opt-in live contracts pass against the real oMLX, Tavily,
 Net-Razor, and ThreatSyft services as of 2026-08-16. The eleven system prompts
@@ -475,11 +481,37 @@ treated as accepted precedent.
 
 ### Mac mini service
 
-- [ ] Move ORIS and oMLX away from dependence on an interactive login.
-- [ ] Run the scheduler as a system LaunchDaemon under a dedicated non-root
-  service identity.
-- [ ] Use service-owned configuration, logs, databases, and artifact paths.
-- [ ] Verify a scheduled run after reboot without a user login.
+- [x] **Move ORIS and oMLX away from dependence on an interactive login.**
+  Done 2026-09-05. Both now run as system LaunchDaemons under `bot`.
+- [x] **Run oMLX as a LaunchDaemon.** `com.omlx.server`, running the app's
+  bundled interpreter against `omlx.cli serve` with no flags, so host, port,
+  model directory, the 28 GB ceiling and `max_concurrent_requests` all still
+  come from `~bot/.omlx/settings.json`. oMLX's own LaunchAgent was only
+  `open -a /Applications/oMLX.app`, and is disabled alongside
+  `auto_start_on_launch`, so opening the GUI cannot start a second server on
+  the same port.
+
+  The open risk was Metal: a daemon runs in the system context with no GUI
+  session, and nothing here would have worked without GPU access. It has it.
+  The daemon logs `ThreadLocalStream(Device(gpu, 0), 4)`, loads
+  Qwen3.5-35B-A3B-OptiQ-4bit, and answered a real request in 0.49s. Verified
+  across a reboot with nobody logged in.
+- [x] **Run the ORIS scheduler as a system LaunchDaemon under a non-root
+  identity.** Done 2026-09-05. `orisctl` installs to `/Library/LaunchDaemons`
+  and bootstraps the `system` domain. `RunAtLoad` is now set: `KeepAlive`
+  alone restarts a daemon that dies, it does not start one at boot, and for a
+  scheduler those are different things. Install refuses without a named user
+  rather than silently running as root, and checks for root before writing
+  anything -- a plist on disk that launchd never loaded looks exactly like a
+  working install until the machine reboots without it.
+- [x] **Use service-owned paths.** The rendered plist sets `WorkingDirectory`
+  to the checkout, so `schedules.toml` and `artifacts/scheduled/` resolve
+  under launchd rather than against whatever directory a process started in.
+  That was a real defect twice on 2026-09-05.
+- [ ] **Verify a scheduled run after reboot without a user login.** oMLX is
+  verified across a reboot. The scheduler is installed but no job has yet
+  fired unattended: the first proof will be `overnight-podcast-catch-up` at
+  03:00, which should appear in `/runs` with nobody having started it.
 - [ ] Re-test scheduled execution on the Mac mini once the code is moved there.
   The `weekday-ai-news` job did not fire on the morning of 2026-08-14: the
   scheduler process was alive and had never exited, and no run record or log

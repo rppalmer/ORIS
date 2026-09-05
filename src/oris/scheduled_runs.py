@@ -230,6 +230,46 @@ def run_scheduled_job(
     )
 
 
+class UnknownScheduledJob(LookupError):
+    """The named job is not in the schedule, or is switched off in it."""
+
+
+def run_job_by_id(
+    job_id: str,
+    *,
+    schedule_file: Path = DEFAULT_SCHEDULE_FILE,
+) -> ScheduledRunRecordBase:
+    """Run one configured job by name, with no scheduler involved.
+
+    Naming a job and running it is wanted from three places -- the command
+    line, the terminal interface, and the CLI -- and each of them was one
+    plausible re-derivation away from disagreeing about what "unknown job"
+    means or whether a disabled job runs when asked for directly. It does not:
+    disabled is a statement about the job, not about the scheduler.
+    """
+    schedule_config = load_schedule_config(schedule_file)
+    job = next((item for item in schedule_config.jobs if item.id == job_id), None)
+    if job is None:
+        raise UnknownScheduledJob(f"Unknown scheduled job: {job_id}")
+    if not job.enabled:
+        raise UnknownScheduledJob(f"Scheduled job is disabled: {job_id}")
+
+    from oris.web_research_app import (
+        build_podcast_catch_up_preparation,
+        knowledge_repository,
+        web_research_graph,
+    )
+
+    current_date = datetime.now(ZoneInfo(schedule_config.timezone)).date()
+    return run_scheduled_job(
+        job,
+        web_research_graph,
+        knowledge_repository,
+        current_date=current_date,
+        build_podcast_catch_up=build_podcast_catch_up_preparation,
+    )
+
+
 def main() -> None:
     """Run one named job manually without starting a scheduler."""
     parser = argparse.ArgumentParser(description=main.__doc__)
@@ -242,27 +282,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    schedule_config = load_schedule_config(args.schedule_file)
-    job = next((item for item in schedule_config.jobs if item.id == args.job_id), None)
-    if job is None:
-        parser.error(f"Unknown scheduled job: {args.job_id}")
-    if not job.enabled:
-        parser.error(f"Scheduled job is disabled: {args.job_id}")
-
-    from oris.web_research_app import (
-        build_podcast_catch_up_preparation,
-        knowledge_repository,
-        web_research_graph,
-    )
-
-    current_date = datetime.now(ZoneInfo(schedule_config.timezone)).date()
-    record = run_scheduled_job(
-        job,
-        web_research_graph,
-        knowledge_repository,
-        current_date=current_date,
-        build_podcast_catch_up=build_podcast_catch_up_preparation,
-    )
+    try:
+        record = run_job_by_id(args.job_id, schedule_file=args.schedule_file)
+    except UnknownScheduledJob as error:
+        parser.error(str(error))
     print(f"Scheduled run succeeded: {record.report_path}")
 
 

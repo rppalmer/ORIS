@@ -25,7 +25,11 @@ from rich.console import Group, RenderableType
 from rich.table import Table
 from rich.text import Text
 
-from oris.scheduled_run_history import ScheduledRunHistory, ScheduledRunListing
+from oris.scheduled_run_history import (
+    SHORT_ID_LENGTH,
+    ScheduledRunHistory,
+    ScheduledRunListing,
+)
 from oris.schedules import (
     DEFAULT_SCHEDULE_FILE,
     load_schedule_config,
@@ -81,8 +85,8 @@ SIMPLE_COMMANDS = (
         "List scheduled runs, or print one by its ID. Not sent to chat.",
     ),
     (
-        "/schedule",
-        "Show the configured jobs and when each one next runs.",
+        "/schedule [run <job>]",
+        "Show the configured jobs and next run times; 'run' starts one now.",
     ),
     ("/session", "Show the active session ID."),
     ("/new", "Start a new conversation session."),
@@ -142,6 +146,7 @@ SelfHandledName = Literal[
     "show_evidence",
     "show_runs",
     "show_schedule",
+    "run_job",
 ]
 
 
@@ -224,6 +229,12 @@ def read_command(query: str) -> Routed | SelfHandled | Rejected:
 
     if query == "/schedule":
         return SelfHandled("show_schedule")
+
+    if query.startswith("/schedule run"):
+        job_id = query.removeprefix("/schedule run").strip()
+        if not job_id:
+            return Rejected("Usage: /schedule run <job>")
+        return SelfHandled("run_job", job_id)
 
     command = query.split(maxsplit=1)[0]
     if command in SLASH_COMMANDS:
@@ -443,6 +454,42 @@ def render_schedule(
         table.add_row(Text(job.id), Text(job.task), Text(job.cron), when)
 
     return Group(table, Text(f"Times are {config.timezone}.", style="dim"))
+
+
+def run_job_now(
+    job_id: str,
+    *,
+    path: Path = DEFAULT_SCHEDULE_FILE,
+) -> RenderableType:
+    """Run one scheduled job on demand and say where its report landed.
+
+    A job takes minutes and calls live providers, so both interfaces have to
+    keep it off whatever thread is drawing the screen. What they share is this:
+    what counts as a bad job name, and what a person is told afterwards.
+
+    A failure is reported rather than raised. Asking for a run by hand is
+    usually how someone checks whether a job works at all, and losing the
+    interface is the least useful possible answer to "it does not".
+    """
+    from oris.scheduled_runs import UnknownScheduledJob, run_job_by_id
+
+    try:
+        record = run_job_by_id(job_id, schedule_file=path)
+    except UnknownScheduledJob as error:
+        return Text(str(error), style="yellow")
+    except Exception as error:  # noqa: BLE001 - a failed job is not a crash
+        return Text(f"{job_id} failed: {type(error).__name__}: {error}", style="red")
+
+    if record.status != "succeeded":
+        return Text(
+            f"{job_id} finished as {record.status}: {record.error or 'no reason given'}",
+            style="red",
+        )
+    return Group(
+        Text(f"{job_id} succeeded.", style="green"),
+        Text(f"Run {str(record.run_id)[:SHORT_ID_LENGTH]}", style="dim"),
+        Text(f"Report: {record.report_path}", style="dim"),
+    )
 
 
 def working_label(mode: str) -> str:

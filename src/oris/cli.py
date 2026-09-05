@@ -31,6 +31,7 @@ from oris.commands import (
     read_command,
     render_runs,
     render_schedule,
+    run_job_now,
     working_label,
 )
 from oris.knowledge import KnowledgeRepository
@@ -224,6 +225,12 @@ async def run_chat(
                 console.print(Text(f"Started new session: {thread_id}", style="dim"))
             elif parsed.name == "show_schedule":
                 console.print(render_schedule())
+            elif parsed.name == "run_job":
+                # Synchronous here on purpose. A terminal running one command
+                # has nothing else to do, and a progress line that cannot be
+                # interleaved with anything is just noise.
+                console.print(f"Running {parsed.argument}…", style="dim")
+                console.print(run_job_now(parsed.argument))
             elif parsed.name == "show_runs":
                 console.print(
                     render_runs(ScheduledRunHistory(DEFAULT_ROOT), parsed.argument)

@@ -14,6 +14,7 @@ from oris.commands import (
     read_command,
     render_runs,
     render_schedule,
+    run_job_now,
     run_table,
     working_label,
 )
@@ -448,3 +449,44 @@ def test_schedule_says_plainly_when_there_is_no_schedule_file(tmp_path) -> None:
 def test_schedule_is_answered_by_the_interface() -> None:
     """Reading a config file must not cost a model call."""
     assert read_command("/schedule") == SelfHandled("show_schedule")
+
+
+def test_schedule_run_names_the_job_to_start() -> None:
+    """`/schedule run <job>` is the on-demand trigger, not a search."""
+    assert read_command("/schedule run weekday-ai-news") == SelfHandled(
+        "run_job", "weekday-ai-news"
+    )
+
+
+def test_schedule_run_without_a_job_says_what_it_wants() -> None:
+    """Running "whatever job you like" is never what somebody meant."""
+    parsed = read_command("/schedule run")
+    assert isinstance(parsed, Rejected)
+    assert "Usage: /schedule run <job>" in parsed.message
+
+
+def test_running_an_unknown_job_reports_it_rather_than_raising(tmp_path) -> None:
+    """Asking by hand is how a person checks a job works at all.
+
+    Taking the interface down is the least useful possible answer to "does
+    this run", so a bad name, a disabled job and a job that throws are all
+    reported into the conversation.
+    """
+    path = tmp_path / "schedules.toml"
+    path.write_text(SCHEDULE, encoding="utf-8")
+
+    console = Console(width=100)
+    with console.capture() as captured:
+        console.print(run_job_now("no-such-job", path=path))
+    assert "Unknown scheduled job: no-such-job" in captured.get()
+
+
+def test_running_a_disabled_job_refuses_it(tmp_path) -> None:
+    """Disabled describes the job, not only what the scheduler does with it."""
+    path = tmp_path / "schedules.toml"
+    path.write_text(SCHEDULE, encoding="utf-8")
+
+    console = Console(width=100)
+    with console.capture() as captured:
+        console.print(run_job_now("paused-job", path=path))
+    assert "disabled" in captured.get()

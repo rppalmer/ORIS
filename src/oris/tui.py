@@ -56,6 +56,7 @@ from oris.commands import (
     read_command,
     render_runs,
     render_schedule,
+    run_job_now,
     working_label,
 )
 from oris.config import Settings
@@ -662,6 +663,9 @@ class OrisTui(App):
                         render_runs(ScheduledRunHistory(DEFAULT_ROOT), parsed.argument)
                     )
                 )
+            elif parsed.name == "run_job":
+                self._say(Static(Text(f"Running {parsed.argument}…", style="dim")))
+                self._run_job(parsed.argument)
             # Named rather than left to `else`: a new self-handled command
             # added to the vocabulary would otherwise land here silently and
             # open stored evidence instead of doing its own job.
@@ -672,6 +676,21 @@ class OrisTui(App):
         self._write_request(query)
         self._begin(working_label(parsed.mode))
         self._ask(parsed.mode, parsed.request)
+
+    @work(thread=True, exit_on_error=False)
+    def _run_job(self, job_id: str) -> None:
+        """Run one scheduled job off the UI thread.
+
+        A thread rather than an async worker, because the job is synchronous
+        and calls `asyncio.run` for a podcast catch-up, which raises inside a
+        running event loop. It also takes minutes and contacts live providers,
+        so the interface has to stay usable while it works.
+
+        Not exclusive: asking for a run does not cancel the conversation, and a
+        person who starts a job then asks a question should get both.
+        """
+        rendered = run_job_now(job_id)
+        self.call_from_thread(self._say, Static(rendered))
 
     @work(exclusive=True, exit_on_error=False)
     async def _ask(self, mode: str, request: str) -> None:

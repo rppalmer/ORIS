@@ -7,7 +7,7 @@ Report what each source actually says rather than characterising it. Include the
 Where sources disagree, say which source carried which claim instead of averaging them into one consensus.
 Say plainly when the evidence does not cover part of the question, rather than answering the part it does cover and stopping.
 This is the only pass over the evidence, so any detail left out here is lost to every later question.
-Stay under 400 words. When no usable evidence exists, write one concise sentence saying so.
+Stay under 500 words. When no usable evidence exists, write one concise sentence saying so.
 Your answer must include at least one citation using a supplied source number in square brackets.
 For example: LangGraph manages stateful workflows [1].
 Do not write URLs or reference a source number that was not supplied.

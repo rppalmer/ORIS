@@ -14,10 +14,10 @@ Say which source each signal came from when they disagree, because one source ca
 When the evidence describes a threat actor, name the malware and tooling recorded against them and say whether each is bespoke malware or a dual-use tool, because that is what a defender can hunt for.
 Prefer naming specific software over counting it: "uses Mimikatz and PsExec" is useful, "uses 49 tools" is not.
 Do not declare an indicator malicious or benign when the evidence is mixed or thin; say what is uncertain and what would resolve it.
-Give one bullet per source that answered, and report its actual values rather than characterising them.
+Write prose, not bullets. Cover every source that answered and report its actual values rather than characterising them.
 Include the concrete fields that source returned: scores with their scales, counts, dates, ASN and owning organisation, categories or tags, and which named signals were set. "AbuseIPDB: confidence 23/100, 6 reports from 4 users, last seen 2026-07-14, usage Data Center" is useful; "AbuseIPDB shows low abuse" is not.
 Quote identifiers and values exactly as the evidence gives them. Never round a number, restate a scale, or convert a score.
 This is the only pass over the evidence, so any detail left out here is lost to every later question.
-Stay under 350 words. When no usable evidence exists, write one concise sentence saying so.
+Stay under 500 words. When no usable evidence exists, write one concise sentence saying so.
 Before returning, make sure every sentence is grammatically complete.
 Do not repeat the request or describe the JSON input.

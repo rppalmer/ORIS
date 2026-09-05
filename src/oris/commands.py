@@ -22,7 +22,7 @@ from rich.console import Group, RenderableType
 from rich.table import Table
 from rich.text import Text
 
-from oris.scheduled_run_history import ScheduledRunListing
+from oris.scheduled_run_history import ScheduledRunHistory, ScheduledRunListing
 
 SLASH_COMMANDS = {
     "/research": (
@@ -69,8 +69,8 @@ SIMPLE_COMMANDS = (
         "Print stored evidence, newest by default. Not sent to chat.",
     ),
     (
-        "/runs [job]",
-        "List scheduled runs, newest first, including the ones that failed.",
+        "/runs [job|id]",
+        "List scheduled runs, or print one by its ID. Not sent to chat.",
     ),
     ("/session", "Show the active session ID."),
     ("/new", "Start a new conversation session."),
@@ -326,6 +326,52 @@ def run_table(listing: ScheduledRunListing) -> RenderableType:
         else f"{listing.total} run{plural}{scope}."
     )
     return Group(table, Text(note, style="dim"))
+
+
+def render_runs(history: ScheduledRunHistory, argument: str) -> RenderableType:
+    """Answer one `/runs` command, whatever it was asking for.
+
+    The argument is either a job or a run handle, and both are lowercase words
+    with hyphens, so shape cannot tell them apart. A job wins when a directory
+    of that name exists, because a job only exists once it has recorded a run.
+    A handle that happens to equal a job name is the rarer accident and loses.
+
+    An ambiguous handle prints the candidates instead of opening one. Guessing
+    which run the reader meant is the behaviour this replaced.
+    """
+    wanted = argument.strip()
+    if not wanted:
+        return run_table(history.recent())
+    if wanted in history.job_ids():
+        return run_table(history.recent(job_id=wanted))
+
+    matches = history.find(wanted)
+    if not matches:
+        return Text(
+            f"No scheduled run or job matches {wanted!r}.",
+            style="yellow",
+        )
+    if len(matches) > 1:
+        listing = ScheduledRunListing(runs=matches, total=len(matches), truncated=False)
+        return Group(
+            Text(f"{wanted!r} matches more than one run:", style="yellow"),
+            run_table(listing),
+        )
+
+    run = matches[0]
+    report = history.read_report(run)
+    if report is None:
+        reason = run.error or "It recorded no report."
+        return Text(
+            f"Run {run.short_id} ({run.job_id}, {run.status}) has nothing to "
+            f"show. {reason}",
+            style="yellow",
+        )
+    header = Text(
+        f"{run.short_id}  {run.job_id}  {_when(run)}  {run.status}",
+        style="dim",
+    )
+    return Group(header, Text(""), Text(report))
 
 
 def working_label(mode: str) -> str:

@@ -28,6 +28,13 @@ enough to retype. The full ID is always carried alongside it.
 
 DEFAULT_LIMIT = 20
 
+MAX_MATCHES = 1000
+"""How far back a handle lookup searches.
+
+Deliberately far past any listing a person reads, so a run stays openable long
+after it has scrolled off the end of the default view.
+"""
+
 DEFAULT_ROOT = Path("artifacts/scheduled")
 """Where scheduled runs are recorded, relative to the working directory.
 
@@ -175,6 +182,43 @@ class ScheduledRunHistory:
             truncated=len(runs) > limit,
             job_id=job_id,
         )
+
+    def find(self, reference: str) -> tuple[ScheduledRun, ...]:
+        """Every run whose ID starts with `reference`, newest first.
+
+        Returns all of them rather than picking one. An ambiguous handle is a
+        question for the reader; opening "probably the one you meant" is the
+        guesswork this listing was built to remove.
+        """
+        wanted = reference.strip().lower()
+        if not wanted:
+            return ()
+        listing = self.recent(limit=MAX_MATCHES)
+        return tuple(
+            run for run in listing.runs if run.run_id.lower().startswith(wanted)
+        )
+
+    def read_report(self, run: ScheduledRun) -> str | None:
+        """The report one run wrote, or None when there is nothing to read.
+
+        None covers both ordinary cases: a failed run deleted its report, and
+        an older record never named one. Neither is an error.
+
+        `report_path` is read out of a JSON file, so it is input rather than a
+        fact. Resolving it and checking it still sits under the artifact root
+        stops a record from naming `../../` anything and turning this into a
+        way to read arbitrary files.
+        """
+        if run.report_path is None:
+            return None
+        root = self.directory.resolve()
+        candidate = (root / run.report_path).resolve()
+        if not candidate.is_relative_to(root):
+            return None
+        try:
+            return candidate.read_text(encoding="utf-8")
+        except OSError:
+            return None
 
     def job_ids(self) -> tuple[str, ...]:
         """Every job that has ever recorded a run, in name order."""

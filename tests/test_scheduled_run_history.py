@@ -226,3 +226,94 @@ def test_history_says_which_job_a_listing_was_narrowed_to(tmp_path: Path) -> Non
     assert listing.runs == ()
     assert listing.total == 0
     assert listing.job_id == "absent-job"
+
+
+def test_history_finds_a_run_by_its_short_handle(tmp_path: Path) -> None:
+    """The handle shown in the listing is the handle that opens the run."""
+    write_record(tmp_path, "news", "2026-08-30T07:00:00Z", "b20ba821-7bc4-42df")
+
+    found = ScheduledRunHistory(tmp_path).find("b20ba821")
+
+    assert [run.run_id for run in found] == ["b20ba821-7bc4-42df"]
+
+
+def test_history_finds_a_run_by_its_full_id(tmp_path: Path) -> None:
+    """Pasting the whole ID from a record must work too."""
+    write_record(tmp_path, "news", "2026-08-30T07:00:00Z", "b20ba821-7bc4-42df")
+
+    found = ScheduledRunHistory(tmp_path).find("b20ba821-7bc4-42df")
+
+    assert len(found) == 1
+
+
+def test_history_returns_every_match_rather_than_guessing(tmp_path: Path) -> None:
+    """An ambiguous handle must not silently open one of the candidates.
+
+    Opening "probably the one you meant" is the behaviour this whole feature
+    replaced. Two matches is a question for the reader, not a coin toss.
+    """
+    write_record(tmp_path, "news", "2026-08-30T07:00:00Z", "aaaa1111-one")
+    write_record(tmp_path, "news", "2026-08-29T07:00:00Z", "aaaa2222-two")
+
+    found = ScheduledRunHistory(tmp_path).find("aaaa")
+
+    assert len(found) == 2
+
+
+def test_history_finds_nothing_for_an_unknown_handle(tmp_path: Path) -> None:
+    """No match is an answer, not an error."""
+    write_record(tmp_path, "news", "2026-08-30T07:00:00Z", "b20ba821-7bc4")
+
+    assert ScheduledRunHistory(tmp_path).find("zzzzzzzz") == ()
+
+
+def test_history_reads_the_report_a_run_produced(tmp_path: Path) -> None:
+    """Reading a run means reading the report it wrote."""
+    write_record(tmp_path, "news", "2026-08-30T07:00:00Z", "b20ba821-7bc4")
+    history = ScheduledRunHistory(tmp_path)
+    run = history.find("b20ba821")[0]
+
+    assert history.read_report(run) == "# report\n"
+
+
+def test_history_has_no_report_to_read_for_a_failed_run(tmp_path: Path) -> None:
+    """A failed run deletes its report; that is not an error to raise."""
+    write_record(
+        tmp_path,
+        "news",
+        "2026-08-18T11:00:00Z",
+        "dddddddd-4444",
+        status="failed",
+        error="APIConnectionError: Connection error.",
+        with_report=False,
+    )
+    history = ScheduledRunHistory(tmp_path)
+
+    assert history.read_report(history.find("dddddddd")[0]) is None
+
+
+def test_history_refuses_a_report_path_that_escapes_the_root(tmp_path: Path) -> None:
+    """`report_path` comes out of a file, so it is input, not a fact.
+
+    A record is JSON on disk. Following whatever path it names would turn any
+    writable record into a file-read primitive.
+    """
+    secret = tmp_path / "secret.md"
+    secret.write_text("do not read me", encoding="utf-8")
+    root = tmp_path / "runs"
+    (root / "news").mkdir(parents=True)
+    (root / "news" / "20260830T070000Z-evil.json").write_text(
+        json.dumps(
+            {
+                "job_id": "news",
+                "run_id": "evil",
+                "status": "succeeded",
+                "started_at": "2026-08-30T07:00:00Z",
+                "report_path": "../../secret.md",
+            }
+        ),
+        encoding="utf-8",
+    )
+    history = ScheduledRunHistory(root)
+
+    assert history.read_report(history.find("evil")[0]) is None

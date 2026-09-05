@@ -1,5 +1,6 @@
 """Tests for the command vocabulary both front ends read."""
 
+import json
 from datetime import UTC, datetime
 
 from rich.console import Console
@@ -10,10 +11,15 @@ from oris.commands import (
     SelfHandled,
     command_table,
     read_command,
+    render_runs,
     run_table,
     working_label,
 )
-from oris.scheduled_run_history import ScheduledRun, ScheduledRunListing
+from oris.scheduled_run_history import (
+    ScheduledRun,
+    ScheduledRunHistory,
+    ScheduledRunListing,
+)
 
 
 def test_command_help_shows_bracketed_usage_verbatim(capsys) -> None:
@@ -278,3 +284,85 @@ def test_run_table_keeps_a_long_error_from_stretching_the_columns() -> None:
 
     for line in _rendered(listing).splitlines():
         assert len(line) <= 110
+
+
+def _runs_output(tmp_path, argument: str = "") -> str:
+    console = Console(width=110)
+    with console.capture() as captured:
+        console.print(render_runs(ScheduledRunHistory(tmp_path), argument))
+    return captured.get()
+
+
+def _write(tmp_path, job: str, run_id: str, *, report: str | None = "# body\n") -> None:
+    directory = tmp_path / job
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = f"20260830T070000Z-{run_id}"
+    (directory / f"{stem}.json").write_text(
+        json.dumps(
+            {
+                "job_id": job,
+                "run_id": run_id,
+                "status": "succeeded" if report else "failed",
+                "started_at": "2026-08-30T07:00:00Z",
+                "finished_at": "2026-08-30T07:00:10Z",
+                "error": None if report else "SearchProviderError: no results.",
+                "report_path": f"{job}/{stem}.md" if report else None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    if report:
+        (directory / f"{stem}.md").write_text(report, encoding="utf-8")
+
+
+def test_render_runs_lists_everything_with_no_argument(tmp_path) -> None:
+    """The bare command is the overview."""
+    _write(tmp_path, "news", "b20ba821-aaaa")
+
+    assert "b20ba821" in _runs_output(tmp_path)
+
+
+def test_render_runs_treats_a_known_job_name_as_a_job(tmp_path) -> None:
+    """A job that has runs wins over reading it as a run handle."""
+    _write(tmp_path, "news", "b20ba821-aaaa")
+
+    assert "1 run for news." in _runs_output(tmp_path, "news")
+
+
+def test_render_runs_opens_a_run_by_its_handle(tmp_path) -> None:
+    """Selecting a run prints what that run wrote."""
+    _write(tmp_path, "news", "b20ba821-aaaa", report="# The digest\nBody text.\n")
+
+    output = _runs_output(tmp_path, "b20ba821")
+
+    assert "The digest" in output
+    assert "Body text." in output
+
+
+def test_render_runs_asks_rather_than_guessing_between_two_matches(tmp_path) -> None:
+    """Two candidates is a question, never a coin toss."""
+    _write(tmp_path, "news", "aaaa1111-one", report="# First\n")
+    _write(tmp_path, "news", "aaaa2222-two", report="# Second\n")
+
+    output = _runs_output(tmp_path, "aaaa")
+
+    assert "aaaa1111" in output
+    assert "aaaa2222" in output
+    assert "First" not in output
+    assert "Second" not in output
+
+
+def test_render_runs_says_why_a_failed_run_has_nothing_to_show(tmp_path) -> None:
+    """Opening a failure should give its reason, not an empty screen."""
+    _write(tmp_path, "news", "dddddddd-fail", report=None)
+
+    output = _runs_output(tmp_path, "dddddddd")
+
+    assert "SearchProviderError" in output
+
+
+def test_render_runs_reports_an_unknown_handle(tmp_path) -> None:
+    """A handle that matches nothing must say so plainly."""
+    _write(tmp_path, "news", "b20ba821-aaaa")
+
+    assert "zzzzzzzz" in _runs_output(tmp_path, "zzzzzzzz")

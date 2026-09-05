@@ -29,7 +29,7 @@ from oris.commands import (
     command_table,
     phase_label,
     read_command,
-    run_table,
+    render_runs,
     working_label,
 )
 from oris.knowledge import KnowledgeRepository
@@ -223,11 +223,7 @@ async def run_chat(
                 console.print(Text(f"Started new session: {thread_id}", style="dim"))
             elif parsed.name == "show_runs":
                 console.print(
-                    run_table(
-                        ScheduledRunHistory(DEFAULT_ROOT).recent(
-                            job_id=parsed.argument or None
-                        )
-                    )
+                    render_runs(ScheduledRunHistory(DEFAULT_ROOT), parsed.argument)
                 )
             # Named rather than left to `else`: a new self-handled command
             # added to the vocabulary would otherwise land here silently and

@@ -54,7 +54,7 @@ from oris.commands import (
     command_table,
     phase_label,
     read_command,
-    run_table,
+    render_runs,
     working_label,
 )
 from oris.config import Settings
@@ -656,11 +656,7 @@ class OrisTui(App):
             elif parsed.name == "show_runs":
                 self._say(
                     Static(
-                        run_table(
-                            ScheduledRunHistory(DEFAULT_ROOT).recent(
-                                job_id=parsed.argument or None
-                            )
-                        )
+                        render_runs(ScheduledRunHistory(DEFAULT_ROOT), parsed.argument)
                     )
                 )
             # Named rather than left to `else`: a new self-handled command

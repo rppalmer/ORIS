@@ -325,9 +325,20 @@ def create_community_research_graph(
             # are described one at a time because that is the only way this
             # model keeps their specifics, but that is a fact about how the
             # answer is produced, and a reader should not have to see it.
-            summary = " ".join(findings.findings.strip() for _, findings in entries)
-            if not summary:
+            if not entries:
                 summary = "Queried, and returned nothing."
+            elif not any(findings.bears_on_topic for _, findings in entries):
+                # Every item was judged off topic, which is an answer rather
+                # than a failure. Said once, because the alternative is a
+                # paragraph of per-item sentences each reporting the same
+                # nothing.
+                noun = "item" if len(entries) == 1 else "items"
+                summary = (
+                    f"Queried, and returned {len(entries)} {noun}, "
+                    "none of which discussed the topic."
+                )
+            else:
+                summary = " ".join(findings.findings.strip() for _, findings in entries)
             errors = _reported_errors(reported.get(source))
             if errors:
                 summary = f"{summary} Net-Razor reported: {'; '.join(errors)}."
@@ -345,18 +356,34 @@ def create_community_research_graph(
         return {"answer": "\n\n".join(blocks), "cited_urls": cited_urls}
 
     def validate_citations(state: CommunityResearchState) -> dict:
+        """Reject a URL nobody supplied. Do not require that any exist.
+
+        Web Research demands at least one citation because its model writes the
+        prose and could write it uncited, and an uncited claim there cannot be
+        checked at all. This specialist has no such failure available to it:
+        the model never types a URL. It sets one flag per item saying whether
+        that item bore on the topic, and ORIS then takes the canonical URL of
+        each flagged item straight out of the evidence.
+
+        So an empty citation list here does not mean an uncited answer. It
+        means the model judged every returned item irrelevant, which the prompt
+        explicitly asks it to do. Requiring a citation anyway asserted that the
+        search had found something relevant -- a claim about the world rather
+        than about the answer, and not one ORIS can make. It cost a real run:
+        `obscure-topic` raised instead of reporting that nobody is discussing
+        the subject. That is the answer to the question, not a failure to
+        answer it.
+
+        What remains worth checking is the reverse. Nothing today can cite a
+        URL that was not supplied, because the citations are assembled rather
+        than written; if that ever changes back, this is what catches it.
+        """
         available_urls = _canonical_urls(state["research_result"])
-        cited_urls = set(state["cited_urls"])
-        unsupported_urls = sorted(cited_urls - available_urls)
+        unsupported_urls = sorted(set(state["cited_urls"]) - available_urls)
         if unsupported_urls:
             raise ValueError(
                 f"The community research answer cited unavailable URLs: "
                 f"{unsupported_urls}"
-            )
-
-        if available_urls and not cited_urls:
-            raise ValueError(
-                "The community research answer must include at least one cited URL"
             )
         return {}
 

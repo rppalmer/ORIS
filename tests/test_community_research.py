@@ -176,8 +176,14 @@ def test_community_research_requires_structured_json() -> None:
     structured_model.ainvoke.assert_not_awaited()
 
 
-def test_community_research_requires_a_citation_when_evidence_exists() -> None:
-    """An evidence-backed answer must contain at least one Markdown link."""
+def test_community_research_answers_when_no_item_bore_on_the_topic() -> None:
+    """Nobody discussing a subject is the answer, not a failure to answer.
+
+    The model never writes a URL here: it flags each item and ORIS collects the
+    canonical URLs of the flagged ones. So an empty citation list means every
+    item was judged off topic, which the prompt asks for. Requiring a citation
+    made an obscure topic raise instead of reporting the silence.
+    """
     tool, model, _ = make_dependencies(
         findings=ItemFindings(
             findings="Nothing here bore on the topic.", bears_on_topic=False
@@ -185,8 +191,12 @@ def test_community_research_requires_a_citation_when_evidence_exists() -> None:
     )
     graph = create_community_research_graph(tool, model)
 
-    with pytest.raises(ValueError, match="at least one cited URL"):
-        asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
+    result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
+
+    assert result["cited_urls"] == []
+    assert "none of which discussed the topic" in result["answer"]
+    # Said once for the source, not once per item.
+    assert "Nothing here bore on the topic." not in result["answer"]
 
 
 def test_community_research_cites_the_item_it_was_given() -> None:

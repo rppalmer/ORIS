@@ -13,6 +13,15 @@
     <key>WorkingDirectory</key>
     <string>${project_root}</string>
 
+    <key>UserName</key>
+    <string>${user}</string>
+
+    <key>GroupName</key>
+    <string>${group}</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
     <key>KeepAlive</key>
     <true/>
 

@@ -1,6 +1,9 @@
 """Tests for rendering and managing the ORIS service LaunchAgents."""
 
+import grp
+import os
 import plistlib
+import pwd
 from dataclasses import replace
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -13,10 +16,12 @@ from oris.launch_agent import (
     LAUNCHCTL,
     SERVICES,
     LaunchAgentPaths,
+    default_user,
     domain_target,
     install,
     label_for,
     main,
+    primary_group,
     render_plist,
     restart,
     service_target,
@@ -44,11 +49,12 @@ def _fake_project(tmp_path: Path, service: str) -> LaunchAgentPaths:
         encoding="utf-8",
     )
 
-    paths = LaunchAgentPaths.from_project_root(project_root, service)
-    return replace(
-        paths,
-        installed=tmp_path / "home" / "Library" / "LaunchAgents" / paths.installed.name,
+    paths = LaunchAgentPaths.from_project_root(
+        project_root, service, user="bot", group="staff"
     )
+    # Installed somewhere writable: the real destination is
+    # /Library/LaunchDaemons, which a test must never touch.
+    return replace(paths, installed=tmp_path / "daemons" / paths.installed.name)
 
 
 @pytest.fixture
@@ -73,6 +79,9 @@ def test_render_plist_is_explicit_and_idempotent(
             str(launch_agent_paths.schedule_file),
         ],
         "WorkingDirectory": str(launch_agent_paths.project_root),
+        "UserName": "bot",
+        "GroupName": "staff",
+        "RunAtLoad": True,
         "KeepAlive": True,
         "ProcessType": "Background",
         "Umask": "077",
@@ -87,7 +96,9 @@ def test_render_plist_is_explicit_and_idempotent(
     assert ".env" not in launch_agent_paths.rendered.read_text(encoding="utf-8")
 
 
+@patch("oris.launch_agent.os.geteuid", return_value=0)
 def test_install_replaces_only_the_loaded_scheduler_service(
+    _geteuid,
     launch_agent_paths: LaunchAgentPaths,
 ) -> None:
     """Installation safely replaces and bootstraps the exact user service."""
@@ -119,7 +130,9 @@ def test_install_replaces_only_the_loaded_scheduler_service(
     ]
 
 
+@patch("oris.launch_agent.os.geteuid", return_value=0)
 def test_uninstall_is_safe_when_the_service_is_already_absent(
+    _geteuid,
     launch_agent_paths: LaunchAgentPaths,
 ) -> None:
     """Repeated uninstallation removes only the exact plist and stays safe."""
@@ -257,3 +270,82 @@ def test_every_service_follows_the_same_path_rules(tmp_path: Path) -> None:
 
     labels = {values["Label"] for values in rendered.values()}
     assert len(labels) == len(SERVICES)
+
+
+def test_daemon_runs_at_boot_as_a_named_unprivileged_user(
+    launch_agent_paths: LaunchAgentPaths,
+) -> None:
+    """The two properties this exists for, checked in the rendered plist.
+
+    `RunAtLoad` is what removes the login: a daemon that only has `KeepAlive`
+    is restarted when it dies, not started when the machine boots. `UserName`
+    is what keeps it unprivileged — launchd runs a daemon as root otherwise,
+    and the whole point of running under `bot` is that it does not.
+    """
+    paths = replace(launch_agent_paths, user="bot", group="staff")
+    render_plist(paths)
+
+    values = plistlib.loads(paths.rendered.read_bytes())
+
+    assert values["RunAtLoad"] is True
+    assert values["UserName"] == "bot"
+    assert values["GroupName"] == "staff"
+
+
+def test_daemon_installs_system_wide_rather_than_per_user(
+    launch_agent_paths: LaunchAgentPaths,
+) -> None:
+    """A per-user LaunchAgent is exactly the login dependency being removed."""
+    paths = LaunchAgentPaths.from_project_root(launch_agent_paths.project_root)
+
+    assert paths.installed.parent == Path("/Library/LaunchDaemons")
+
+
+def test_daemon_targets_the_system_domain(
+    launch_agent_paths: LaunchAgentPaths,
+) -> None:
+    """`gui/<uid>` only exists while that user is logged in."""
+    assert domain_target() == "system"
+    assert (
+        service_target(launch_agent_paths.label) == f"system/{launch_agent_paths.label}"
+    )
+
+
+def test_install_refuses_without_root_rather_than_failing_late(
+    launch_agent_paths: LaunchAgentPaths,
+) -> None:
+    """Writing to /Library/LaunchDaemons needs root; say so before doing work.
+
+    Half-installing and then failing on `launchctl bootstrap` leaves a plist
+    on disk that nothing loaded, which reads exactly like a working install.
+    """
+    with (
+        patch("oris.launch_agent.os.geteuid", return_value=501),
+        pytest.raises(PermissionError, match="sudo"),
+    ):
+        install(replace(launch_agent_paths, user="bot", group="staff"))
+
+
+def test_install_requires_a_user_to_run_as(
+    launch_agent_paths: LaunchAgentPaths,
+) -> None:
+    """A daemon with no UserName runs as root, which is never what is wanted."""
+    paths = replace(launch_agent_paths, user="", group="")
+    with (
+        patch("oris.launch_agent.os.geteuid", return_value=0),
+        pytest.raises(ValueError, match="user"),
+    ):
+        install(paths)
+
+
+def test_default_user_is_the_invoking_account_under_sudo() -> None:
+    """`sudo orisctl install` means that person's account, never root."""
+    with patch.dict("os.environ", {"SUDO_USER": "bot"}):
+        assert default_user() == "bot"
+
+
+def test_primary_group_is_looked_up_rather_than_assumed() -> None:
+    """Hard-coding "staff" would be wrong on any account that is not."""
+    user = pwd.getpwuid(os.getuid()).pw_name
+
+    assert primary_group(user) == grp.getgrgid(pwd.getpwuid(os.getuid()).pw_gid).gr_name

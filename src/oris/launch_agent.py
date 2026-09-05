@@ -1,7 +1,19 @@
-"""Render and manage the transitional macOS LaunchAgents for ORIS services."""
+"""Render and manage the macOS LaunchDaemons for ORIS services.
+
+Daemons rather than per-user LaunchAgents. A LaunchAgent lives in
+`gui/<uid>`, a domain that exists only while that user is logged in, so a
+machine that reboots without someone signing in runs nothing. That is why
+no scheduled job ran here between 18 and 31 August.
+
+launchd runs a daemon as root unless told otherwise, so `UserName` is
+required rather than optional. These services read models and write reports
+as an ordinary account, and none of that wants root.
+"""
 
 import argparse
+import grp
 import os
+import pwd
 import subprocess
 from dataclasses import dataclass
 from html import escape
@@ -10,6 +22,7 @@ from string import Template
 
 LAUNCHCTL = Path("/bin/launchctl")
 PLUTIL = Path("/usr/bin/plutil")
+LAUNCH_DAEMONS = Path("/Library/LaunchDaemons")
 
 # Every service is named, launched, and logged the same way: one label built
 # from its name, one absolute executable inside the project's own virtual
@@ -17,6 +30,22 @@ PLUTIL = Path("/usr/bin/plutil")
 # own convention would be a service whose paths could drift from the rest.
 SERVICES = ("scheduler", "phoenix")
 EXECUTABLES = {"scheduler": "oris-scheduler", "phoenix": "oris-phoenix"}
+
+
+def default_user() -> str:
+    """The account a daemon should run as when none was named.
+
+    Under `sudo`, the invoking account rather than root: someone typing
+    `sudo orisctl scheduler install` means their own account, and
+    silently installing a root daemon would be the opposite of what
+    running unprivileged is for.
+    """
+    return os.environ.get("SUDO_USER") or pwd.getpwuid(os.getuid()).pw_name
+
+
+def primary_group(user: str) -> str:
+    """The login group of one account, looked up rather than assumed."""
+    return grp.getgrgid(pwd.getpwnam(user).pw_gid).gr_name
 
 
 def label_for(service: str) -> str:
@@ -37,12 +66,17 @@ class LaunchAgentPaths:
     executable: Path
     schedule_file: Path
     log_directory: Path
+    user: str = ""
+    group: str = ""
 
     @classmethod
     def from_project_root(
         cls,
         project_root: Path,
         service: str = "scheduler",
+        *,
+        user: str = "",
+        group: str = "",
     ) -> "LaunchAgentPaths":
         """Resolve every path for one service from one explicit project root."""
         root = project_root.expanduser().resolve()
@@ -54,10 +88,12 @@ class LaunchAgentPaths:
             project_root=root,
             template=(root / "launchd" / f"{label}.plist.template"),
             rendered=root / "artifacts" / "launchd" / filename,
-            installed=Path.home() / "Library" / "LaunchAgents" / filename,
+            installed=LAUNCH_DAEMONS / filename,
             executable=root / ".venv" / "bin" / EXECUTABLES[service],
             schedule_file=root / "schedules.toml",
             log_directory=root / "logs",
+            user=user,
+            group=group,
         )
 
 
@@ -74,6 +110,8 @@ def render_plist(paths: LaunchAgentPaths) -> bool:
         "project_root": escape(str(paths.project_root)),
         "stdout_path": escape(str(paths.log_directory / f"{paths.service}.stdout.log")),
         "stderr_path": escape(str(paths.log_directory / f"{paths.service}.stderr.log")),
+        "user": escape(paths.user),
+        "group": escape(paths.group),
     }
     if paths.service == "scheduler":
         substitutions["schedule_file"] = escape(str(paths.schedule_file))
@@ -106,13 +144,38 @@ def validate_plist(path: Path) -> None:
 
 
 def service_target(label: str) -> str:
-    """Return the current user's launchd GUI service target."""
-    return f"gui/{os.getuid()}/{label}"
+    """Return the system-domain launchd target for one service."""
+    return f"system/{label}"
 
 
 def domain_target() -> str:
-    """Return the current user's launchd GUI domain target."""
-    return f"gui/{os.getuid()}"
+    """Return the system launchd domain.
+
+    Not `gui/<uid>`: that domain exists only while its user is logged
+    in, and a job that needs someone logged in is what this replaces.
+    """
+    return "system"
+
+
+def require_root(action: str) -> None:
+    """Fail before doing any work when this lacks the privileges to finish.
+
+    Checked up front rather than left to the first write. A plist on disk
+    that launchd never loaded looks exactly like a working install until
+    the machine reboots without it.
+    """
+    if os.geteuid() != 0:
+        raise PermissionError(
+            f"{action} writes to {LAUNCH_DAEMONS} and needs root. Re-run with sudo."
+        )
+
+
+def require_user(paths: "LaunchAgentPaths") -> None:
+    """Refuse to install a daemon that would run as root."""
+    if not paths.user:
+        raise ValueError(
+            "A daemon needs a user to run as, or launchd runs it as root. Pass --user."
+        )
 
 
 def is_loaded(label: str) -> bool:
@@ -147,7 +210,9 @@ def stop(paths: LaunchAgentPaths) -> None:
 
 
 def install(paths: LaunchAgentPaths) -> None:
-    """Render, install, and bootstrap the current user's LaunchAgent."""
+    """Render, install, and bootstrap the system LaunchDaemon."""
+    require_user(paths)
+    require_root("Installing a LaunchDaemon")
     render_plist(paths)
     validate_plist(paths.rendered)
 
@@ -170,7 +235,8 @@ def install(paths: LaunchAgentPaths) -> None:
 
 
 def uninstall(paths: LaunchAgentPaths) -> None:
-    """Boot out and remove only this LaunchAgent's installed plist."""
+    """Boot out and remove only this daemon's installed plist."""
+    require_root("Uninstalling a LaunchDaemon")
     stop(paths)
     paths.installed.unlink(missing_ok=True)
 
@@ -231,8 +297,25 @@ def main() -> None:
         default=Path.cwd(),
         help="ORIS project root (default: current directory)",
     )
+    parser.add_argument(
+        "--user",
+        default=None,
+        help="account the daemon runs as (default: the invoking account)",
+    )
+    parser.add_argument(
+        "--group",
+        default=None,
+        help="group the daemon runs as (default: that user's login group)",
+    )
     args = parser.parse_args()
-    paths = LaunchAgentPaths.from_project_root(args.project_root, args.service)
+    user = args.user or default_user()
+    try:
+        group = args.group or primary_group(user)
+    except KeyError:
+        raise SystemExit(f"No such account: {user}") from None
+    paths = LaunchAgentPaths.from_project_root(
+        args.project_root, args.service, user=user, group=group
+    )
 
     if args.action == "render":
         changed = render_plist(paths)

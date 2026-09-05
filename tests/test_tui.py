@@ -42,6 +42,7 @@ from oris.tui import (  # noqa: E402
     ConfirmDeleteScreen,
     EvidenceScreen,
     OrisTui,
+    PromptInput,
     PromptScreen,
     quiet_background_logging,
 )
@@ -357,6 +358,69 @@ def test_a_raised_error_does_not_take_the_interface_down(tmp_path: Path) -> None
 
     assert "connection refused" in conversation
     assert usable
+
+
+class HangingGraph(FakeGraph):
+    """Announces a step, then never finishes. Stands in for a long provider call."""
+
+    async def astream(
+        self,
+        state: dict[str, Any],
+        config: dict[str, Any],
+        **kwargs: Any,
+    ) -> AsyncIterator[tuple[tuple[str, ...], str, Any]]:
+        self.calls.append((state, config))
+        yield (
+            ("specialist:1",),
+            "debug",
+            {"type": "task", "payload": {"name": "collect_evidence"}},
+        )
+        await asyncio.Event().wait()
+        yield ((), "values", self.result)
+
+
+def test_escape_stops_a_turn_and_says_where_it_got_to(tmp_path: Path) -> None:
+    """A stopped turn is reported, not erased, and names the step it reached.
+
+    Providers may already have been called by the time somebody gives up on a
+    turn, so saying nothing happened would be false. The prompt has to come
+    back, because a stop that leaves the interface disabled is worse than the
+    wait it ended.
+    """
+
+    async def drive() -> tuple[str, FakeKnowledge, bool]:
+        app, _, knowledge = _build(tmp_path, result=_answered())
+        app.graph = HangingGraph(_answered())
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press(*"enrich 8.8.8.8", "enter")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.pause()
+            enabled = not app.query_one("#prompt", PromptInput).disabled
+            return _painted(app), knowledge, enabled
+
+    painted, knowledge, prompt_enabled = _run(drive())
+
+    assert "Stopped" in painted
+    assert "querying providers" in painted
+    assert prompt_enabled
+    # A turn with no answer is not archive material: Local Knowledge searches
+    # what lands here, and half a question is worse than nothing in it.
+    assert knowledge.documents == []
+
+
+def test_escape_with_nothing_running_does_not_stop_anything(tmp_path: Path) -> None:
+    """The key is always live, so it has to be harmless at an idle prompt."""
+
+    async def drive() -> str:
+        app, _, _ = _build(tmp_path, result=_answered())
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.press("escape")
+            await pilot.pause()
+            return _painted(app)
+
+    assert "Stopped" not in _run(drive())
 
 
 def test_the_up_arrow_recalls_the_previous_request(tmp_path: Path) -> None:

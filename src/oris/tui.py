@@ -15,6 +15,7 @@ command line, calls the same graph, and archives to the same repository, so the
 two front ends cannot answer the same request differently.
 """
 
+import asyncio
 import json
 import logging
 import sys
@@ -46,6 +47,7 @@ from textual.widgets import (
     TabbedContent,
     TabPane,
 )
+from textual.worker import Worker
 
 from oris.chat import REQUEST_FAILURE_MESSAGE, run_turn
 from oris.commands import (
@@ -441,6 +443,9 @@ class OrisTui(App):
     """
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
+        # Escape rather than a letter: the prompt has focus for almost the
+        # whole of a long turn and swallows every printable key.
+        Binding("escape", "stop_turn", "Stop"),
         Binding("f1", "show_tab('chat')", "Chat"),
         Binding("f2", "show_tab('activity')", "Activity"),
         Binding("f5", "refresh_activity", "Refresh"),
@@ -505,6 +510,8 @@ class OrisTui(App):
         self._started_at = 0.0
         self._label = ""
         self._step = ""
+        self._turn: Worker | None = None
+        self._job: Worker | None = None
 
     # -- layout --------------------------------------------------------------
     def compose(self) -> ComposeResult:
@@ -665,7 +672,7 @@ class OrisTui(App):
                 )
             elif parsed.name == "run_job":
                 self._say(Static(Text(f"Running {parsed.argument}…", style="dim")))
-                self._run_job(parsed.argument)
+                self._job = self._run_job(parsed.argument)
             # Named rather than left to `else`: a new self-handled command
             # added to the vocabulary would otherwise land here silently and
             # open stored evidence instead of doing its own job.
@@ -675,7 +682,7 @@ class OrisTui(App):
 
         self._write_request(query)
         self._begin(working_label(parsed.mode))
-        self._ask(parsed.mode, parsed.request)
+        self._turn = self._ask(parsed.mode, parsed.request)
 
     @work(thread=True, exit_on_error=False)
     def _run_job(self, job_id: str) -> None:
@@ -733,9 +740,47 @@ class OrisTui(App):
             )
             self._load_sessions()
             self.action_refresh_activity()
+        except asyncio.CancelledError:
+            # Stopped on purpose, so it is reported rather than raised, and the
+            # turn is left in the conversation rather than erased. `run_turn`
+            # streams with durability="sync", so the checkpoint already holds
+            # the question and every node that finished before the stop: the
+            # session reloads showing the question with no answer, which is
+            # what happened.
+            self._finish()
+            reached = self._step or "before the first step"
+            self._say(
+                Static(
+                    Text(
+                        f"⏹ Stopped {self._label.lower()} at {reached}. "
+                        "Any provider calls already made were made; nothing "
+                        "was archived.",
+                        style="yellow",
+                    )
+                )
+            )
+            self._load_sessions()
+            raise
         except Exception as error:  # noqa: BLE001 - a failed turn is not a crash
             self._finish()
             self._say(Static(Text(f"⚠ {type(error).__name__}: {error}", style="red")))
+
+    def action_stop_turn(self) -> None:
+        """Abandon the turn in flight, keeping what it already produced.
+
+        Only the turn. A job started with `/schedule run` runs on a thread and
+        Python cannot interrupt one, so saying it had been stopped would be a
+        lie about a job still contacting providers. It is named instead.
+        """
+        turn = self._turn
+        if turn is not None and not turn.is_finished:
+            turn.cancel()
+            return
+        job = self._job
+        if job is not None and not job.is_finished:
+            self.notify("A scheduled job is running and cannot be stopped.")
+            return
+        self.notify("Nothing is running.")
 
     def _begin(self, label: str) -> None:
         self._label = label

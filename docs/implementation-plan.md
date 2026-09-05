@@ -208,8 +208,10 @@ machinery for something touched a few times a month.
   `threat-actor-tooling` went from that crash to the strongest answer in the
   set: every tool named, bespoke malware separated from dual-use, which is
   exactly what its goal asks for.
-- [ ] **Threat Intel states the Sentinel rule and obeys it about three times in
-  four.** The prompt says a source reporting no record has not cleared the
+- [x] **Threat Intel states the Sentinel rule and obeys it about three times in
+  four.** Accepted 2026-09-05 rather than fixed. A local model of this size is
+  not going to hold a wording rule every run, and this one costs nothing where
+  it breaks. The prompt says a source reporting no record has not cleared the
   indicator, and names Sentinel's `known: false` as exactly that case. Across
   four runs of `well-known-benign-address` on 2026-09-05, three quoted the
   field without interpreting it and one wrote "'known' set to false, indicating
@@ -218,9 +220,17 @@ machinery for something touched a few times a month.
 
   This is not caused by the word cap: the two runs at 350 words and the two at
   500 produced 215, 207, 215 and 207 words, and the bad wording appeared at
-  500 once and not the second time. An instruction that binds most of the time
-  is the failure mode a single read cannot see and repetition can. Whether it
-  is worth chasing at this severity is the open part.
+  500 once and not the second time. Nor is it purely sampling -- temperature is
+  0, and what actually differed between runs was the evidence, since these call
+  live providers and AbuseIPDB's most recent report date moved.
+
+  What the episode did expose is a weak case rather than a weak prompt.
+  "Absence is not clearance" matters when an indicator might be dangerous.
+  Every source has a record of 8.8.8.8 and "not malicious" is the right
+  conclusion however it is worded, so `well-known-benign-address` can catch the
+  phrasing and never the consequence. Testing the rule properly needs an
+  indicator with genuinely thin coverage, where reading absence as clearance
+  would cost something. That is a case-set change and is not urgent.
 
 - [ ] **Fix what the first evaluation run exposed** (run 2026-08-18, seventeen
   cases across four specialists, reports in `artifacts/evaluations/`). The cases

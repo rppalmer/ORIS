@@ -306,6 +306,34 @@ machinery for something touched a few times a month.
     provider attached, then attributed only coordinates to MaxMind.
   - Web Research answers ran 52 to 77 words against a budget of roughly 380,
     which is the length item below, now measured.
+- [ ] **Local Knowledge copies an archived report's own citation numbers.**
+  Found 2026-09-05 by the rewritten cases, and confirmed against the stored
+  document rather than inferred. The prompt has an explicit rule against this
+  and the model ignores it.
+
+  A scheduled research report is archived with its own inline markers and a
+  trailing `## Sources` list of real URLs. Asked for the newest report, the
+  answer attributed the hundred-firms warning to `[2]`. In the archive
+  numbering `[2]` is the 9 August report; the claim is from the 31 August one,
+  which carries `[2]` internally against a Forbes URL. The model copied the
+  number out of the document. `[1]` in the same answer was right only by
+  coincidence, because the two numberings happened to agree.
+
+  Every bracketed citation Local Knowledge produces over an archived research
+  report is therefore suspect, and a reader following one lands on a document
+  the claim did not come from. Asking the prompt again is unlikely to help.
+  Stripping the inline markers and the `## Sources` block from archived content
+  before it reaches the model removes the collision instead of warning about
+  it: a number that is not in the input cannot be copied out of it. What that
+  costs is the model's ability to say a report cited Forbes, which it cannot
+  legitimately use anyway, because Local Knowledge cites archive source numbers
+  and is told to write no URLs.
+
+  `citation-collision` exists to catch exactly this and did not; the case that
+  caught it was `recurring-report-newest`. Judging the dedicated case by
+  reading is close to impossible, because both numberings run 1 to 5 over the
+  same reports and only checking each claim against the stored document tells
+  them apart.
 - [ ] **Make the evaluation sets precise enough to settle a prompt change.**
   Partly done: Local Knowledge, Community Research, and Threat Intel now have
   versioned case files, and one runner drives all four answering specialists

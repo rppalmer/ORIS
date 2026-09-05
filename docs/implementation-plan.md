@@ -163,18 +163,33 @@ machinery for something touched a few times a month.
   in the system. It changed nothing observable, which is the point -- if these
   answers need more detail, the instruction asking for detail has to change,
   not the permission to use words.
-- [ ] **Decide whether Community Research should require a citation.** Web
+- [x] **Decide whether Community Research should require a citation.** Web
   Research requires one and Local Knowledge deliberately does not, an asymmetry
   recorded in ADR 001. Community Research requires nothing and no reason is
   written down, which reads as drift rather than a decision. Podcast Catch-up
   settled the same question on 2026-08-25 by degrading to a caveat; whether
   Community Research should match is the open part.
 
-  Deferred on 2026-09-05 and it is not a prompt change. The prompt says "write
-  no URLs at all", because each item's own link is recorded for it. The
-  requirement lives in the validator, which is also the code that raises on an
-  obscure topic when the model judges every returned post irrelevant. Decide
-  the rule and the crash together.
+  Decided 2026-09-05: no citation is required, and the requirement is gone.
+  The model never writes a URL here. It sets one flag per item saying whether
+  that item bore on the topic, and ORIS takes the canonical URL of each flagged
+  item straight out of the evidence. Web Research needs a minimum because its
+  model writes prose that could be uncited; this specialist cannot produce that
+  failure, so there was nothing for the rule to police. That is the reason ADR
+  001 was missing, rather than drift.
+
+  The same change ends the crash. Requiring a citation asserted that the search
+  had found something relevant, which is a claim about the world and not one
+  ORIS can make, and asking about a subject nobody discusses killed the
+  specialist instead of reporting the silence. A source whose items were all
+  off topic now says so once. Verified against live Net-Razor.
+
+  Reading that live answer exposed a second defect, since fixed: the answer
+  included the model's description of every returned item, including the ones
+  it had marked off topic, so an obscure topic came back at roughly 1,200 words
+  mostly about Sanskrit job postings and luxury-brand statistics. The model's
+  judgement was correct and was being discarded. It is now used, with the
+  number of dropped items kept in one sentence.
 - [x] **Add the injection guard to the two planners.** Done 2026-09-05, and
   measured: compliance was 0 of 15 with the guard and 0 of 15 without it. The
   guard changed how the model narrated the attempt, not whether it obeyed. The
@@ -306,10 +321,15 @@ machinery for something touched a few times a month.
     provider attached, then attributed only coordinates to MaxMind.
   - Web Research answers ran 52 to 77 words against a budget of roughly 380,
     which is the length item below, now measured.
-- [ ] **Local Knowledge copies an archived report's own citation numbers.**
-  Found 2026-09-05 by the rewritten cases, and confirmed against the stored
-  document rather than inferred. The prompt has an explicit rule against this
-  and the model ignores it.
+- [x] **Local Knowledge copies an archived report's own citation numbers.**
+  Found and fixed 2026-09-05 by the rewritten cases, and confirmed against the
+  stored document rather than inferred. The prompt had an explicit rule
+  against this and the model ignored it, so the numbers are now removed from
+  the input before it is sent, along with the trailing reference list in both
+  spellings the archive holds. Checked across all thirty archived documents:
+  none reaches the model carrying a bracketed number. The prompt sentence is
+  deleted, because an instruction covering a situation that cannot arise is
+  read on every call and earns nothing.
 
   A scheduled research report is archived with its own inline markers and a
   trailing `## Sources` list of real URLs. Asked for the newest report, the
@@ -456,17 +476,19 @@ transcripts that already exist. The nightly job that would create them has never
 been configured, and most of the real feeds publish no transcript of their own.
 That is why the run had nothing to work with.
 
-- [ ] **Confirm Whisper is switched on for Net-Razor on the Mac mini.** Not
-  done: it needs the mini. Run `net-razor doctor` there and read
+- [x] **Confirm Whisper is switched on for Net-Razor on the Mac mini.** Done
+  2026-09-05: enabled and confirmed by transcribing real episodes. Run `net-razor doctor` there and read
   `whisper_enabled`. The setting is `PODCAST_WHISPER_ENABLED` in
   `~/.net-razor/.env`, and it is `true` on the MacBook. The
   setting is `podcast_whisper_enabled` and it defaults to false. With it off,
   every transcription attempt returns `not_configured` and nothing below can be
   tested. This is the first thing to check and it costs a minute.
-- [ ] **Run the scheduled podcast path by hand before trusting it to a cron
-  entry.** `oris-run-scheduled <job-id>` runs one job to completion with no
-  scheduler involved. This path has never been run end to end. Proving it works
-  is the point of doing it manually, and it is also the whole "transcribe
+- [x] **Run the scheduled podcast path by hand before trusting it to a cron
+  entry.** Done 2026-09-05: `oris-run-scheduled` ran the job to completion and
+  transcribed two episodes with local Whisper. `overnight-podcast-catch-up` is
+  scheduled for 03:00 on the back of it. `oris-run-scheduled <job-id>` runs one
+  job with no scheduler involved. Proving it works was the point of doing it
+  manually, and it is also the whole "transcribe
   everything" capability that chat does not offer.
 - [x] **Ask Net-Razor for a tool that lists the configured feeds.** Already
   built: `net_razor_podcast_feeds` returns each show by name, plus a
@@ -520,9 +542,11 @@ that has never successfully run would be scheduling a guess.
 
 ### Interfaces
 
-- [ ] Add schedule management to the terminal interface: list the jobs in
-  `schedules.toml` with their next run time, show each job's recent run history
-  and its reports, and run one on demand. Editing schedules is a separate
+- [ ] Add schedule management to the terminal interface. Mostly done
+  2026-09-05: `/schedule` lists the jobs in `schedules.toml` with the date and
+  time each next runs, and `/runs` lists recent scheduled runs and prints one
+  by its id. Both are shared with the CLI through `commands.py`. What is left
+  is running a job on demand. Editing schedules is a separate
   question — `schedules.toml` is version-controlled and project-owned by ADR
   002, and an interface that writes it becomes a second source of truth. Start
   read-only plus a manual trigger, which is what the missed-run diagnosis

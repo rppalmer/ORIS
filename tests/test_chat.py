@@ -765,7 +765,7 @@ def test_recap_asks_for_episodes_that_already_have_transcripts() -> None:
     asyncio.run(
         graph.ainvoke(
             {
-                "messages": [HumanMessage(content="recap")],
+                "messages": [HumanMessage(content="summarize_prev")],
                 "mode": "podcast_catch_up",
             }
         )
@@ -776,14 +776,14 @@ def test_recap_asks_for_episodes_that_already_have_transcripts() -> None:
     )
 
 
-def test_recap_and_a_show_name_are_independent() -> None:
+def test_summarize_prev_and_a_show_name_are_independent() -> None:
     """Which episodes to read and whose are two separate parts of the request."""
     graph, podcast_graph = _podcast_graph_and_double()
 
     asyncio.run(
         graph.ainvoke(
             {
-                "messages": [HumanMessage(content="Recap LINUX Unplugged")],
+                "messages": [HumanMessage(content="summarize_prev LINUX Unplugged")],
                 "mode": "podcast_catch_up",
             }
         )
@@ -794,24 +794,26 @@ def test_recap_and_a_show_name_are_independent() -> None:
     )
 
 
-def test_a_show_whose_name_merely_starts_with_recap_is_still_a_show() -> None:
+def test_a_show_whose_name_merely_starts_with_the_subcommand_is_a_show() -> None:
     """The word is only the mode when it stands alone at the front.
 
-    A show actually called "Recapped" must not have its first word eaten.
+    This is why the subcommand is spelled `summarize_prev` and not `recap` or
+    `again`: both of those are words a show could be called, and this rule is
+    the only thing standing between such a show and being unreachable.
     """
     graph, podcast_graph = _podcast_graph_and_double()
 
     asyncio.run(
         graph.ainvoke(
             {
-                "messages": [HumanMessage(content="Recapped Weekly")],
+                "messages": [HumanMessage(content="summarize_prev_weekly Show")],
                 "mode": "podcast_catch_up",
             }
         )
     )
 
     podcast_graph.ainvoke.assert_awaited_once_with(
-        {"thread_id": "", "show": "Recapped Weekly"}
+        {"thread_id": "", "show": "summarize_prev_weekly Show"}
     )
 
 

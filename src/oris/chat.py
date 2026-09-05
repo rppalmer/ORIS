@@ -170,9 +170,10 @@ def split_community_sources(request: str) -> tuple[str, list[str] | None]:
 
     The cost is a collision: a topic whose own first word is one of these four
     loses it, so `/community all things agentic` searches everything for "things
-    agentic". `/podcasts recap` has the same collision with a show called
-    "recap" and it has not bitten. Quoting would fix it and is not worth a
-    parser.
+    agentic". `/podcasts` avoids the same collision by spelling its
+    subcommand `summarize_prev`: "recap" is a word a show could plausibly be
+    called, and "again" is worse, while nothing is named summarize_prev.
+    Quoting would fix the `/community` case and is not worth a parser.
     """
     words = request.split()
     selected: list[str] = []
@@ -424,8 +425,8 @@ def create_oris_graph(
         # feed. Anything else names one show and asks what its latest episode
         # said, which is a different question with a much smaller answer.
         #
-        # A leading "recap" asks a third question: what do we already have
-        # transcripts for. It is the only way to read a scheduled run's work
+        # A leading "summarize_prev" asks a third question: what do we already
+        # have transcripts for. It is the only way to read a scheduled run's work
         # again, because that run acknowledged its episodes and Net-Razor
         # therefore leaves them out of the catch-up queue from then on.
         #
@@ -436,7 +437,7 @@ def create_oris_graph(
         words = request_text.split(maxsplit=1)
         first = words[0].casefold() if words else ""
         listing = first == "list" and len(words) == 1
-        recap = first == "recap"
+        recap = first == "summarize_prev"
         if recap:
             show = words[1].strip() if len(words) > 1 else ""
         else:

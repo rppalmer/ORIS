@@ -54,8 +54,9 @@ SLASH_COMMANDS = {
     ),
     "/podcasts": (
         "podcast_catch_up",
-        "[list|recap] [show]",
-        "Catch up on new episodes; 'list' names your shows, 'recap' re-reads.",
+        "[list|summarize_prev] [show]",
+        "New episodes; 'list' names your shows, "
+        "'summarize_prev' re-reads ones already caught up on.",
     ),
     "/threat": (
         "threat_intel",

@@ -542,11 +542,15 @@ that has never successfully run would be scheduling a guess.
 
 ### Interfaces
 
-- [ ] Add schedule management to the terminal interface. Mostly done
+- [x] Add schedule management to the terminal interface. Done
   2026-09-05: `/schedule` lists the jobs in `schedules.toml` with the date and
   time each next runs, and `/runs` lists recent scheduled runs and prints one
   by its id. Both are shared with the CLI through `commands.py`. What is left
-  is running a job on demand. Editing schedules is a separate
+  is running a job on demand.
+
+  Done 2026-09-05: `/schedule run <job>` starts one now, in both the terminal
+  interface and the CLI, off the drawing thread and without cancelling the
+  conversation. Nothing is left on this item. Editing schedules is a separate
   question — `schedules.toml` is version-controlled and project-owned by ADR
   002, and an interface that writes it becomes a second source of truth. Start
   read-only plus a manual trigger, which is what the missed-run diagnosis
@@ -558,8 +562,14 @@ that has never successfully run would be scheduling a guess.
 
 ### Evidence providers
 
-- [ ] Build the separate Web Evidence MCP server. Its point is to end the
-  single-vendor dependency on Tavily and to get past search snippets:
+- [ ] Build the separate Web Evidence MCP server. Ryan is building this as a
+  dedicated server called **net-syphon**, alongside net-razor, and it fetches
+  page content with Playwright. That makes the fetched-page injection surface
+  real rather than hypothetical, which is what the planner guards and the
+  schema constraints were measured against on 2026-09-05.
+
+  Its point is to end the single-vendor dependency on Tavily and to get past
+  search snippets:
   - **SearXNG** as a second search provider. Self-hosted, so it removes the
     per-search cost and quota from routine research, and it makes provider
     failure a choice rather than an outage. Its recency and domain filters
@@ -578,12 +588,25 @@ that has never successfully run would be scheduling a guess.
   hard part, so the first step is choosing a provider (OpenCorporates,
   Wikidata, a national register) and finding out what it gives without paying.
   This is a new evidence capability and belongs in an MCP server, not in ORIS.
-- [ ] Report the AS name and owning organisation whenever MaxMind data is used.
-  ThreatSyft's `maxmind_ip_lookup` already returns `asn` and `organization`
-  alongside the geolocation, so the data is there; what is missing is that it
-  reliably reaches the answer. Confirm whether the loss is in the Threat Intel
-  prompt or in what gets kept, then fix it there. This pairs with the company
-  lookup above: the AS organisation is the name that lookup would be given.
+- [x] Report the AS name and owning organisation whenever MaxMind data is used.
+  Checked 2026-09-05 and there is nothing to fix. The loss was in neither
+  place. `maxmind_ip_lookup` returns `asn: 15169` and
+  `organization: "Google LLC"` and both survive into the evidence the model is
+  given, and the prompt has named "ASN and owning organisation" among the
+  concrete fields to include since the initial commit -- so the rule predates
+  the August failure it was supposed to explain.
+
+  Three separate runs today named Google LLC and 15169 with providers
+  attached. The one bad answer on 2026-08-18 was run against a different model,
+  before the prompt stopped asking for prose and bullets at once. Three runs is
+  not proof of "reliably", but there is no missing rule to add, and a fourth
+  instruction for something already instructed would only be noise.
+
+  `well-known-benign-address` now guards it. Its goal was rewritten the same
+  day to test exactly this: name the provider beside each concrete value rather
+  than stating the ASN with nothing attached. The case is the guard, not
+  another prompt line. This still pairs with the company lookup above: the AS
+  organisation is the name that lookup would be given.
 - [ ] When a real second backend exists, introduce the smallest ORIS-owned
   adapter needed to preserve the existing specialist contract. Do not add
   provider-selection configuration before two implementations exist.

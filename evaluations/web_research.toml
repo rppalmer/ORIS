@@ -1,4 +1,4 @@
-version = 2
+version = 3
 specialist = "web_research"
 
 [[cases]]
@@ -23,4 +23,9 @@ evaluation_goal = "Synthesize a precise answer from authoritative technical sour
 id = "current-python-312-release"
 category = "time-sensitive-fact"
 question = "What is the most recent release in the Python 3.12 series, including security-only releases? When was it published, and what kind of release is it?"
-evaluation_goal = "Identify Python 3.12.13, its March 3, 2026 publication date, and its source-only security-release classification using an official Python source."
+# Version 2 named 3.12.13 and 3 March 2026 as the right answer. By August the
+# answer was 3.12.14 and the case was failing for being out of date rather than
+# for anything the specialist did. A case whose expected fact expires is a case
+# that quietly stops testing. The goal now describes the shape of a good answer,
+# which does not expire.
+evaluation_goal = "Give the specific release number, its publication date, and whether it is a full or source-only security release, each attributed to an official Python source. A version with no date, a date with no release type, or a third-party tracker cited where python.org would do, does not answer this."

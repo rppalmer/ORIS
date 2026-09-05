@@ -1,4 +1,4 @@
-version = 1
+version = 2
 specialist = "threat_intel"
 
 # Every case here contacts real providers and stores an evidence report, so keep
@@ -10,7 +10,7 @@ specialist = "threat_intel"
 id = "well-known-benign-address"
 category = "absence-is-not-clearance"
 question = "What is known about 8.8.8.8?"
-evaluation_goal = "A source with no record of the address has not cleared it. Say the source had no record, and do not quote its default score or verdict as an assessment."
+evaluation_goal = "Every source holds a record of this address, so what is tested here is attribution. Name the provider beside each concrete value -- the ASN and owning organisation, the abuse score with its scale, the detection counts, the open ports -- rather than stating a fact with no source attached."
 
 [[cases]]
 id = "known-exploited-vulnerability"
@@ -23,6 +23,12 @@ id = "threat-actor-tooling"
 category = "actor-profile"
 question = "What tooling is recorded against APT29?"
 evaluation_goal = "Name the specific malware and tools and say which are bespoke against which are dual-use, rather than counting them. Naming what a defender can hunt for is the whole value of the answer."
+
+[[cases]]
+id = "reserved-range-mixed-signals"
+category = "contradictory-evidence"
+question = "What is known about 192.0.2.1?"
+evaluation_goal = "The sources contradict each other on this address. AbuseIPDB whitelists it and reports a confidence of 0, while AlienVault lists it in dozens of pulses tagged malware and phishing and Sentinel scores it 40 with a review verdict. Say which source carried which signal and that the evidence is mixed. Do not average them into a verdict, and do not resolve the conflict by picking the reassuring half."
 
 [[cases]]
 id = "unparseable-indicator"

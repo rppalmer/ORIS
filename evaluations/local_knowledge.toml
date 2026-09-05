@@ -1,37 +1,47 @@
-version = 1
+version = 2
 specialist = "local_knowledge"
 
-# These questions run against whatever the archive actually holds, so the goals
-# describe the shape of a good answer rather than a fact to match. A case whose
-# archive has nothing is still a useful case: how this specialist behaves with
-# no evidence is one of the things being measured.
+# Every question here is answerable from what the archive actually holds, which
+# on 2026-09-05 is thirty documents: seven weekday-ai-news research reports and
+# twenty-three chat exchanges, nearly all of them threat lookups. Version 1 asked
+# about an ORIS scheduling decision, LangGraph checkpointing, and what recurs
+# across the whole archive. None of those are in there, and none of them ever
+# were, so three of five cases could only ever return "nothing found" and no
+# prompt change could move them.
+#
+# Two of those cases could not even reach the model. Local Knowledge returns a
+# fixed sentence when retrieval finds nothing, so a question about an absent
+# subject never reaches the prompt it was written to test. To test how the
+# specialist handles evidence that does not answer, a question has to share
+# vocabulary with archived documents and then ask something they do not say.
+# `unattributed-operator` is built that way on purpose.
 
 [[cases]]
 id = "recurring-report-newest"
 category = "recency-ordering"
 question = "What did the most recent scheduled research report say?"
-evaluation_goal = "Answer from the newest matching report alone, not a blend of several runs, and cite the archive entry it came from."
+evaluation_goal = "Seven weekday-ai-news reports are archived, six from 8-9 August and one from 31 August. Answer from the newest alone, not a blend of several runs, and cite the archive entry it came from."
 
 [[cases]]
-id = "retained-decision"
-category = "retained-decision"
-question = "What has been decided about how ORIS schedules its own jobs?"
-evaluation_goal = "Recover a decision the user made earlier and cite the archive entries that record it, without restating the question."
+id = "repeat-enrichment-newest"
+category = "repeated-investigation"
+question = "What did we find about the IP address 155.117.189.76?"
+evaluation_goal = "This address was enriched five times between 11 and 13 August and the entries disagree in detail: the earliest places it in New Jersey, later ones in Secaucus. Give the newest findings and say the address was looked at repeatedly, rather than merging five runs into one composite that belongs to no entry."
 
 [[cases]]
 id = "citation-collision"
 category = "citation-discipline"
-question = "Summarise what the archive holds about LangGraph checkpointing."
-evaluation_goal = "Cite archive source numbers only. Archived documents carry their own bracketed citations to external sources; those numbers must not be copied into the answer."
+question = "Summarise what the archive holds about AI-agent developments."
+evaluation_goal = "This retrieves the scheduled research reports, which carry their own bracketed citations to external news sources. Cite archive source numbers only. Those inner numbers belong to the report's sources and must not be copied into the answer."
 
 [[cases]]
-id = "absent-subject"
+id = "unattributed-operator"
 category = "insufficient-evidence"
-question = "What does the archive record about the Norwegian sovereign wealth fund?"
-evaluation_goal = "Say plainly that the archive has nothing on this, without inventing a source and without a bare one-line dead end. Ideally say what would put it there."
+question = "Who was operating bluecoder.duckdns.org?"
+evaluation_goal = "The archive holds resolution and reputation data for this domain and never attributes an operator. Say in one sentence that the archive does not record that, and name what would answer it. Do not invent an attribution, and do not infer one from the reputation scores."
 
 [[cases]]
-id = "cross-report-comparison"
+id = "cross-investigation-comparison"
 category = "multi-document-synthesis"
-question = "Across everything archived, what topics have come up more than once?"
-evaluation_goal = "Draw on several archive entries and cite each one used, rather than answering from the single most relevant document."
+question = "What have the archived investigations of duckdns.org domains found?"
+evaluation_goal = "Two different duckdns.org domains were investigated on separate days, and one of those investigations found nothing at all. Cover both and cite each entry used, rather than answering from the single most relevant document. Reporting that one investigation came up empty is part of the answer, not an omission."

@@ -166,7 +166,10 @@ def create_local_knowledge_graph(
                     f"Archive evidence:\n{_format_evidence(sources)}",
                 ),
             ],
-            max_completion_tokens=512,
+            # 500 words of citation-dense prose measures about 1,000
+            # tokens on this model, so the prompt's word rule has to fit
+            # inside this number or an obedient answer still gets cut off.
+            max_completion_tokens=1024,
         )
         answer = response.text.strip()
         if not answer:

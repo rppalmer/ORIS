@@ -145,7 +145,7 @@ def test_the_runner_can_drive_every_specialist_it_claims_to_know() -> None:
 
         results = asyncio.run(run_evaluation_cases(_graph_for(name), evaluation_set))
 
-        assert results[0]["status"] == "passed", results[0]["error"]
+        assert results[0]["outcome"] == "ran", results[0]["error"]
         assert isinstance(results[0]["answer"], str)
         assert results[0]["answer"]
         assert results[0]["citation_count"] == len(results[0]["citations"])
@@ -194,12 +194,12 @@ def test_evaluation_runner_drives_the_real_graph(tmp_path: Path) -> None:
     )
 
     assert len(search.requests) == 1
-    assert results[0]["status"] == "passed"
+    assert results[0]["outcome"] == "ran"
     assert results[0]["latency_seconds"] == 1.25
     assert results[0]["citation_count"] == 1
-    assert results[1]["status"] == "failed"
+    assert results[1]["outcome"] == "errored"
     assert results[1]["latency_seconds"] == 0.5
     assert results[1]["error"] == "RuntimeError: provider unavailable"
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["summary"] == {"total": 2, "passed": 1, "failed": 1}
+    assert report["summary"] == {"total": 2, "ran": 1, "errored": 1}
     assert report["model"] == "local-test-model"

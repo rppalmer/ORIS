@@ -156,7 +156,7 @@ async def run_evaluation_cases(
             citations = specialist.read_citations(graph_result)
             result: dict[str, object] = {
                 **asked,
-                "status": "passed",
+                "outcome": "ran",
                 "latency_seconds": round(clock() - started_at, 3),
                 "answer": specialist.read_answer(graph_result),
                 "citation_count": len(citations),
@@ -166,7 +166,7 @@ async def run_evaluation_cases(
         except Exception as error:
             result = {
                 **asked,
-                "status": "failed",
+                "outcome": "errored",
                 "latency_seconds": round(clock() - started_at, 3),
                 "answer": None,
                 "citation_count": None,
@@ -175,7 +175,7 @@ async def run_evaluation_cases(
             }
         results.append(result)
         print(
-            f"{str(result['status']).upper()} {case.id} ({result['latency_seconds']}s)"
+            f"{str(result['outcome']).upper()} {case.id} ({result['latency_seconds']}s)"
         )
     return tuple(results)
 
@@ -190,16 +190,21 @@ def write_evaluation_report(
 ) -> Path:
     """Write one timestamped JSON report and return its path."""
     report_time = generated_at or datetime.now(UTC)
-    passed_count = sum(result["status"] == "passed" for result in results)
+    ran_count = sum(result["outcome"] == "ran" for result in results)
     report = {
         "specialist": evaluation_set.specialist,
         "evaluation_set_version": evaluation_set.version,
         "generated_at": report_time.isoformat(),
         "model": model_name,
+        # Counts of what the runner did, not of what the answers were worth.
+        # An earlier version called these passed and failed, and every reader
+        # took 16/17 passed as a quality score when it only ever meant no
+        # exception was raised. Judging the answers is a person's job and
+        # this file deliberately does not attempt it.
         "summary": {
             "total": len(results),
-            "passed": passed_count,
-            "failed": len(results) - passed_count,
+            "ran": ran_count,
+            "errored": len(results) - ran_count,
         },
         "cases": results,
     }
@@ -246,7 +251,7 @@ async def _main() -> None:
         model_name=settings.local_llm_model,
     )
     print(f"Report: {report_path}")
-    if any(result["status"] == "failed" for result in results):
+    if any(result["outcome"] == "errored" for result in results):
         raise SystemExit(1)
 
 

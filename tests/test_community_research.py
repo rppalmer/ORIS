@@ -217,8 +217,16 @@ def test_community_research_cites_the_item_it_was_given() -> None:
     assert result["cited_urls"] == ["https://news.ycombinator.com/item?id=123"]
 
 
-def test_community_research_does_not_cite_an_item_that_said_nothing() -> None:
-    """An item the model reports as off-topic is described but not cited."""
+def test_an_off_topic_item_is_counted_rather_than_described() -> None:
+    """The model's own relevance call decides what reaches the answer.
+
+    Every item carries the model's judgement on whether it bore on the topic.
+    This used to describe all of them anyway, so a real answer about an obscure
+    subject ran to roughly 1,200 words, most of it reporting that Sanskrit job
+    postings and luxury-brand statistics did not mention it. The count is kept
+    so a source returning two useful items does not read like one that returned
+    two items in total.
+    """
     research_result = make_tool_result()
     research_result["results"]["hn"].append(
         {
@@ -244,7 +252,9 @@ def test_community_research_does_not_cite_an_item_that_said_nothing() -> None:
     result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
 
     assert result["cited_urls"] == ["https://news.ycombinator.com/item?id=123"]
-    assert "This said nothing about it." in result["answer"]
+    assert "A claim about LangGraph." in result["answer"]
+    assert "This said nothing about it." not in result["answer"]
+    assert "1 further item was returned" in result["answer"]
 
 
 def test_community_research_allows_no_citation_when_no_evidence_exists() -> None:

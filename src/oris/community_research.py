@@ -338,7 +338,23 @@ def create_community_research_graph(
                     "none of which discussed the topic."
                 )
             else:
-                summary = " ".join(findings.findings.strip() for _, findings in entries)
+                # Use the judgement that was asked for. Every item carries the
+                # model's own call on whether it bore on the topic, and this
+                # used to print all of them regardless, so an answer about
+                # LangGraph carried paragraphs on Sanskrit job postings because
+                # the search returned them. The model was not failing to
+                # filter; its filtering was being discarded here.
+                relevant = [f for _, f in entries if f.bears_on_topic]
+                summary = " ".join(f.findings.strip() for f in relevant)
+                skipped = len(entries) - len(relevant)
+                if skipped:
+                    # Said, so a source that returned two useful items does not
+                    # read the same as one that returned two items in total.
+                    said = "item was" if skipped == 1 else "items were"
+                    summary = (
+                        f"{summary} {skipped} further {said} returned "
+                        "and did not discuss the topic."
+                    )
             errors = _reported_errors(reported.get(source))
             if errors:
                 summary = f"{summary} Net-Razor reported: {'; '.join(errors)}."

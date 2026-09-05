@@ -58,7 +58,7 @@ from oris.commands import (
     read_command,
     render_runs,
     render_schedule,
-    run_job_now,
+    run_job_now_async,
     working_label,
 )
 from oris.config import Settings
@@ -684,20 +684,27 @@ class OrisTui(App):
         self._begin(working_label(parsed.mode))
         self._turn = self._ask(parsed.mode, parsed.request)
 
-    @work(thread=True, exit_on_error=False)
-    def _run_job(self, job_id: str) -> None:
-        """Run one scheduled job off the UI thread.
+    @work(exit_on_error=False)
+    async def _run_job(self, job_id: str) -> None:
+        """Run one scheduled job without holding the interface.
 
-        A thread rather than an async worker, because the job is synchronous
-        and calls `asyncio.run` for a podcast catch-up, which raises inside a
-        running event loop. It also takes minutes and contacts live providers,
-        so the interface has to stay usable while it works.
+        An async worker rather than a thread, so Escape can stop it. A thread
+        cannot be interrupted in Python, and offering a stop that did nothing
+        was worse than offering none.
 
-        Not exclusive: asking for a run does not cancel the conversation, and a
-        person who starts a job then asks a question should get both.
+        Not exclusive: starting a job does not cancel the conversation, and
+        somebody who starts a job and then asks a question should get both.
         """
-        rendered = run_job_now(job_id)
-        self.call_from_thread(self._say, Static(rendered))
+        try:
+            rendered = await run_job_now_async(job_id)
+        except asyncio.CancelledError:
+            # The job has already written its own record saying cancelled, so
+            # `/runs` will show it. This only says so on screen.
+            self._say(
+                Static(Text(f"⏹ Stopped {job_id}. Nothing was kept.", style="yellow"))
+            )
+            raise
+        self._say(Static(rendered))
 
     @work(exclusive=True, exit_on_error=False)
     async def _ask(self, mode: str, request: str) -> None:
@@ -768,9 +775,10 @@ class OrisTui(App):
     def action_stop_turn(self) -> None:
         """Abandon the turn in flight, keeping what it already produced.
 
-        Only the turn. A job started with `/schedule run` runs on a thread and
-        Python cannot interrupt one, so saying it had been stopped would be a
-        lie about a job still contacting providers. It is named instead.
+        A conversation turn first, then a scheduled job: the turn is the thing
+        somebody is waiting on, and a job was started deliberately and left to
+        run. A cancelled job records itself as cancelled, so `/runs` shows what
+        happened rather than a run that appears never to have come back.
         """
         turn = self._turn
         if turn is not None and not turn.is_finished:
@@ -778,7 +786,7 @@ class OrisTui(App):
             return
         job = self._job
         if job is not None and not job.is_finished:
-            self.notify("A scheduled job is running and cannot be stopped.")
+            job.cancel()
             return
         self.notify("Nothing is running.")
 

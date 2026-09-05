@@ -39,7 +39,7 @@ class ScheduledRunRecordBase(BaseModel):
     job_id: JobId
     run_id: UUID
     started_at: AwareDatetime
-    status: Literal["running", "succeeded", "failed"]
+    status: Literal["running", "succeeded", "failed", "cancelled"]
     finished_at: AwareDatetime | None = None
     report_path: str | None = None
     error: str | None = None
@@ -108,7 +108,7 @@ def _format_web_research_report(
     )
 
 
-def _run_scheduled_web_research_job(
+async def _run_scheduled_web_research_job(
     job: WebResearchScheduledJob,
     web_research_graph: CompiledStateGraph,
     knowledge_repository: KnowledgeRepository,
@@ -147,15 +147,13 @@ def _run_scheduled_web_research_job(
         # The search this reaches is asynchronous so that it has a deadline at
         # all; an unbounded one here holds the job's only slot and every later
         # firing is skipped without a word.
-        result = asyncio.run(
-            web_research_graph.ainvoke(
-                {
-                    "query": job.prompt,
-                    "search_category": job.search_category,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                }
-            )
+        result = await web_research_graph.ainvoke(
+            {
+                "query": job.prompt,
+                "search_category": job.search_category,
+                "start_date": start_date,
+                "end_date": end_date,
+            }
         )
         report = _format_web_research_report(
             job,
@@ -177,6 +175,23 @@ def _run_scheduled_web_research_job(
                 content=report,
             )
         )
+    except asyncio.CancelledError:
+        # Stopped on purpose, and recorded as such. A cancelled run that left
+        # its record saying "running" would sit in `/runs` forever looking like
+        # a job that never came back, which is the one thing a person reads
+        # that list to find out.
+        report_path.unlink(missing_ok=True)
+        _write_run_record(
+            record_path,
+            record.model_copy(
+                update={
+                    "finished_at": datetime.now(UTC),
+                    "status": "cancelled",
+                    "error": "Stopped from the interface.",
+                }
+            ),
+        )
+        raise
     except Exception as error:
         report_path.unlink(missing_ok=True)
         failed_record = record.model_copy(
@@ -200,6 +215,41 @@ def _run_scheduled_web_research_job(
     return succeeded_record
 
 
+async def run_scheduled_job_async(
+    job: ConfiguredScheduledJob,
+    web_research_graph: CompiledStateGraph,
+    knowledge_repository: KnowledgeRepository,
+    *,
+    current_date: date,
+    artifact_root: Path = DEFAULT_ROOT,
+    build_podcast_catch_up: PodcastCatchUpBuilder | None = None,
+) -> ScheduledRunRecordBase:
+    """Run one configured job through its fixed specialist path.
+
+    Asynchronous all the way down so that a caller can stop it. Both paths
+    ultimately await a graph, and an `asyncio.run` in the middle of that turned
+    the whole job into one uninterruptible block: the terminal interface had to
+    run it on a thread, and Python cannot interrupt a thread. Awaiting instead
+    means cancellation reaches the graph and the record says cancelled.
+    """
+    if isinstance(job, WebResearchScheduledJob):
+        return await _run_scheduled_web_research_job(
+            job,
+            web_research_graph,
+            knowledge_repository,
+            current_date=current_date,
+            artifact_root=artifact_root,
+        )
+    if build_podcast_catch_up is None:
+        raise ValueError("Podcast Catch-up dependencies are not configured")
+    return await run_scheduled_podcast_catch_up_job(
+        job,
+        build_podcast_catch_up,
+        knowledge_repository,
+        artifact_root=artifact_root,
+    )
+
+
 def run_scheduled_job(
     job: ConfiguredScheduledJob,
     web_research_graph: CompiledStateGraph,
@@ -209,23 +259,20 @@ def run_scheduled_job(
     artifact_root: Path = DEFAULT_ROOT,
     build_podcast_catch_up: PodcastCatchUpBuilder | None = None,
 ) -> ScheduledRunRecordBase:
-    """Run one configured job through its fixed specialist path."""
-    if isinstance(job, WebResearchScheduledJob):
-        return _run_scheduled_web_research_job(
+    """Run one job to completion from a caller with no event loop.
+
+    What the scheduler and the command line both want. Nothing here can be
+    stopped part-way, which is correct for both: a cron firing has nobody to
+    ask, and a terminal running one command has nothing else to do.
+    """
+    return asyncio.run(
+        run_scheduled_job_async(
             job,
             web_research_graph,
             knowledge_repository,
             current_date=current_date,
             artifact_root=artifact_root,
-        )
-    if build_podcast_catch_up is None:
-        raise ValueError("Podcast Catch-up dependencies are not configured")
-    return asyncio.run(
-        run_scheduled_podcast_catch_up_job(
-            job,
-            build_podcast_catch_up,
-            knowledge_repository,
-            artifact_root=artifact_root,
+            build_podcast_catch_up=build_podcast_catch_up,
         )
     )
 
@@ -234,12 +281,11 @@ class UnknownScheduledJob(LookupError):
     """The named job is not in the schedule, or is switched off in it."""
 
 
-def run_job_by_id(
+def _resolve_job(
     job_id: str,
-    *,
-    schedule_file: Path = DEFAULT_SCHEDULE_FILE,
-) -> ScheduledRunRecordBase:
-    """Run one configured job by name, with no scheduler involved.
+    schedule_file: Path,
+) -> tuple[ConfiguredScheduledJob, str]:
+    """Find one runnable job by name, or say why it is not one.
 
     Naming a job and running it is wanted from three places -- the command
     line, the terminal interface, and the CLI -- and each of them was one
@@ -253,6 +299,16 @@ def run_job_by_id(
         raise UnknownScheduledJob(f"Unknown scheduled job: {job_id}")
     if not job.enabled:
         raise UnknownScheduledJob(f"Scheduled job is disabled: {job_id}")
+    return job, schedule_config.timezone
+
+
+async def run_job_by_id_async(
+    job_id: str,
+    *,
+    schedule_file: Path = DEFAULT_SCHEDULE_FILE,
+) -> ScheduledRunRecordBase:
+    """Run one configured job by name from inside a running event loop."""
+    job, timezone = _resolve_job(job_id, schedule_file)
 
     from oris.web_research_app import (
         build_podcast_catch_up_preparation,
@@ -260,14 +316,22 @@ def run_job_by_id(
         web_research_graph,
     )
 
-    current_date = datetime.now(ZoneInfo(schedule_config.timezone)).date()
-    return run_scheduled_job(
+    return await run_scheduled_job_async(
         job,
         web_research_graph,
         knowledge_repository,
-        current_date=current_date,
+        current_date=datetime.now(ZoneInfo(timezone)).date(),
         build_podcast_catch_up=build_podcast_catch_up_preparation,
     )
+
+
+def run_job_by_id(
+    job_id: str,
+    *,
+    schedule_file: Path = DEFAULT_SCHEDULE_FILE,
+) -> ScheduledRunRecordBase:
+    """Run one configured job by name, for a caller with no event loop."""
+    return asyncio.run(run_job_by_id_async(job_id, schedule_file=schedule_file))
 
 
 def main() -> None:

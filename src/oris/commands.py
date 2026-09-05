@@ -15,10 +15,11 @@ truncation notice appeared in one interface and not the other would be the
 same mistake with worse consequences.
 """
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from zoneinfo import ZoneInfo
 
 from rich.console import Group, RenderableType
@@ -35,6 +36,9 @@ from oris.schedules import (
     load_schedule_config,
     next_run_time,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle: knowledge imports this
+    from oris.scheduled_runs import ScheduledRunRecordBase
 
 SLASH_COMMANDS = {
     "/research": (
@@ -277,6 +281,7 @@ STATUS_STYLES = {
     "succeeded": "green",
     "failed": "red",
     "running": "yellow",
+    "cancelled": "yellow",
     "unreadable": "red",
 }
 
@@ -480,7 +485,36 @@ def run_job_now(
         return Text(str(error), style="yellow")
     except Exception as error:  # noqa: BLE001 - a failed job is not a crash
         return Text(f"{job_id} failed: {type(error).__name__}: {error}", style="red")
+    return _job_outcome(job_id, record)
 
+
+async def run_job_now_async(
+    job_id: str,
+    *,
+    path: Path = DEFAULT_SCHEDULE_FILE,
+) -> RenderableType:
+    """Run one scheduled job from inside a running event loop.
+
+    The awaitable half of `run_job_now`, so an interface can stop it. A
+    cancellation is deliberately not caught here: the job writes its own
+    record saying it was cancelled, and the caller that asked for the stop is
+    the one that should say so on screen.
+    """
+    from oris.scheduled_runs import UnknownScheduledJob, run_job_by_id_async
+
+    try:
+        record = await run_job_by_id_async(job_id, schedule_file=path)
+    except UnknownScheduledJob as error:
+        return Text(str(error), style="yellow")
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:  # noqa: BLE001 - a failed job is not a crash
+        return Text(f"{job_id} failed: {type(error).__name__}: {error}", style="red")
+    return _job_outcome(job_id, record)
+
+
+def _job_outcome(job_id: str, record: "ScheduledRunRecordBase") -> RenderableType:
+    """Say how a run ended and where to find what it produced."""
     if record.status != "succeeded":
         return Text(
             f"{job_id} finished as {record.status}: {record.error or 'no reason given'}",

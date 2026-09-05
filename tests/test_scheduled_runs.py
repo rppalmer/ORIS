@@ -1,5 +1,7 @@
 """Tests for manual scheduled-job execution and retained run history."""
 
+import asyncio
+import json
 from datetime import date
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
@@ -12,6 +14,7 @@ from oris.scheduled_runs import (
     PodcastCatchUpScheduledRunRecord,
     ScheduledRunRecord,
     run_scheduled_job,
+    run_scheduled_job_async,
 )
 from oris.schedules import (
     PodcastCatchUpScheduledJob,
@@ -363,3 +366,37 @@ def test_scheduled_podcast_acknowledgement_failure_retains_report(tmp_path) -> N
     assert record.error.startswith("acknowledging podcast episodes: RuntimeError")
     assert len(list(artifact_root.rglob("*.md"))) == 1
     assert repository.search("useful idea", source_type="scheduled_run")
+
+
+def test_a_cancelled_run_records_itself_as_cancelled(tmp_path: Path) -> None:
+    """A stopped run must not sit in the history looking like a hung one.
+
+    `running` is what `/runs` shows for a job still going. A cancelled run
+    that left its record saying that would read as a job that never came
+    back, which is the single thing somebody opens that list to find out.
+    """
+
+    class Cancelling:
+        async def ainvoke(self, _graph_input: dict[str, object]) -> dict:
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            run_scheduled_job_async(
+                make_job(),
+                Cancelling(),
+                KnowledgeRepository(tmp_path / "knowledge.sqlite"),
+                current_date=TEST_CURRENT_DATE,
+                artifact_root=tmp_path / "scheduled",
+            )
+        )
+
+    directory = tmp_path / "scheduled" / "weekday-ai-news"
+    records = list(directory.glob("*.json"))
+    assert len(records) == 1
+    stored = json.loads(records[0].read_text(encoding="utf-8"))
+    assert stored["status"] == "cancelled"
+    assert stored["finished_at"] is not None
+    # The half-written report goes: one left behind is indistinguishable from
+    # the report of a run that finished.
+    assert not list(directory.glob("*.md"))

@@ -232,6 +232,65 @@ def test_a_document_within_the_budget_is_sent_whole() -> None:
     assert TRUNCATION_NOTICE.strip() not in evidence
 
 
+def test_an_archived_report_reaches_the_model_without_its_own_citations() -> None:
+    """The numbers an archived answer carries collide with the ones assigned here.
+
+    Both count from one over the same few items, so a copied number is in
+    range, survives validation, and points the reader at a different document.
+    A real answer on 2026-09-05 credited a claim from the 31 August report to
+    `[2]`, which is that report's own Forbes citation.
+    """
+    archived = (
+        "## Answer\n\n"
+        "Solowin launched a compliance engine [1]. "
+        "Over 100 firms issued a joint warning [2], [4].\n\n"
+        "## Sources\n\n"
+        "1. [Forbes](https://www.forbes.com/one)\n"
+        "2. [Forbes](https://www.forbes.com/two)\n"
+    )
+    document = make_document().model_copy(update={"content": archived})
+    graph, model = _graph_answering("Answered from the archive [1].", (document,))
+
+    graph.invoke({"query": "What did the most recent report say?"})
+
+    evidence = model.invoke.call_args.args[0][-1][1]
+    assert "[1]" not in evidence
+    assert "[2]" not in evidence
+    assert "forbes.com" not in evidence
+    assert "Solowin launched a compliance engine." in evidence
+    assert "Over 100 firms issued a joint warning." in evidence
+
+
+def test_a_chat_exchange_loses_its_reference_list_too() -> None:
+    """Chat documents end in `Sources:`, research reports in `## Sources`."""
+    archived = (
+        "User:\nwhat's the weather\n\n"
+        "ORIS:\nScattered clouds at 79F [1]. Visibility is 10 miles [4].\n\n"
+        "Sources:\n"
+        "[1] [Weather Street](https://weatherstreet.com/x)\n"
+        "[4] [NWS](https://forecast.weather.gov/y)\n"
+    )
+    document = make_document().model_copy(update={"content": archived})
+    graph, model = _graph_answering("Answered from the archive [1].", (document,))
+
+    graph.invoke({"query": "What was the weather?"})
+
+    evidence = model.invoke.call_args.args[0][-1][1]
+    assert "weatherstreet.com" not in evidence
+    assert "Scattered clouds at 79F. Visibility is 10 miles." in evidence
+
+
+def test_a_document_with_no_citations_of_its_own_is_unchanged() -> None:
+    """Stripping must not be a rewrite; half the archive carries no numbers."""
+    document = make_document()
+    graph, model = _graph_answering("Answered from the archive [1].", (document,))
+
+    graph.invoke({"query": "What did we decide about scheduling?"})
+
+    evidence = model.invoke.call_args.args[0][-1][1]
+    assert "Start with schedules.toml and APScheduler." in evidence
+
+
 def test_local_knowledge_has_only_the_approved_path() -> None:
     """The specialist contains no router or model-controlled tool loop."""
     repository = Mock(spec=KnowledgeRepository)

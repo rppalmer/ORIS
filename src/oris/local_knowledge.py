@@ -83,6 +83,22 @@ says what it was about, so a cut tail costs the least.
 
 TRUNCATION_NOTICE = "\n…[truncated]"
 
+INLINE_CITATIONS = re.compile(r"[ \t]*\[\d+\](?:[ \t]*,?[ \t]*\[\d+\])*")
+"""A run of bracketed source numbers belonging to the archived document.
+
+Matched as a run rather than one at a time so that "[2], [4]" leaves no stray
+comma behind.
+"""
+
+TRAILING_SOURCE_LIST = re.compile(
+    r"\n#{0,6}[ \t]*Sources:?[ \t]*\n.*\Z", re.DOTALL | re.IGNORECASE
+)
+"""The reference list an archived answer ends with.
+
+Two spellings are in the archive: `## Sources` from a scheduled research
+report and `Sources:` from a chat exchange.
+"""
+
 
 def _format_evidence(documents: tuple[KnowledgeDocument, ...]) -> str:
     """Serialize retrieved documents with stable, one-based source numbers."""
@@ -93,11 +109,31 @@ def _format_evidence(documents: tuple[KnowledgeDocument, ...]) -> str:
             "source_type": document.source_type,
             "source_ref": document.source_ref,
             "created_at": document.created_at.isoformat(),
-            "content": _bounded(document.content),
+            "content": _bounded(_without_own_citations(document.content)),
         }
         for source_number, document in enumerate(documents, start=1)
     ]
     return json.dumps(evidence, ensure_ascii=False, indent=2)
+
+
+def _without_own_citations(content: str) -> str:
+    """Remove an archived answer's own citation numbers and reference list.
+
+    An archived document is a previous answer, so it arrives carrying bracketed
+    numbers that point at its own external sources. Those collide with the
+    source numbers this specialist assigns to the retrieved documents: both
+    count from one over the same handful of items, and the model copies them
+    out. On 2026-09-05 an answer credited a claim from the 31 August report to
+    `[2]`, which is that report's own Forbes citation and the 9 August report in
+    the numbering the reader is given.
+
+    The prompt forbade this in a sentence of its own and the model ignored it,
+    so the numbers are taken out of the input instead. Nothing usable is lost:
+    this specialist cites archive source numbers and is told to write no URLs,
+    so it could never have followed one of these anywhere.
+    """
+    without_list = TRAILING_SOURCE_LIST.sub("", content)
+    return INLINE_CITATIONS.sub("", without_list).rstrip()
 
 
 def _bounded(content: str) -> str:

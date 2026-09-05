@@ -82,7 +82,7 @@ def test_local_knowledge_retrieves_and_answers_once() -> None:
     assert "Archive result order: relevance" in messages[1][1]
     assert '"source_number": 1' in messages[1][1]
     assert "Start with schedules.toml and APScheduler." in messages[1][1]
-    assert model.invoke.call_args.kwargs == {"max_completion_tokens": 512}
+    assert model.invoke.call_args.kwargs == {"max_completion_tokens": 1024}
 
 
 def test_local_knowledge_returns_a_fixed_message_without_matches() -> None:

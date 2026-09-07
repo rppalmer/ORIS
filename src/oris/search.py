@@ -96,9 +96,14 @@ class WebSearchResult(BaseModel):
 
     title: NonEmptyText
     url: HttpUrl
-    snippet: NonEmptyText
+    snippet: str = ""
+    content: str | None = None
+    final_url: str | None = None
+    retrieved_at: AwareDatetime | None = None
+    truncated: bool = False
     relevance_score: float | None = Field(default=None, ge=0, le=1)
-    published_at: AwareDatetime | None = None
+    # Preserve provider precision; a date-only value does not imply midnight UTC.
+    published_at: str | None = None
 
     @field_serializer("url")
     def serialize_url(self, url: HttpUrl) -> str:
@@ -115,6 +120,7 @@ class WebSearchResponse(BaseModel):
     results: tuple[WebSearchResult, ...] = Field(min_length=1)
     provider: NonEmptyText
     provider_request_id: NonEmptyText | None = None
+    partial: bool = False
 
 
 class WebSearch(Protocol):

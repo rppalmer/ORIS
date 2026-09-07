@@ -19,11 +19,11 @@ from oris.net_razor import (
     load_podcast_feeds_tool,
     load_podcast_transcription_tool,
 )
+from oris.net_syphon import NetSyphonWebSearch
 from oris.podcast_catch_up import (
     create_podcast_catch_up_graph,
     create_podcast_catch_up_preparation_graph,
 )
-from oris.tavily import TavilyWebSearch, create_tavily_search
 from oris.threat_intel import create_threat_intel_graph
 from oris.threat_reports import ThreatReportStore
 from oris.threatsyft import load_threat_intel_tools
@@ -41,10 +41,7 @@ if settings.local_tracing_enabled:
         verbose=False,
     )
 
-search = TavilyWebSearch(
-    general_search=create_tavily_search(settings),
-    news_search=create_tavily_search(settings, topic="news"),
-)
+search = NetSyphonWebSearch(settings.net_syphon_python_executable)
 model = create_chat_model(settings)
 
 web_research_graph = create_web_research_graph(search, model)

@@ -7,7 +7,7 @@ import pytest
 
 from oris.config import Settings
 from oris.model import create_chat_model
-from oris.tavily import TavilyWebSearch, create_tavily_search
+from oris.net_syphon import NetSyphonWebSearch
 from oris.web_research import CitedAnswer, create_web_research_graph
 
 LIVE_WEB_RESEARCH_ENABLED = os.environ.get("ORIS_RUN_LIVE_WEB_RESEARCH_TESTS") == "1"
@@ -18,16 +18,13 @@ LIVE_WEB_RESEARCH_ENABLED = os.environ.get("ORIS_RUN_LIVE_WEB_RESEARCH_TESTS") =
     not LIVE_WEB_RESEARCH_ENABLED,
     reason=(
         "Set ORIS_RUN_LIVE_WEB_RESEARCH_TESTS=1 to contact oMLX "
-        "and spend one Tavily search credit."
+        "and use configured Net-Syphon search/retrieval credits."
     ),
 )
 def test_web_research_returns_a_cited_answer() -> None:
-    """The configured Tavily and oMLX services satisfy the complete workflow."""
+    """Configured MCP retrieval and the model complete the fixed research path."""
     settings = Settings()
-    search = TavilyWebSearch(
-        create_tavily_search(settings),
-        create_tavily_search(settings, topic="news"),
-    )
+    search = NetSyphonWebSearch(settings.net_syphon_python_executable)
     model = create_chat_model(settings)
     graph = create_web_research_graph(search, model)
 
@@ -38,4 +35,5 @@ def test_web_research_returns_a_cited_answer() -> None:
     assert set(result) == {"answer", "sources"}
     assert isinstance(result["answer"], CitedAnswer)
     assert result["answer"].answer
-    assert 1 <= len(result["sources"]) <= 5
+    assert 1 <= len(result["sources"]) <= 3
+    assert all(source.content for source in result["sources"])

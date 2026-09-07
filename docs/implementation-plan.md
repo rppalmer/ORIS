@@ -37,7 +37,10 @@ the same model call. Community Research receives a concise Net-Razor topic;
 other specialists receive standalone requests. Failed requests are kept out of
 conversation history and report their actual component and reason. Web Research
 distinguishes current-state lookups from publication-bounded news and selects
-Tavily's news category for explicit news requests. Podcast Catch-up discovers recent episodes from configured feeds, prefers the
+Net-Syphon's news intent for explicit news requests. Web Research makes one search
+and retrieves the first three pages, then synthesizes only successful page content.
+The new path is fixture-tested; its live acceptance run remains outstanding.
+Podcast Catch-up discovers recent episodes from configured feeds, prefers the
 publisher's transcript over a machine one, falls back to local Whisper, and
 summarises each show on its own; Net-Razor remains the sole owner of
 processed-episode state. Local
@@ -83,8 +86,9 @@ they resolve correctly, because the rendered plist pins `WorkingDirectory` to
 the checkout; run by hand from elsewhere they still follow the working
 directory, which is why this stays under open questions.
 
-All seventeen opt-in live contracts pass against the real oMLX, Tavily,
-Net-Razor, and ThreatSyft services as of 2026-08-16. The eleven system prompts
+The previous seventeen opt-in live contracts passed against oMLX and the then-current
+providers on 2026-08-16; that does not verify the replacement Web Research path.
+The eleven system prompts
 have been reviewed together; the findings are the "Answer quality" roadmap
 below and are the highest-value work outstanding.
 
@@ -562,26 +566,11 @@ that has never successfully run would be scheduling a guess.
 
 ### Evidence providers
 
-- [ ] Build the separate Web Evidence MCP server. Ryan is building this as a
-  dedicated server called **net-syphon**, alongside net-razor, and it fetches
-  page content with Playwright. That makes the fetched-page injection surface
-  real rather than hypothetical, which is what the planner guards and the
-  schema constraints were measured against on 2026-09-05.
-
-  Its point is to end the single-vendor dependency on Tavily and to get past
-  search snippets:
-  - **SearXNG** as a second search provider. Self-hosted, so it removes the
-    per-search cost and quota from routine research, and it makes provider
-    failure a choice rather than an outage. Its recency and domain filters
-    depend on the engines it is configured with and must be proven by contract
-    test rather than assumed to match Tavily's.
-  - **Firecrawl** for page extraction, kept as a separate capability from
-    search so a client can review URLs before spending extraction credits.
-    Snippets are all Web Research has today; anything needing the body of a
-    page cannot currently be answered.
-  See [web-evidence-mcp-plan.md](web-evidence-mcp-plan.md) for the tool
-  contracts, safety boundaries, and build phases. Keep `playwright-stealth`
-  optional and disabled by default.
+- [ ] Configure `NET_SYPHON_PYTHON_EXECUTABLE` and run the opt-in Web Research
+  live contract, then the existing semantic evaluation set. Check news/date
+  coverage, partial retrievals, latency and local-model context use. Search
+  dates are constraints, not verified publication timestamps; missing dates
+  must not become date-specific claims. Do not require exact Tavily equivalence.
 - [ ] Add a free company lookup, so the organisation behind an ASN or a domain
   can be turned into basic company facts — what it is, where it is registered,
   roughly how big, who owns it. Crunchbase is the shape; the free part is the
@@ -607,18 +596,15 @@ that has never successfully run would be scheduling a guess.
   than stating the ASN with nothing attached. The case is the guard, not
   another prompt line. This still pairs with the company lookup above: the AS
   organisation is the name that lookup would be given.
-- [ ] When a real second backend exists, introduce the smallest ORIS-owned
-  adapter needed to preserve the existing specialist contract. Do not add
-  provider-selection configuration before two implementations exist.
 - [ ] After the fixed workflows remain stable, consider a separate dynamic MCP
   exploration specialist for interactive, read-only, best-effort requests. It
   must use a small explicit tool allowlist and bounded execution, and it must
   not run scheduled or persistence-sensitive workflows.
 
 The Net-Razor boundary uses the official `langchain-mcp-adapters` package and a
-fixed tool allowlist, and Net-Razor is optional configuration. Direct Tavily
-access remains until the Web Evidence MCP replacement proves equivalent
-behavior, tracing, error propagation, and acceptable resource usage. The
+fixed tool allowlist, and Net-Razor is optional configuration. Net-Syphon follows
+the same adapter pattern, with provider policy owned entirely by the server.
+Its live behavior, tracing and resource usage still need operator verification. The
 Net-Razor-specific tool names and result mapping are still inline in Community
 Research and Podcast Catch-up; that is a known deviation from the adapter
 boundary, to be repaid when either specialist is next changed rather than
@@ -751,7 +737,8 @@ answers to questions that keep getting asked again.
 ## Immediate next action
 
 The core milestone is complete, the August 13 foundation review is closed out,
-and everything has been exercised against live services.
+and its original providers were exercised against live services. The replacement
+Web Research path still needs the live acceptance check listed above.
 
 Take the Podcast Catch-up items first, in the order they are listed. They are
 short, they are blocking real use, and the first two are checks rather than
@@ -764,5 +751,4 @@ evaluation cases were run for the first time on 2026-08-18 and found three
 defects, all recorded in the history. What they still lack is a recorded verdict
 per case, so two reports cannot be compared without reading both in full.
 
-Provider adapters remain contingent on a real second implementation, and
-dynamic MCP exploration remains unapproved.
+Dynamic MCP exploration remains unapproved.

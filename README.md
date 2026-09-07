@@ -16,7 +16,8 @@ reports. It is read-only with respect to external systems.
 
 - A constrained LangGraph router selects one of five fixed paths: direct chat,
   Web Research, Community Research, Podcast Catch-up, or Local Knowledge.
-- Web Research performs one bounded Tavily search and returns a cited answer.
+- Web Research searches through Net-Syphon, retrieves up to three pages, and
+  returns a cited answer from their content. No tool-calling synthesis loop.
 - Community Research uses the local Net-Razor MCP server to collect bounded X,
   Hacker News, and arXiv evidence.
 - Podcast Catch-up uses Net-Razor to discover recent episodes from configured
@@ -44,15 +45,23 @@ development MacBook or move to the Mac mini without source-code changes.
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
 - An accessible oMLX server with a compatible instruction model loaded
-- A Tavily API key
+- A local Net-Syphon checkout for Web Research
 - A local [Net-Razor](https://github.com/rppalmer/net-razor) checkout for
   Community Research and Podcast Catch-up
 - `ffmpeg` on `PATH` and Apple Silicon, for podcast transcription only. Without
   them Net-Razor reports `not_configured` and episodes with no published
   transcript become caveats.
 
-Net-Razor and Phoenix are optional if their related capabilities are not used.
-The Tavily setting is currently part of the required application configuration.
+Net-Syphon, Net-Razor and Phoenix are optional if their capabilities are not used.
+Configure Net-Syphon's providers under its own runtime account in
+`~/.net-syphon/.env`: ORIS does not hold or forward provider credentials.
+The new Web Research path is fixture-tested; live verification remains pending
+Net-Syphon configuration. Existing running services have not been reconfigured.
+Web Research allows one search plus one three-page batch, using at most 8,000
+characters per successful page. Failed pages are omitted; if all fail, research
+stops. Partial coverage and truncation are disclosed to synthesis. Hosted date
+filters do not verify publication dates. Existing ORIS traces/checkpoints and
+evaluation reports may retain page text, unlike Net-Syphon's metadata-only audit.
 
 ## Setup
 
@@ -77,7 +86,7 @@ history and knowledge index are live.
 | `LOCAL_LLM_API_KEY` | Local oMLX API credential |
 | `LOCAL_LLM_TIMEOUT_SECONDS` | Ceiling on one model call (default 120) |
 | `LOCAL_LLM_MAX_HISTORY_TOKENS` | Conversation tokens sent per turn; raise it for a larger context window |
-| `TAVILY_API_KEY` | Tavily credential for Web Research |
+| `NET_SYPHON_PYTHON_EXECUTABLE` | Absolute path to Net-Syphon's virtual-environment Python |
 | `NET_RAZOR_PYTHON_EXECUTABLE` | Absolute path to Net-Razor's virtual-environment Python |
 | `THREATSYFT_PYTHON_EXECUTABLE` | Absolute path to ThreatSyft's virtual-environment Python |
 | `THREATSYFT_ROOT` | Absolute path to the ThreatSyft checkout |
@@ -190,7 +199,7 @@ There is also a tabbed terminal interface over the same graph; see
 Ordinary messages use the constrained router. These commands bypass it when
 you want an explicit path:
 
-- `/research <question>` — search the open web with Tavily.
+- `/research <question>` — search and retrieve public pages through Net-Syphon.
 - `/community [x|hn|arxiv|all] <topic>` — research the previous week on X,
   Hacker News and arXiv, 25 results per source. Name one or more sources in
   front of the topic to search only those: `/community hn arxiv agent
@@ -364,8 +373,8 @@ model or external services.
 Evaluation sets live in `evaluations/`, one file per specialist, and are run
 with `uv run python -m oris.evaluation <specialist>` — `web_research` (the
 default), `local_knowledge`, `community_research`, or `threat_intel`. Each run
-contacts the real services that specialist depends on, so it consumes Tavily
-credits or provider lookups, and Threat Intel additionally stores an evidence
+contacts the real services that specialist depends on, so it consumes search,
+retrieval credits or provider lookups, and Threat Intel additionally stores an evidence
 report. Reports are written to `artifacts/evaluations/` for human review; there
 is no automatic scoring, and the way to judge a prompt change is to put two
 reports on the same case file side by side.
@@ -438,4 +447,3 @@ process needs to be handed the whole file.
 - [Implementation history](docs/implementation-history.md)
 - [Portable local-first architecture](docs/architecture/001-portable-local-first-foundation.md)
 - [Scheduling architecture](docs/architecture/002-project-owned-scheduling.md)
-- [Future Web Evidence MCP plan](docs/web-evidence-mcp-plan.md)

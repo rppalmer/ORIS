@@ -12,7 +12,6 @@ VALID_TEST_SETTINGS = {
     "LOCAL_LLM_MODEL": "local-test-model",
     "LOCAL_LLM_API_KEY": "local-test-key",
     "LOCAL_LLM_TIMEOUT_SECONDS": "45",
-    "TAVILY_API_KEY": "tavily-test-key",
     "LANGSMITH_TRACING": "false",
 }
 
@@ -66,7 +65,7 @@ def test_missing_settings_name_each_required_environment_variable() -> None:
     assert "LOCAL_LLM_BASE_URL" in error_text
     assert "LOCAL_LLM_MODEL" in error_text
     assert "LOCAL_LLM_API_KEY" in error_text
-    assert "TAVILY_API_KEY" in error_text
+    assert "NET_SYPHON_PYTHON_EXECUTABLE" not in error_text
 
 
 def test_langsmith_tracing_cannot_be_enabled() -> None:

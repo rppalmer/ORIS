@@ -8,7 +8,40 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-09-07 — Web Research uses Net-Syphon search and page retrieval
+
+Replaced direct Tavily access with the existing official `langchain-mcp-adapters`
+connection pattern and runtime discovery of only `net_syphon_search_web` and
+`net_syphon_get_pages`. No new transport, provider selection, retry policy or
+mirrored MCP schemas were added. The newer LangChain MCP namespace is beta;
+migrating every existing integration was unnecessary for this change.
+
+One research run searches once, selects the first three results, and requests
+one retrieval batch. Successful pages supply at most 8,000 characters each to
+tool-free synthesis. Failed pages are omitted with partial coverage disclosed;
+if none can be retrieved, the run fails rather than treating previews as page
+content. Requested URLs, reported final URLs, retrieval times and truncation
+remain distinguishable. Existing date-specific claim restrictions stay in place;
+hosted date filters do not independently prove publication dates.
+
+Net-Syphon loads its own protected provider configuration. ORIS now needs only
+an optional absolute interpreter path, resolved when Web Research is first used.
+The Tavily adapter, dependency and provider-only tests were removed; general
+certificate-trust tests were retained separately. The obsolete Web Evidence
+design was deleted because it prescribed public providers, local browsers and
+stealth features that are not the approved architecture.
+
+Normal graph tests exercise filter forwarding, the three-page budget, partial
+retrieval, all-failed retrieval and tool-free synthesis with deterministic model
+doubles. Live hosted retrieval and semantic evaluations remain pending operator
+configuration. No credentials, schedules or running services were changed.
+
+Unlike Net-Syphon's metadata-only audit, existing ORIS traces/checkpoints and
+evaluation reports can retain retrieved text. Their existing local storage and
+retention boundaries still apply; this change does not promise body-free ORIS logs.
+
 ## The July 29, 2026 snapshot
+
 
 The project reached that point in four planned steps, all since completed. The
 snapshot is summarized here rather than reproduced. It was written in the future

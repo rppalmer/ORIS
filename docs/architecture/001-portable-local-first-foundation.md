@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-20
-- Last reviewed: 2026-08-14
+- Last reviewed: 2026-09-07 (Web Research capability boundary)
 
 ## Context
 
@@ -15,7 +15,7 @@ application is expected to run on the Mac mini.
 
 The system must favor predictable control flow, local data handling,
 traceability, and a design that teaches practices transferable to larger
-systems. The first capability is read-only web research using Tavily.
+systems. Web Research uses Net-Syphon for search and public-page retrieval.
 
 ## Decision
 
@@ -29,7 +29,7 @@ Machine-specific values will be provided through validated environment
 configuration, including:
 
 - model base URL, model identifier, and local API credential;
-- Tavily API credential;
+- optional Net-Syphon interpreter path (provider credentials stay with that server);
 - Phoenix collector endpoint;
 - storage locations and runtime settings.
 
@@ -55,7 +55,7 @@ During development:
 - the MacBook runs the source code, LangGraph development server, Studio
   browser session, and Phoenix;
 - the Mac mini runs oMLX and the configured model;
-- Tavily receives only the search requests required by the graph;
+- Net-Syphon receives the required search requests and selected page URLs;
 - LangSmith tracing remains disabled;
 - no public tunnel is used.
 
@@ -106,36 +106,25 @@ Web Research is a fixed workflow, not an orchestrator:
 1. validate the request;
 2. use one bounded structured model call to create a search request while
    preserving the original question for the final answer;
-3. perform exactly one basic Tavily search;
-4. normalize the provider response into typed evidence records at the adapter
-   boundary;
+3. perform exactly one Net-Syphon search;
+4. retrieve the first three results in one batch, retaining successful page
+   content with an ORIS-owned 8,000-character-per-page context budget;
 5. synthesize an answer with citations; and
 6. validate that every citation identifies supplied evidence.
 
-The search capability is asynchronous, and that is a deadline decision rather
-than a style one. Python cannot cancel a blocking call in place, so a
-synchronous adapter cannot be bounded by the workflow above it — LangGraph
-refuses a node timeout on a synchronous node for exactly that reason.
-`langchain-tavily` also behaves differently across the two: it posts through
-`requests` with no timeout argument, which waits indefinitely, and through
-aiohttp, which applies a 300-second overall and 30-second connect ceiling. The
-tool exposes no timeout setting, so awaiting it is how the call acquires a
-deadline at all. An unbounded search is worst where nobody is watching: it
-holds the scheduler's single slot for that job, and every later firing is
-skipped in silence.
+Calls are asynchronous and use the installed official MCP adapter, with a
+210-second read backstop above Net-Syphon's own deadlines. Net-Syphon owns
+provider validation, limits, routing, error classification and auditing. ORIS
+owns the one-search/one-batch orchestration budget and supplies no provider keys.
+There is no fallback or retry loop. If every page fails, research stops before
+synthesis; partial coverage and truncation are disclosed to the tool-free model.
 
-Tavily parameters remain bounded and conservative. Basic search is used with
-automatic provider parameters disabled. Explicit callers may provide bounded
-domain or recency controls; otherwise the planner may add them only under its
-documented rules. The planner selects the existing `news` category only for an
-explicit news request; an explicit caller category takes precedence. Provider
-date filters represent source-publication recency, not the date of a current
-condition. Current or historical state such as weather, prices, scores, and
-service status keeps its resolved date in the search query without requiring
-page publication metadata. Explicit scheduled news continues to use strict
-absolute publication bounds. Tavily's generated answer and raw page-content
-options remain disabled. Firecrawl remains deferred until a demonstrated need
-exists for full-page extraction.
+Explicit caller search controls take precedence over the planner. News, domains,
+relative periods and paired dates express intent, not a guarantee of dated
+evidence. Publication strings retain their supplied precision; missing dates
+cannot support date-specific claims. Current-state questions may use a date in
+the query without requiring page-publication metadata. Live acceptance and
+semantic evaluation of this replacement remain outstanding.
 
 ### External capability boundary
 
@@ -154,11 +143,11 @@ provider must satisfy the same ORIS capability semantics; ORIS will not add a
 second queue, silently drop unsupported controls, or otherwise compensate for
 missing provider behavior.
 
-The current Tavily integration already implements ORIS's `WebSearch` boundary
-and normalizes Tavily results before they enter Web Research. Tavily-specific
-request mapping remains in that adapter. A second web-search backend will add
-its own adapter only when it exists; provider-selection configuration will not
-be added in advance.
+The Net-Syphon integration implements the existing `WebSearch` boundary using
+runtime discovery and a two-tool allowlist. It selects pages and maps only the
+fields the specialist consumes, not raw provider responses or mirrored MCP
+schemas. Exact Tavily equivalence is not required: differences must be explicit
+and evaluated against the user's actual research needs.
 
 ### MCP independence
 
@@ -297,9 +286,9 @@ separately as a pinned tool, because ORIS speaks to it over the network and
 never imports it.
 
 The direct CLI uses the official asynchronous SQLite checkpointer for durable
-conversation threads. The raw Tavily response will not be written into graph
-state; the adapter will convert it to the minimum typed evidence required by
-the workflow. The parent conversation checkpoint retains the user-facing
+conversation threads. Raw upstream responses do not enter graph state; the
+capability server supplies normalized content. Retrieved page text can appear
+in specialist state, traces and evaluation reports. The parent checkpoint retains the user-facing
 messages and request status, not the provider's raw response. Provider inputs
 and outputs may appear in the short-lived diagnostic trace. Scheduled
 collection tasks explicitly persist their final output artifacts under their

@@ -99,11 +99,13 @@ def _format_evidence(results: tuple[WebSearchResult, ...]) -> str:
             "title": result.title,
             "url": str(result.url),
             "snippet": result.snippet,
-            "published_at": (
-                result.published_at.isoformat()
-                if result.published_at is not None
-                else None
-            ),
+            "content": result.content,
+            "final_url": str(result.final_url) if result.final_url else None,
+            "retrieved_at": result.retrieved_at.isoformat()
+            if result.retrieved_at
+            else None,
+            "truncated": result.truncated,
+            "published_at": result.published_at,
         }
         for source_number, result in enumerate(results, start=1)
     ]
@@ -164,6 +166,7 @@ def create_web_research_graph(
                     f"Question:\n{state['query']}\n\n"
                     "Executed search request:\n"
                     f"{state['search_request'].model_dump_json(indent=2)}\n\n"
+                    f"Coverage:\n{json.dumps({'partial': search_response.partial})}\n\n"
                     f"Evidence:\n{_format_evidence(search_response.results)}",
                 ),
             ],

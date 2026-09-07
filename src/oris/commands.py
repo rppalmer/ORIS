@@ -44,7 +44,7 @@ SLASH_COMMANDS = {
     "/research": (
         "web_research",
         "<question>",
-        "Search the open web with Tavily.",
+        "Search the open web and retrieve pages through Net-Syphon.",
     ),
     "/community": (
         "community_research",

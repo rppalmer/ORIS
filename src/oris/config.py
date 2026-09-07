@@ -86,7 +86,10 @@ class Settings(BaseSettings):
         gt=0,
         validation_alias="LOCAL_LLM_MAX_HISTORY_TOKENS",
     )
-    tavily_api_key: NonEmptySecret = Field(validation_alias="TAVILY_API_KEY")
+    net_syphon_python_executable: ConfiguredPath | None = Field(
+        default=None,
+        validation_alias="NET_SYPHON_PYTHON_EXECUTABLE",
+    )
     langsmith_tracing: bool = Field(
         default=False,
         validation_alias="LANGSMITH_TRACING",

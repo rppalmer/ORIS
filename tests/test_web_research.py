@@ -2,13 +2,17 @@
 
 import asyncio
 from datetime import date
-from unittest.mock import Mock, call
+from pathlib import Path
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
+from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
+from oris.net_syphon import NetSyphonWebSearch
 from oris.search import (
+    SearchProviderError,
     WebSearchRequest,
     WebSearchResponse,
     WebSearchResult,
@@ -224,3 +228,133 @@ def test_web_research_has_only_the_approved_path() -> None:
         ("synthesize_answer", "validate_answer"),
         ("validate_answer", "__end__"),
     }
+
+
+@pytest.mark.parametrize("all_failed", [False, True])
+def test_web_research_uses_bounded_page_content(monkeypatch, all_failed):
+    """Only successfully retrieved pages reach tool-free synthesis; no retries."""
+
+    def message(content):
+        return ToolMessage(
+            content="", tool_call_id="fixture", artifact={"structured_content": content}
+        )
+
+    search_tool = Mock(
+        name="search",
+        ainvoke=AsyncMock(
+            return_value=message(
+                {
+                    "call_id": "search-id",
+                    "partial": False,
+                    "results": [
+                        {
+                            "title": f"Source {i}",
+                            "url": f"https://example.org/{i}",
+                            "snippet": "Preview only",
+                            "published_at": "2026-09-07"
+                            if i == 1
+                            else "2026-09-07T12:00:00",
+                        }
+                        for i in range(5)
+                    ],
+                }
+            )
+        ),
+    )
+    page_tool = Mock(
+        name="pages",
+        ainvoke=AsyncMock(
+            return_value=message(
+                {
+                    "partial": True,
+                    "results": [
+                        {
+                            "index": i + 1,
+                            "page": None
+                            if all_failed or i == 0
+                            else {
+                                "text": "Retrieved body " * 1000,
+                                "final_url": None,
+                                "retrieved_at": "2026-09-07T12:00:00Z",
+                                "truncated": False,
+                            },
+                            "error": {"code": "access_denied"}
+                            if all_failed or i == 0
+                            else None,
+                        }
+                        for i in range(3)
+                    ],
+                }
+            )
+        ),
+    )
+    loader = AsyncMock(return_value=(search_tool, page_tool))
+    monkeypatch.setattr("oris.net_syphon.load_web_research_tools", loader)
+    model, _, answer_model = create_fake_model(CitedAnswer(answer="Supported [1]."))
+    graph = create_web_research_graph(
+        NetSyphonWebSearch(Path("/fixture/python")), model
+    )
+    inputs = {
+        "query": "Research",
+        "search_category": "news",
+        "include_domains": ["example.org"],
+        "time_range": "week",
+    }
+    if all_failed:
+        with pytest.raises(SearchProviderError, match="No pages"):
+            asyncio.run(graph.ainvoke(inputs))
+        answer_model.invoke.assert_not_called()
+    else:
+        result = asyncio.run(graph.ainvoke(inputs))
+        assert len(result["sources"]) == 2
+        assert [source.published_at for source in result["sources"]] == [
+            "2026-09-07",
+            "2026-09-07T12:00:00",
+        ]
+        assert all(
+            len(source.content) <= 8000 and source.truncated
+            for source in result["sources"]
+        )
+        evidence = answer_model.invoke.call_args.args[0][1][1]
+        assert '"content": "Retrieved body' in evidence
+        assert '"partial": true' in evidence
+        answer_model.invoke.assert_called_once()
+    model.bind_tools.assert_not_called()
+    search_tool.ainvoke.assert_awaited_once()
+    assert search_tool.ainvoke.call_args.args[0]["args"] == {
+        "query": "LangGraph architecture",
+        "search_category": "news",
+        "include_domains": ["example.org"],
+        "time_range": "week",
+    }
+    page_tool.ainvoke.assert_awaited_once()
+    assert page_tool.ainvoke.call_args.args[0]["args"] == {
+        "urls": [f"https://example.org/{i}" for i in range(3)]
+    }
+
+
+def test_net_syphon_error_becomes_a_search_provider_error() -> None:
+    """Net-Syphon reports failures as MCP errors, which the adapter raises as exceptions.
+
+    Its classification must survive that, or every provider failure reaches ORIS as
+    an untyped adapter exception and the specialist cannot say what went wrong.
+    """
+    from langchain_core.tools import ToolException
+
+    payload = (
+        '{"call_id":"a-call","code":"not_configured",'
+        '"message":"This capability is not configured.","retryable":false}'
+    )
+    search_tool = Mock(
+        name="search", ainvoke=AsyncMock(side_effect=ToolException(payload))
+    )
+    loader = AsyncMock(return_value=(search_tool, Mock(name="pages")))
+
+    search = NetSyphonWebSearch(Path("/fixture/python"))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("oris.net_syphon.load_web_research_tools", loader)
+        with pytest.raises(SearchProviderError) as raised:
+            asyncio.run(search.search(WebSearchRequest(query="anything")))
+
+    assert "not_configured" in str(raised.value)
+    assert "This capability is not configured." in str(raised.value)

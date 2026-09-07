@@ -444,6 +444,7 @@ process needs to be handed the whole file.
 ## Project documentation
 
 - [Active implementation plan](docs/implementation-plan.md)
+- [Red-team evaluation](docs/red-team.md)
 - [Implementation history](docs/implementation-history.md)
 - [Portable local-first architecture](docs/architecture/001-portable-local-first-foundation.md)
 - [Scheduling architecture](docs/architecture/002-project-owned-scheduling.md)

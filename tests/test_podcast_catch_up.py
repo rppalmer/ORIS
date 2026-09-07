@@ -8,7 +8,9 @@ and these tests all passed before a line of them was touched.
 import asyncio
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import pytest
 from langchain_core.language_models import BaseChatModel
@@ -21,7 +23,20 @@ from oris.podcast_catch_up import (
     create_podcast_catch_up_graph,
     create_podcast_catch_up_preparation_graph,
 )
+from oris.read_state import ProcessedItem, ProcessedItemStore
 from oris.threat_reports import ThreatReportStore
+
+_READ_STATE_DIR = TemporaryDirectory()
+
+
+def read_store() -> ProcessedItemStore:
+    """A throwaway read-state store, empty so every episode looks unread.
+
+    Real rather than a mock: what the graph asks it is which episodes to skip,
+    and a mock would answer whatever the caller expected instead of what the
+    filter would actually do.
+    """
+    return ProcessedItemStore(Path(_READ_STATE_DIR.name) / f"{uuid4()}.sqlite")
 
 
 def make_episode(number: int) -> dict:
@@ -207,6 +222,7 @@ def test_a_published_transcript_is_never_replaced_by_transcription() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -235,6 +251,7 @@ def test_transcription_runs_only_when_no_transcript_was_published() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -265,6 +282,7 @@ def test_any_other_error_is_a_caveat_rather_than_a_transcription(
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -293,6 +311,7 @@ def test_a_later_page_failing_does_not_reach_for_transcription() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(summaries=2),
         transcription_tool=tools["transcription"],
     )
@@ -317,7 +336,7 @@ def test_without_transcription_a_missing_transcript_is_only_a_caveat() -> None:
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        read_store(),
         make_model(),
     )
 
@@ -350,7 +369,7 @@ def test_one_caveat_per_show_however_many_episodes_it_published() -> None:
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -378,6 +397,7 @@ def test_the_run_budget_bounds_the_queue_before_any_transcript_call() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -394,6 +414,7 @@ def test_an_out_of_range_budget_is_refused_before_any_external_call() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
     )
 
@@ -425,6 +446,7 @@ def test_a_machine_transcribed_episode_says_so_in_its_caveats() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -459,6 +481,7 @@ def test_a_transcript_an_earlier_run_made_is_not_reported_as_new_work() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -482,6 +505,7 @@ def test_the_show_and_episode_come_from_net_razors_own_fields() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
     )
 
@@ -493,8 +517,16 @@ def test_the_show_and_episode_come_from_net_razors_own_fields() -> None:
     assert episode["episode_id"] == "episode-1"
 
 
-def test_acknowledgement_passes_receipts_under_the_name_net_razor_expects() -> None:
-    """The acknowledgement argument is `call_ids`, which is Net-Razor\'s name."""
+def test_a_finished_episode_is_recorded_against_the_read_that_produced_it() -> None:
+    """The record names the episode, taken from the read actually performed.
+
+    Net-Razor used to resolve a call ID back to its episode, which also meant
+    it could refuse an acknowledgement for a call that never happened. That
+    check is gone with the feature, so taking the identifier from the completed
+    read rather than from the discovery listing is now the only thing keeping
+    ORIS from recording something it never fetched.
+    """
+    store = read_store()
     tools = make_tools(
         episodes=[make_episode(1)],
         transcript_pages=[
@@ -505,14 +537,14 @@ def test_acknowledgement_passes_receipts_under_the_name_net_razor_expects() -> N
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        store,
         make_model(),
     )
 
     asyncio.run(graph.ainvoke({}))
 
-    acknowledgement = tools["acknowledgement"].ainvoke.await_args.args[0]
-    assert acknowledgement["args"] == {"call_ids": ["receipt-1"]}
+    assert store.unread("podcast", ("episode-1",)) == ()
+    assert store.count("podcast") == 1
 
 
 def test_a_feed_that_could_not_be_read_is_reported() -> None:
@@ -536,6 +568,7 @@ def test_a_feed_that_could_not_be_read_is_reported() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
     )
 
@@ -613,7 +646,7 @@ def test_an_uncited_digest_survives_as_a_caveat() -> None:
     model.with_structured_output.side_effect = [summary_model, digest_model]
 
     graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], model
+        tools["discovery"], tools["transcript"], read_store(), model
     )
 
     result = asyncio.run(graph.ainvoke({}))
@@ -642,7 +675,7 @@ def test_a_digest_citing_something_never_supplied_still_fails() -> None:
     model.with_structured_output.side_effect = [summary_model, digest_model]
 
     graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], model
+        tools["discovery"], tools["transcript"], read_store(), model
     )
 
     with pytest.raises(ValueError, match="cited unavailable URLs"):
@@ -675,7 +708,7 @@ def test_a_prolific_feed_cannot_crowd_out_the_others() -> None:
     ]
     tools = make_tools(episodes=episodes, transcript_pages=[])
     graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], make_model()
+        tools["discovery"], tools["transcript"], read_store(), make_model()
     )
 
     assert _selected(graph, tools, max_episodes=3) == [
@@ -695,7 +728,7 @@ def test_round_robin_falls_back_to_a_feed_with_more_left() -> None:
     ]
     tools = make_tools(episodes=episodes, transcript_pages=[])
     graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], make_model()
+        tools["discovery"], tools["transcript"], read_store(), make_model()
     )
 
     assert _selected(graph, tools, max_episodes=4) == [
@@ -739,7 +772,7 @@ def test_naming_a_show_returns_its_newest_episode_alone() -> None:
         ],
     )
     graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], make_model()
+        tools["discovery"], tools["transcript"], read_store(), make_model()
     )
 
     result = asyncio.run(graph.ainvoke({"show": "linux unplugged"}))
@@ -755,7 +788,7 @@ def test_a_show_nobody_follows_says_so_without_calling_the_model() -> None:
     )
     model = make_model()
     graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], model
+        tools["discovery"], tools["transcript"], read_store(), model
     )
 
     result = asyncio.run(graph.ainvoke({"show": "gardeners question time"}))
@@ -784,7 +817,7 @@ def test_a_long_episode_is_read_to_its_end() -> None:
         transcript_pages=[transcript_page("call-1", "Part 1.")] + pages,
     )
     graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], make_model(summaries=10)
+        tools["discovery"], tools["transcript"], read_store(), make_model(summaries=10)
     )
 
     result = asyncio.run(graph.ainvoke({}))
@@ -815,6 +848,7 @@ def test_the_run_stops_reading_once_its_whole_budget_is_spent() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(summaries=MAX_TRANSCRIPT_PARTS_PER_RUN + 5),
     )
 
@@ -848,7 +882,7 @@ def test_naming_a_show_transcribes_it_in_chat() -> None:
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -874,7 +908,7 @@ def test_a_chat_catch_up_never_starts_a_transcription() -> None:
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -911,6 +945,7 @@ def test_the_scheduled_run_still_transcribes_a_whole_catch_up() -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(summaries=2),
         transcription_tool=tools["transcription"],
     )
@@ -940,6 +975,7 @@ def test_a_run_stores_the_transcripts_its_summaries_were_made_from(
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
         report_store=store,
     )
@@ -965,6 +1001,7 @@ def test_a_run_with_no_usable_transcript_stores_nothing(tmp_path: Path) -> None:
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(),
         report_store=store,
     )
@@ -990,6 +1027,7 @@ def test_the_whole_transcript_is_stored_not_only_what_was_summarised(
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"],
         tools["transcript"],
+        read_store(),
         make_model(summaries=2),
         report_store=store,
     )
@@ -1040,7 +1078,7 @@ def test_each_show_is_summarised_on_its_own(tmp_path: Path) -> None:
     model.with_structured_output.side_effect = [summary_model, digest_model]
 
     graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], model
+        tools["discovery"], tools["transcript"], read_store(), model
     )
     result = asyncio.run(graph.ainvoke({"max_episodes": 3}))
 
@@ -1062,36 +1100,45 @@ def test_each_show_is_summarised_on_its_own(tmp_path: Path) -> None:
     ]
 
 
-def test_a_catch_up_asks_only_for_episodes_net_razor_has_not_handed_over() -> None:
-    """The default is the unprocessed queue, which is what a catch-up means."""
+def test_a_catch_up_skips_episodes_already_read() -> None:
+    """The filter is ORIS's now, because Net-Razor returns the whole window.
+
+    Net-Razor used to hand over a pre-filtered queue. It stopped, because it
+    tracked read state in one global table with no notion of who had read
+    what. Nothing tells ORIS an episode is old any more except its own record.
+    """
+    store = read_store()
+    store.record([ProcessedItem(source="podcast", item_id="episode-1")])
     tools = make_tools(
         episodes=[make_episode(1)],
-        transcript_pages=[
-            transcript_page("call-1", "First words."),
-            transcript_page("call-1", "First words."),
-        ],
+        transcript_pages=[transcript_page("call-1", "Words.")],
     )
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        store,
         make_model(),
     )
 
-    asyncio.run(graph.ainvoke({}))
+    result = asyncio.run(graph.ainvoke({}))
 
-    call = tools["discovery"].ainvoke.await_args.args[0]
-    assert call["args"]["include_processed"] is False
+    assert result["episodes"] == []
+    assert (
+        "include_processed" not in tools["discovery"].ainvoke.await_args.args[0]["args"]
+    )
+    tools["transcript"].ainvoke.assert_not_awaited()
 
 
-def test_a_recap_reaches_episodes_a_scheduled_run_already_acknowledged() -> None:
+def test_a_recap_reaches_episodes_a_scheduled_run_already_read() -> None:
     """Otherwise last night's work is unreachable the morning after.
 
-    A scheduled run marks its episodes processed, and Net-Razor leaves those
-    out of the queue from then on. Without a way to ask for them, a catch-up
-    the next morning reports no new episodes — because the scheduled run
-    already took them — and there is no route back to what it produced.
+    A scheduled run records its episodes as read, and the filter leaves those
+    out from then on. Without a way to ask for them anyway, a catch-up the
+    next morning reports no new episodes -- because the scheduled run already
+    took them -- and there is no route back to what it produced.
     """
+    store = read_store()
+    store.record([ProcessedItem(source="podcast", item_id="episode-1")])
     tools = make_tools(
         episodes=[make_episode(1)],
         transcript_pages=[
@@ -1102,15 +1149,13 @@ def test_a_recap_reaches_episodes_a_scheduled_run_already_acknowledged() -> None
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        store,
         make_model(),
         transcription_tool=tools["transcription"],
     )
 
     result = asyncio.run(graph.ainvoke({"include_processed": True}))
 
-    call = tools["discovery"].ainvoke.await_args.args[0]
-    assert call["args"]["include_processed"] is True
     assert [episode["title"] for episode in result["episodes"]] == ["Episode 1"]
 
 
@@ -1129,7 +1174,7 @@ def test_a_recap_never_transcribes_and_never_acknowledges() -> None:
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        read_store(),
         make_model(),
         transcription_tool=tools["transcription"],
     )
@@ -1146,6 +1191,13 @@ def test_a_recap_never_transcribes_and_never_acknowledges() -> None:
 
 def test_a_named_show_recap_still_narrows_to_that_show() -> None:
     """Both halves of the request are independent: which episodes, and whose."""
+    store = read_store()
+    store.record(
+        [
+            ProcessedItem(source="podcast", item_id="episode-1"),
+            ProcessedItem(source="podcast", item_id="episode-2"),
+        ]
+    )
     tools = make_tools(
         episodes=[
             make_episode_for("feed-a", "Wanted Show", 1),
@@ -1159,17 +1211,13 @@ def test_a_named_show_recap_still_narrows_to_that_show() -> None:
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        store,
         make_model(),
         transcription_tool=tools["transcription"],
     )
 
     result = asyncio.run(graph.ainvoke({"include_processed": True, "show": "Wanted"}))
 
-    assert (
-        tools["discovery"].ainvoke.await_args.args[0]["args"]["include_processed"]
-        is True
-    )
     assert [episode["show"] for episode in result["episodes"]] == ["Wanted Show"]
     tools["transcription"].ainvoke.assert_not_awaited()
 
@@ -1185,7 +1233,7 @@ def test_listing_names_the_shows_and_says_which_need_transcribing() -> None:
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        read_store(),
         make_model(),
         feeds_tool=tools["feeds"],
     )
@@ -1217,7 +1265,7 @@ def test_listing_shows_reaches_no_other_tool() -> None:
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        read_store(),
         model,
         transcription_tool=tools["transcription"],
         feeds_tool=tools["feeds"],
@@ -1257,7 +1305,7 @@ def test_a_feed_that_cannot_be_read_is_reported_beside_the_ones_that_could() -> 
     graph = create_podcast_catch_up_graph(
         tools["discovery"],
         tools["transcript"],
-        tools["acknowledgement"],
+        read_store(),
         make_model(),
         feeds_tool=tools["feeds"],
     )

@@ -118,6 +118,10 @@ class Settings(BaseSettings):
         default=ORIS_HOME / "data" / "knowledge.sqlite",
         validation_alias="ORIS_KNOWLEDGE_DB_PATH",
     )
+    read_state_database_path: ConfiguredPath = Field(
+        default=ORIS_HOME / "data" / "read_state.sqlite",
+        validation_alias="ORIS_READ_STATE_DB_PATH",
+    )
     net_razor_python_executable: ConfiguredPath | None = Field(
         default=None,
         validation_alias="NET_RAZOR_PYTHON_EXECUTABLE",

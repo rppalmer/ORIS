@@ -110,7 +110,6 @@ def _podcast_tools() -> dict[str, Mock]:
     names = (
         "net_razor_podcast_new_episodes",
         "net_razor_podcast_transcript",
-        "net_razor_podcast_mark_processed",
         "net_razor_podcast_whisper_transcript",
         "net_razor_research",
     )
@@ -148,7 +147,6 @@ def test_interactive_podcast_tools_exclude_transcription(tmp_path: Path) -> None
     assert [tool.name for tool in loaded] == [
         "net_razor_podcast_new_episodes",
         "net_razor_podcast_transcript",
-        "net_razor_podcast_mark_processed",
     ]
 
 

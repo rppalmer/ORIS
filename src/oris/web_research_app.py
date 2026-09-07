@@ -3,7 +3,6 @@
 from pathlib import Path
 
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
@@ -24,6 +23,7 @@ from oris.podcast_catch_up import (
     create_podcast_catch_up_graph,
     create_podcast_catch_up_preparation_graph,
 )
+from oris.read_state import ProcessedItemStore
 from oris.threat_intel import create_threat_intel_graph
 from oris.threat_reports import ThreatReportStore
 from oris.threatsyft import load_threat_intel_tools
@@ -46,6 +46,7 @@ model = create_chat_model(settings)
 
 web_research_graph = create_web_research_graph(search, model)
 knowledge_repository = KnowledgeRepository(settings.knowledge_database_path)
+read_state_store = ProcessedItemStore(settings.read_state_database_path)
 threat_report_store = ThreatReportStore(
     settings.threat_report_directory,
     settings.threat_report_retention_days,
@@ -72,7 +73,7 @@ def _net_razor_executable() -> Path:
     return python_executable
 
 
-async def build_podcast_catch_up_preparation() -> tuple[CompiledStateGraph, BaseTool]:
+async def build_podcast_catch_up_preparation() -> CompiledStateGraph:
     """Build the scheduled podcast graph, which alone holds transcription.
 
     Transcription arrives from a second MCP client carrying a much longer
@@ -80,36 +81,33 @@ async def build_podcast_catch_up_preparation() -> tuple[CompiledStateGraph, Base
     never asks for it, so no chat turn can start work that blocks for minutes.
     """
     python_executable = _net_razor_executable()
-    (
-        discovery_tool,
-        transcript_tool,
-        acknowledgement_tool,
-    ) = await load_podcast_catch_up_tools(python_executable)
+    discovery_tool, transcript_tool = await load_podcast_catch_up_tools(
+        python_executable
+    )
     transcription_tool = await load_podcast_transcription_tool(python_executable)
     preparation_graph = create_podcast_catch_up_preparation_graph(
         discovery_tool,
         transcript_tool,
+        read_state_store,
         model,
         transcription_tool=transcription_tool,
         report_store=threat_report_store,
     )
-    return preparation_graph, acknowledgement_tool
+    return preparation_graph
 
 
 async def build_podcast_catch_up_graph() -> CompiledStateGraph:
     """Compile Podcast Catch-up for chat, where only a named show transcribes."""
     python_executable = _net_razor_executable()
-    (
-        discovery_tool,
-        transcript_tool,
-        acknowledgement_tool,
-    ) = await load_podcast_catch_up_tools(python_executable)
+    discovery_tool, transcript_tool = await load_podcast_catch_up_tools(
+        python_executable
+    )
     transcription_tool = await load_podcast_transcription_tool(python_executable)
     feeds_tool = await load_podcast_feeds_tool(python_executable)
     return create_podcast_catch_up_graph(
         discovery_tool,
         transcript_tool,
-        acknowledgement_tool,
+        read_state_store,
         model,
         transcription_tool=transcription_tool,
         feeds_tool=feeds_tool,

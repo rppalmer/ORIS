@@ -9,16 +9,16 @@ from typing import Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from oris.knowledge import KnowledgeDocument, KnowledgeRepository
 from oris.podcast_catch_up import (
     PreparedPodcastCatchUpOutput,
-    acknowledge_podcast_catch_up,
+    record_podcast_reads,
 )
 from oris.podcast_output import transcript_provenance
+from oris.read_state import ProcessedItemStore
 from oris.scheduled_run_history import DEFAULT_ROOT
 from oris.schedules import (
     DEFAULT_SCHEDULE_FILE,
@@ -63,7 +63,7 @@ class PodcastCatchUpScheduledRunRecord(ScheduledRunRecordBase):
     max_episodes: int
 
 
-PodcastCatchUpBuilder = Callable[[], Awaitable[tuple[CompiledStateGraph, BaseTool]]]
+PodcastCatchUpBuilder = Callable[[], Awaitable[CompiledStateGraph]]
 
 
 def _write_text_atomically(path: Path, content: str) -> None:
@@ -219,6 +219,7 @@ async def run_scheduled_job_async(
     job: ConfiguredScheduledJob,
     web_research_graph: CompiledStateGraph,
     knowledge_repository: KnowledgeRepository,
+    read_state: ProcessedItemStore,
     *,
     current_date: date,
     artifact_root: Path = DEFAULT_ROOT,
@@ -246,6 +247,7 @@ async def run_scheduled_job_async(
         job,
         build_podcast_catch_up,
         knowledge_repository,
+        read_state,
         artifact_root=artifact_root,
     )
 
@@ -254,6 +256,7 @@ def run_scheduled_job(
     job: ConfiguredScheduledJob,
     web_research_graph: CompiledStateGraph,
     knowledge_repository: KnowledgeRepository,
+    read_state: ProcessedItemStore,
     *,
     current_date: date,
     artifact_root: Path = DEFAULT_ROOT,
@@ -270,6 +273,7 @@ def run_scheduled_job(
             job,
             web_research_graph,
             knowledge_repository,
+            read_state,
             current_date=current_date,
             artifact_root=artifact_root,
             build_podcast_catch_up=build_podcast_catch_up,
@@ -313,6 +317,7 @@ async def run_job_by_id_async(
     from oris.web_research_app import (
         build_podcast_catch_up_preparation,
         knowledge_repository,
+        read_state_store,
         web_research_graph,
     )
 
@@ -320,6 +325,7 @@ async def run_job_by_id_async(
         job,
         web_research_graph,
         knowledge_repository,
+        read_state_store,
         current_date=datetime.now(ZoneInfo(timezone)).date(),
         build_podcast_catch_up=build_podcast_catch_up_preparation,
     )
@@ -406,10 +412,11 @@ async def run_scheduled_podcast_catch_up_job(
     job: PodcastCatchUpScheduledJob,
     build_podcast_catch_up: PodcastCatchUpBuilder,
     knowledge_repository: KnowledgeRepository,
+    read_state: ProcessedItemStore,
     *,
     artifact_root: Path = DEFAULT_ROOT,
 ) -> PodcastCatchUpScheduledRunRecord:
-    """Run one podcast job, persist its report, then acknowledge its episodes."""
+    """Run one podcast job, persist its report, then record what it read."""
     if not job.enabled:
         raise ValueError(f"Scheduled job is disabled: {job.id}")
 
@@ -435,7 +442,7 @@ async def run_scheduled_podcast_catch_up_job(
     retained_record = record
     phase = "building Podcast Catch-up"
     try:
-        preparation_graph, acknowledgement_tool = await build_podcast_catch_up()
+        preparation_graph = await build_podcast_catch_up()
         phase = "preparing Podcast Catch-up"
         result = await preparation_graph.ainvoke(
             {"days": job.days, "max_episodes": job.max_episodes}
@@ -464,11 +471,13 @@ async def run_scheduled_podcast_catch_up_job(
             )
         )
 
-        phase = "acknowledging podcast episodes"
-        await acknowledge_podcast_catch_up(
-            acknowledgement_tool,
-            result["transcript_call_ids"],
-        )
+        # Last, and after the report and the knowledge row have both landed.
+        # Crash before here and the episodes appear again; record earlier and a
+        # later failure would leave them read but unreadable. The store is its
+        # own database file and cannot join those writes in one transaction, so
+        # ordering is what gives the safe failure direction rather than atomicity.
+        phase = "recording podcast episodes as read"
+        record_podcast_reads(read_state, result["completed_reads"])
     except Exception as error:
         if retained_record.report_path is None:
             report_path.unlink(missing_ok=True)

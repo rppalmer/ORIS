@@ -140,7 +140,7 @@ PHASE_LABELS = {
     "search_web": "searching the web",
     "retrieve_knowledge": "searching the archive",
     "answer_from_knowledge": "reading the archive",
-    "mark_processed": "acknowledging episodes",
+    "mark_processed": "recording episodes as read",
 }
 
 SelfHandledName = Literal[

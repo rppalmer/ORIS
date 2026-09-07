@@ -7,9 +7,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from langchain_core.tools import BaseTool
 
 from oris.knowledge import KnowledgeRepository
+from oris.read_state import ProcessedItemStore
 from oris.scheduled_runs import (
     PodcastCatchUpScheduledRunRecord,
     ScheduledRunRecord,
@@ -86,7 +86,7 @@ def podcast_result(*, empty: bool = False) -> dict:
             "cited_urls": [],
             "episodes": [],
             "caveats": [],
-            "transcript_call_ids": [],
+            "completed_reads": [],
         }
     return {
         "answer": "A concise scheduled digest.",
@@ -105,13 +105,14 @@ def podcast_result(*, empty: bool = False) -> dict:
             }
         ],
         "caveats": ["Transcript truncated for Episode 1."],
-        "transcript_call_ids": ["transcript-call-1"],
+        "completed_reads": [
+            {"episode_id": "episode-1", "call_id": "transcript-call-1"}
+        ],
     }
 
 
 def make_podcast_builder(
     result: dict,
-    acknowledgement_tool: Mock,
     *,
     graph_error: Exception | None = None,
 ) -> tuple[AsyncMock, AsyncMock]:
@@ -121,16 +122,13 @@ def make_podcast_builder(
         preparation_graph.ainvoke.return_value = result
     else:
         preparation_graph.ainvoke.side_effect = graph_error
-    builder = AsyncMock(return_value=(preparation_graph, acknowledgement_tool))
+    builder = AsyncMock(return_value=preparation_graph)
     return builder, preparation_graph
 
 
-def make_acknowledgement_tool() -> Mock:
-    """Create the approved Net-Razor acknowledgement tool double."""
-    tool = Mock(spec=BaseTool)
-    tool.name = "net_razor_podcast_mark_processed"
-    tool.ainvoke = AsyncMock(return_value={"errors": []})
-    return tool
+def make_read_state(tmp_path) -> ProcessedItemStore:
+    """A throwaway read-state store for one scheduled run."""
+    return ProcessedItemStore(tmp_path / "read_state.sqlite")
 
 
 def load_only_record(artifact_root: Path) -> ScheduledRunRecord:
@@ -163,6 +161,7 @@ def test_successful_run_writes_history_report_and_knowledge(tmp_path) -> None:
         make_job(),
         graph,
         repository,
+        make_read_state(tmp_path),
         current_date=TEST_CURRENT_DATE,
         artifact_root=artifact_root,
     )
@@ -206,6 +205,7 @@ def test_failed_run_writes_history_without_report_or_knowledge(tmp_path) -> None
             make_job(),
             FailingWebResearchGraph(),
             repository,
+            make_read_state(tmp_path),
             current_date=TEST_CURRENT_DATE,
             artifact_root=artifact_root,
         )
@@ -229,6 +229,7 @@ def test_disabled_job_is_not_attempted(tmp_path) -> None:
             make_job(enabled=False),
             SuccessfulWebResearchGraph(),
             KnowledgeRepository(tmp_path / "knowledge.sqlite"),
+            make_read_state(tmp_path),
             current_date=TEST_CURRENT_DATE,
             artifact_root=artifact_root,
         )
@@ -236,40 +237,42 @@ def test_disabled_job_is_not_attempted(tmp_path) -> None:
     assert not artifact_root.exists()
 
 
-def test_scheduled_podcast_persists_before_acknowledgement(tmp_path) -> None:
-    """A complete report and knowledge entry exist before acknowledgement.
+def test_scheduled_podcast_persists_before_recording(tmp_path) -> None:
+    """A complete report and knowledge entry exist before anything is recorded.
 
-    Acknowledgement is one-way: an episode leaves Net-Razor's queue and does not
-    come back. Doing it before the deliverable is safely written would lose the
-    episode and the report together.
+    Recording is what makes an episode invisible to the next run. Doing it
+    before the deliverable is safely written would lose the episode and the
+    report together. Order is the whole guarantee here: the read-state store
+    owns its own database file and cannot join those writes in a transaction,
+    so recording last is what keeps the failure direction at "you see it
+    again" rather than "it vanished unread".
     """
     repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
     artifact_root = tmp_path / "scheduled"
-    acknowledgement = make_acknowledgement_tool()
 
-    async def acknowledge_after_persistence(tool_call: dict) -> dict:
-        report_paths = list(artifact_root.rglob("*.md"))
-        assert len(report_paths) == 1
-        assert repository.search("useful idea", source_type="scheduled_run")
-        return {"errors": []}
+    class WitnessingStore(ProcessedItemStore):
+        """Assert the deliverable already exists at the moment of recording."""
 
-    acknowledgement.ainvoke.side_effect = acknowledge_after_persistence
-    builder, preparation_graph = make_podcast_builder(podcast_result(), acknowledgement)
+        def record(self, items):
+            assert len(list(artifact_root.rglob("*.md"))) == 1
+            assert repository.search("useful idea", source_type="scheduled_run")
+            return super().record(items)
+
+    read_state = WitnessingStore(tmp_path / "read_state.sqlite")
+    builder, preparation_graph = make_podcast_builder(podcast_result())
 
     record = run_scheduled_job(
         make_podcast_job(),
         Mock(),
         repository,
+        read_state,
         current_date=TEST_CURRENT_DATE,
         artifact_root=artifact_root,
         build_podcast_catch_up=builder,
     )
 
     preparation_graph.ainvoke.assert_awaited_once_with({"days": 7, "max_episodes": 2})
-    acknowledgement.ainvoke.assert_awaited_once()
-    assert acknowledgement.ainvoke.await_args.args[0]["args"] == {
-        "call_ids": ["transcript-call-1"]
-    }
+    assert read_state.unread("podcast", ("episode-1",)) == ()
     assert record.status == "succeeded"
     assert record.report_path is not None
     assert load_only_podcast_record(artifact_root) == record
@@ -290,32 +293,32 @@ def test_scheduled_podcast_writes_an_empty_success_report(tmp_path) -> None:
     """An empty queue remains visible without an acknowledgement call."""
     repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
     artifact_root = tmp_path / "scheduled"
-    acknowledgement = make_acknowledgement_tool()
-    builder, _ = make_podcast_builder(podcast_result(empty=True), acknowledgement)
+    read_state = make_read_state(tmp_path)
+    builder, _ = make_podcast_builder(podcast_result(empty=True))
 
     record = run_scheduled_job(
         make_podcast_job(),
         Mock(),
         repository,
+        read_state,
         current_date=TEST_CURRENT_DATE,
         artifact_root=artifact_root,
         build_podcast_catch_up=builder,
     )
 
     assert record.status == "succeeded"
-    acknowledgement.ainvoke.assert_not_awaited()
+    assert read_state.count("podcast") == 0
     report = next(artifact_root.rglob("*.md")).read_text(encoding="utf-8")
     assert "No new podcast episodes were found." in report
 
 
-def test_scheduled_podcast_failure_before_report_does_not_acknowledge(tmp_path) -> None:
+def test_scheduled_podcast_failure_before_report_records_nothing(tmp_path) -> None:
     """Preparation failure leaves no deliverable and no processed episodes."""
     repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
     artifact_root = tmp_path / "scheduled"
-    acknowledgement = make_acknowledgement_tool()
+    read_state = make_read_state(tmp_path)
     builder, _ = make_podcast_builder(
         podcast_result(),
-        acknowledgement,
         graph_error=RuntimeError("digest failed"),
     )
 
@@ -324,6 +327,7 @@ def test_scheduled_podcast_failure_before_report_does_not_acknowledge(tmp_path) 
             make_podcast_job(),
             Mock(),
             repository,
+            read_state,
             current_date=TEST_CURRENT_DATE,
             artifact_root=artifact_root,
             build_podcast_catch_up=builder,
@@ -335,25 +339,31 @@ def test_scheduled_podcast_failure_before_report_does_not_acknowledge(tmp_path) 
     assert record.error is not None
     assert record.error.startswith("preparing Podcast Catch-up: RuntimeError")
     assert list(artifact_root.rglob("*.md")) == []
-    acknowledgement.ainvoke.assert_not_awaited()
+    assert read_state.count("podcast") == 0
 
 
-def test_scheduled_podcast_acknowledgement_failure_retains_report(tmp_path) -> None:
-    """An uncertain acknowledgement cannot erase the completed deliverable.
+def test_a_failed_read_state_write_retains_the_report(tmp_path) -> None:
+    """A failed record cannot erase the completed deliverable.
 
     The safe direction is for an episode to appear again, never to vanish.
     """
     repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
     artifact_root = tmp_path / "scheduled"
-    acknowledgement = make_acknowledgement_tool()
-    acknowledgement.ainvoke.side_effect = RuntimeError("acknowledgement unavailable")
-    builder, _ = make_podcast_builder(podcast_result(), acknowledgement)
 
-    with pytest.raises(RuntimeError, match="acknowledgement unavailable"):
+    class UnwritableStore(ProcessedItemStore):
+        """A store whose write fails after the deliverable already exists."""
+
+        def record(self, items):
+            raise RuntimeError("read state unavailable")
+
+    builder, _ = make_podcast_builder(podcast_result())
+
+    with pytest.raises(RuntimeError, match="read state unavailable"):
         run_scheduled_job(
             make_podcast_job(),
             Mock(),
             repository,
+            UnwritableStore(tmp_path / "read_state.sqlite"),
             current_date=TEST_CURRENT_DATE,
             artifact_root=artifact_root,
             build_podcast_catch_up=builder,
@@ -363,7 +373,7 @@ def test_scheduled_podcast_acknowledgement_failure_retains_report(tmp_path) -> N
     assert record.status == "failed"
     assert record.report_path is not None
     assert record.error is not None
-    assert record.error.startswith("acknowledging podcast episodes: RuntimeError")
+    assert record.error.startswith("recording podcast episodes as read: RuntimeError")
     assert len(list(artifact_root.rglob("*.md"))) == 1
     assert repository.search("useful idea", source_type="scheduled_run")
 
@@ -386,6 +396,7 @@ def test_a_cancelled_run_records_itself_as_cancelled(tmp_path: Path) -> None:
                 make_job(),
                 Cancelling(),
                 KnowledgeRepository(tmp_path / "knowledge.sqlite"),
+                make_read_state(tmp_path),
                 current_date=TEST_CURRENT_DATE,
                 artifact_root=tmp_path / "scheduled",
             )

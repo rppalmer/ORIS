@@ -38,9 +38,14 @@ COMMUNITY_RESEARCH_TOOL_NAMES = ("net_razor_research",)
 PODCAST_CATCH_UP_TOOL_NAMES = (
     "net_razor_podcast_new_episodes",
     "net_razor_podcast_transcript",
-    "net_razor_podcast_mark_processed",
 )
-"""The tools both podcast graphs hold. Transcription is deliberately not here."""
+"""The tools both podcast graphs hold. Transcription is deliberately not here.
+
+`net_razor_podcast_mark_processed` used to be the third. Net-Razor dropped it
+because it tracked read state in one global table with no notion of who had
+read what, so any consumer's acknowledgement hid an item from every other one.
+ORIS keeps that record itself now; see `oris.read_state`.
+"""
 
 PODCAST_FEEDS_TOOL_NAME = "net_razor_podcast_feeds"
 """Loaded separately, because listing shows is not part of catching up.

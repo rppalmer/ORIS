@@ -77,6 +77,7 @@ def main() -> None:
     from oris.web_research_app import (
         build_podcast_catch_up_preparation,
         knowledge_repository,
+        read_state_store,
         web_research_graph,
     )
 
@@ -85,6 +86,7 @@ def main() -> None:
             job,
             web_research_graph,
             knowledge_repository,
+            read_state_store,
             current_date=datetime.now(timezone).date(),
             build_podcast_catch_up=build_podcast_catch_up_preparation,
         )

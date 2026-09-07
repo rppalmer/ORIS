@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from oris.net_razor import PODCAST_CATCH_UP_TOOL_NAMES
 from oris.podcast_output import PodcastEpisodeSummary, show_lines
 from oris.prompts import load_system_prompt
+from oris.read_state import ProcessedItem, ProcessedItemStore
 from oris.search import NonEmptyText
 from oris.threat_reports import ThreatReportStore
 
@@ -99,9 +100,16 @@ class PodcastCatchUpOutput(TypedDict):
 
 
 class PreparedPodcastCatchUpOutput(PodcastCatchUpOutput):
-    """Validated result plus internal receipts needed for acknowledgement."""
+    """Validated result plus the reads this run actually completed.
 
-    transcript_call_ids: list[str]
+    Each entry names the episode and the Net-Razor call that read it. It used
+    to be a bare list of call IDs, because Net-Razor resolved a call back to
+    its episode and ORIS never needed to know which was which. Recording read
+    state locally means ORIS has to say what it read, so the receipt carries
+    the episode itself rather than something only Net-Razor could resolve.
+    """
+
+    completed_reads: list[dict[str, str]]
 
 
 class PodcastCatchUpState(TypedDict):
@@ -116,7 +124,7 @@ class PodcastCatchUpState(TypedDict):
     discovered_episodes: NotRequired[list[dict[str, Any]]]
     transcript_backends: NotRequired[dict[str, str]]
     transcribed_this_run: NotRequired[list[str]]
-    transcript_call_ids: NotRequired[list[str]]
+    completed_reads: NotRequired[list[dict[str, str]]]
     episodes: NotRequired[list[PodcastEpisodeSummary]]
     caveats: NotRequired[list[str]]
     answer: NotRequired[str]
@@ -199,6 +207,7 @@ def _episode_reference(episode: dict[str, Any]) -> dict[str, str]:
 def create_podcast_catch_up_preparation_graph(
     discovery_tool: BaseTool,
     transcript_tool: BaseTool,
+    read_state: ProcessedItemStore,
     model: BaseChatModel,
     *,
     transcription_tool: BaseTool | None = None,
@@ -292,7 +301,7 @@ def create_podcast_catch_up_preparation_graph(
             "cited_urls": [],
             "episodes": [],
             "caveats": caveats,
-            "transcript_call_ids": [],
+            "completed_reads": [],
         }
 
     async def discover_episodes(
@@ -302,13 +311,10 @@ def create_podcast_catch_up_preparation_graph(
         if not isinstance(max_episodes, int) or not 1 <= max_episodes <= MAX_EPISODES:
             raise ValueError(f"max_episodes must be between 1 and {MAX_EPISODES}")
 
-        # A catch-up asks for what Net-Razor has not yet handed over. A recap
-        # asks for episodes it already has, which is the only way to read a
-        # scheduled run's work again: that run acknowledged its episodes, so
-        # they are gone from the catch-up queue by morning.
-        tool_args: dict[str, object] = {
-            "include_processed": state.get("include_processed", False)
-        }
+        # Net-Razor returns everything in the window now, so the filter is
+        # ORIS's. `include_processed` stays as the run's own flag and means
+        # exactly one thing here: do not apply that filter.
+        tool_args: dict[str, object] = {}
         if "days" in state:
             tool_args["days"] = state["days"]
 
@@ -336,6 +342,22 @@ def create_podcast_catch_up_preparation_graph(
             for error in returned_errors
             if isinstance(error, dict) and isinstance(error.get("message"), str)
         ]
+        # Filter before budgeting, never after. Net-Razor used to hand over a
+        # pre-filtered list, so the budget was spent on unread episodes by
+        # definition. Selecting first and filtering second would spend a whole
+        # run on episodes already read, do nothing, and repeat that every night
+        # with no error and no caveat.
+        if not state.get("include_processed", False):
+            unread = set(
+                read_state.unread(
+                    "podcast",
+                    [episode["source_id"] for episode in episodes],
+                )
+            )
+            episodes = [
+                episode for episode in episodes if episode["source_id"] in unread
+            ]
+
         show = state.get("show", "").strip()
         if show:
             # Matched on the display name Net-Razor already returns, so ORIS
@@ -508,7 +530,7 @@ def create_podcast_catch_up_preparation_graph(
     ) -> dict[str, object]:
         summaries: list[PodcastEpisodeSummary] = []
         transcripts: list[dict[str, Any]] = []
-        transcript_call_ids: list[str] = []
+        completed_reads: list[dict[str, str]] = []
         caveats = list(state["caveats"])
         backends = state["transcript_backends"]
         made_here = set(state["transcribed_this_run"])
@@ -603,7 +625,17 @@ def create_podcast_catch_up_preparation_graph(
                     "transcript_truncated": truncated,
                 }
             )
-            transcript_call_ids.append(transcript_call_id)
+            # Built from the read that was actually performed, after
+            # following `next_offset` to the end, rather than from the
+            # discovery listing. Net-Razor used to enforce that by resolving
+            # call IDs back through real calls; with acknowledgement gone
+            # there is nothing left to enforce it but this line.
+            completed_reads.append(
+                {
+                    "episode_id": episode["source_id"],
+                    "call_id": transcript_call_id,
+                }
+            )
 
         # Said once for the run, not once per episode. Which episodes were
         # machine-transcribed is now on each episode's own line, so repeating
@@ -620,7 +652,7 @@ def create_podcast_catch_up_preparation_graph(
         return {
             "episodes": summaries,
             "caveats": caveats,
-            "transcript_call_ids": transcript_call_ids,
+            "completed_reads": completed_reads,
         }
 
     def _store_transcripts(
@@ -771,31 +803,24 @@ def create_podcast_catch_up_preparation_graph(
     return builder.compile()
 
 
-async def acknowledge_podcast_catch_up(
-    acknowledgement_tool: BaseTool,
-    transcript_call_ids: list[str],
-) -> None:
-    """Mark completed transcript calls processed through Net-Razor."""
-    expected_tool_name = PODCAST_CATCH_UP_TOOL_NAMES[2]
-    if acknowledgement_tool.name != expected_tool_name:
-        raise ValueError(
-            f"Podcast Catch-up acknowledgement requires tool: {expected_tool_name}"
+def record_podcast_reads(
+    read_state: ProcessedItemStore,
+    completed_reads: list[dict[str, str]],
+) -> int:
+    """Record the episodes this run actually read, and say how many were new."""
+    return read_state.record(
+        ProcessedItem(
+            source="podcast",
+            item_id=read["episode_id"],
+            call_id=read.get("call_id", ""),
         )
-    if not transcript_call_ids:
-        return
-    await acknowledgement_tool.ainvoke(
-        {
-            "type": "tool_call",
-            "id": str(uuid4()),
-            "name": acknowledgement_tool.name,
-            "args": {"call_ids": transcript_call_ids},
-        }
+        for read in completed_reads
     )
 
 
 def create_acknowledging_podcast_catch_up_graph(
     preparation_graph: CompiledStateGraph,
-    acknowledgement_tool: BaseTool,
+    read_state: ProcessedItemStore,
 ) -> CompiledStateGraph:
     """Wrap preparation with immediate acknowledgement for interactive use."""
 
@@ -815,30 +840,29 @@ def create_acknowledging_podcast_catch_up_graph(
         return await preparation_graph.ainvoke(request)
 
     async def mark_processed(state: PodcastCatchUpState) -> dict:
-        """Acknowledge processed transcripts without risking the finished digest.
+        """Record what was read, without risking the finished digest.
 
-        Acknowledgement is the last step and is deliberately non-fatal. A
-        validated digest already exists by this point, and failing here would
-        discard it while leaving some episodes acknowledged. The safe direction
-        is for an episode to appear again, never to vanish.
+        Last step, and deliberately non-fatal. A validated digest already
+        exists by this point, and failing here would discard it while leaving
+        some episodes recorded. The safe direction is for an episode to appear
+        again, never to vanish. Recording after the report and the knowledge
+        row have landed keeps that direction without any cross-store
+        coordination, which a store in its own database file could not give.
 
-        A recap acknowledges nothing. Its episodes were acknowledged by
-        whatever produced them, and a recap that happened to pick up a new
-        episode with a publisher transcript would otherwise mark it processed
-        and take it out of the next real catch-up without ever transcribing it.
+        A recap records nothing. Its episodes were recorded by whatever
+        produced them, and a recap that happened to pick up a new episode with
+        a publisher transcript would otherwise mark it read and take it out of
+        the next real catch-up without ever transcribing it.
         """
         if state.get("include_processed", False):
             return {}
         try:
-            await acknowledge_podcast_catch_up(
-                acknowledgement_tool,
-                state["transcript_call_ids"],
-            )
+            record_podcast_reads(read_state, state["completed_reads"])
         except Exception as error:
             return {
                 "caveats": [
                     *state["caveats"],
-                    "Net-Razor did not record these episodes as processed "
+                    "These episodes were not recorded as read "
                     f"({type(error).__name__}: {error}); they may appear again.",
                 ]
             }
@@ -860,7 +884,7 @@ def create_acknowledging_podcast_catch_up_graph(
 def create_podcast_catch_up_graph(
     discovery_tool: BaseTool,
     transcript_tool: BaseTool,
-    acknowledgement_tool: BaseTool,
+    read_state: ProcessedItemStore,
     model: BaseChatModel,
     *,
     transcription_tool: BaseTool | None = None,
@@ -877,6 +901,7 @@ def create_podcast_catch_up_graph(
     preparation_graph = create_podcast_catch_up_preparation_graph(
         discovery_tool,
         transcript_tool,
+        read_state,
         model,
         transcription_tool=transcription_tool,
         transcribe_catch_ups=False,
@@ -885,5 +910,5 @@ def create_podcast_catch_up_graph(
     )
     return create_acknowledging_podcast_catch_up_graph(
         preparation_graph,
-        acknowledgement_tool,
+        read_state,
     )

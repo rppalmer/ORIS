@@ -566,8 +566,12 @@ that has never successfully run would be scheduling a guess.
 
 ### Evidence providers
 
-- [ ] Configure `NET_SYPHON_PYTHON_EXECUTABLE` and run the opt-in Web Research
-  live contract, then the existing semantic evaluation set. Check news/date
+- [ ] Run the Web Research semantic evaluation set against Net-Syphon. The
+  live contract is done: it passed on both machines on 2026-09-07, in 34
+  seconds, returning a cited answer whose sources all carry page text. What has
+  not been run is the evaluation set, and that is the one that matters, because
+  its cases were written and judged against Tavily results. Two reports side by
+  side is the only way to see whether the answers changed with the provider. Check news/date
   coverage, partial retrievals, latency and local-model context use. Search
   dates are constraints, not verified publication timestamps; missing dates
   must not become date-specific claims. Do not require exact Tavily equivalence.
@@ -596,19 +600,16 @@ that has never successfully run would be scheduling a guess.
   than stating the ASN with nothing attached. The case is the guard, not
   another prompt line. This still pairs with the company lookup above: the AS
   organisation is the name that lookup would be given.
-- [ ] Consider blocking private and metadata addresses once a specialist can
-  reach a URL it was not given. Nothing today needs this: the model writes a
-  search plan and never picks what to fetch, so there is no request an
-  attacker can steer. Net-Syphon changes the shape of that. A research agent
-  that follows a link found in retrieved content can be pointed at
-  169.254.169.254, at loopback, or at anything on the home network, and the
-  reply comes back as evidence. Hermes Agent blocks RFC 1918 ranges,
-  loopback, link-local and cloud metadata hostnames, and treats a DNS failure
-  as blocked rather than as permission. That belongs in the server that makes
-  the request, not in ORIS, and it is much cheaper to put there before the
-  first fetch than after. Written down 2026-09-07 while reading how other
-  agent harnesses defend themselves; not urgent until Net-Syphon can follow a
-  link.
+- [x] Blocking private and metadata addresses. Written down 2026-09-07 as a
+  thing to do later, and closed the same day after reading Net-Syphon instead
+  of assuming. It was already built, and more thoroughly than the Hermes Agent
+  controls that prompted the note: `net_syphon/policy.py` requires a global,
+  non-multicast, non-reserved, non-IPv4-mapped address, allows only ports 80
+  and 443, does a DNS preflight before egress, and rejects trailing-dot hosts,
+  the `.local`/`.localhost`/`.internal`/`.home`/`.lan` suffixes, and legacy
+  numeric spellings such as `0177.0.0.1` and `2130706433`. ORIS itself never
+  fetches a URL — the model writes a search plan and the server does the
+  retrieving — so there is nothing to add here and nothing to defer.
 - [ ] After the fixed workflows remain stable, consider a separate dynamic MCP
   exploration specialist for interactive, read-only, best-effort requests. It
   must use a small explicit tool allowlist and bounded execution, and it must

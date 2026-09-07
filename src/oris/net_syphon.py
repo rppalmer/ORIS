@@ -17,7 +17,19 @@ from oris.search import (
 )
 
 TOOL_NAMES = ("net_syphon_search_web", "net_syphon_get_pages")
-MAX_RESEARCH_PAGES = 3
+MAX_RESEARCH_PAGES = 5
+"""How many pages one research run reads, which is Net-Syphon's batch maximum.
+
+Three at first, matching what a snippet-based provider gave. The evaluation on
+2026-09-07 showed the cost: asked for the newest Python 3.12 release, the
+answer named the version and said the evidence held no publication date. Three
+official pages were retrieved and none of them happened to carry it. Search
+results arrive with `published_at` unset, so a date only reaches the model if
+it appears in a page that was actually read, and reading more pages is the
+only lever ORIS has over that. Five is the server's own per-batch limit, and
+40,000 characters is its per-batch character budget, which this matches at
+8,000 a page.
+"""
 MAX_CONTEXT_CHARACTERS_PER_PAGE = 8000
 
 

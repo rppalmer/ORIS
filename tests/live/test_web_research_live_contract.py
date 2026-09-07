@@ -7,7 +7,7 @@ import pytest
 
 from oris.config import Settings
 from oris.model import create_chat_model
-from oris.net_syphon import NetSyphonWebSearch
+from oris.net_syphon import MAX_RESEARCH_PAGES, NetSyphonWebSearch
 from oris.web_research import CitedAnswer, create_web_research_graph
 
 LIVE_WEB_RESEARCH_ENABLED = os.environ.get("ORIS_RUN_LIVE_WEB_RESEARCH_TESTS") == "1"
@@ -35,5 +35,5 @@ def test_web_research_returns_a_cited_answer() -> None:
     assert set(result) == {"answer", "sources"}
     assert isinstance(result["answer"], CitedAnswer)
     assert result["answer"].answer
-    assert 1 <= len(result["sources"]) <= 3
+    assert 1 <= len(result["sources"]) <= MAX_RESEARCH_PAGES
     assert all(source.content for source in result["sources"])

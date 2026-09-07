@@ -10,7 +10,7 @@ from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
-from oris.net_syphon import NetSyphonWebSearch
+from oris.net_syphon import MAX_RESEARCH_PAGES, NetSyphonWebSearch
 from oris.search import (
     SearchProviderError,
     WebSearchRequest,
@@ -282,7 +282,7 @@ def test_web_research_uses_bounded_page_content(monkeypatch, all_failed):
                             if all_failed or i == 0
                             else None,
                         }
-                        for i in range(3)
+                        for i in range(MAX_RESEARCH_PAGES)
                     ],
                 }
             )
@@ -306,9 +306,13 @@ def test_web_research_uses_bounded_page_content(monkeypatch, all_failed):
         answer_model.invoke.assert_not_called()
     else:
         result = asyncio.run(graph.ainvoke(inputs))
-        assert len(result["sources"]) == 2
+        # One of the five was refused, so four survive: retrieval failure
+        # removes a source rather than failing the run.
+        assert len(result["sources"]) == MAX_RESEARCH_PAGES - 1
         assert [source.published_at for source in result["sources"]] == [
             "2026-09-07",
+            "2026-09-07T12:00:00",
+            "2026-09-07T12:00:00",
             "2026-09-07T12:00:00",
         ]
         assert all(
@@ -329,7 +333,7 @@ def test_web_research_uses_bounded_page_content(monkeypatch, all_failed):
     }
     page_tool.ainvoke.assert_awaited_once()
     assert page_tool.ainvoke.call_args.args[0]["args"] == {
-        "urls": [f"https://example.org/{i}" for i in range(3)]
+        "urls": [f"https://example.org/{i}" for i in range(MAX_RESEARCH_PAGES)]
     }
 
 

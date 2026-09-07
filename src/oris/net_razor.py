@@ -1,9 +1,13 @@
 """Official MCP connection for the local Net-Razor capability provider."""
 
+import json
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
+from uuid import uuid4
 
-from langchain_core.tools import BaseTool
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool, ToolException
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 NET_RAZOR_SERVER_NAME = "net_razor"
@@ -149,3 +153,80 @@ async def load_podcast_transcription_tool(python_executable: Path) -> BaseTool:
         read_timeout=WHISPER_READ_TIMEOUT,
     )
     return tools[0]
+
+
+class NetRazorError(RuntimeError):
+    """A Net-Razor call that failed, carrying Net-Razor's own classification.
+
+    Net-Razor reports a failure two ways. Today most of them arrive as an
+    `errors` array inside an otherwise successful result; it is moving them to
+    real MCP errors. ORIS holds `handle_tool_errors=False` on the client so the
+    adapter raises instead of flattening the failure into display text, and this
+    is where that exception becomes something ORIS can act on rather than a
+    stack trace about a missing artifact.
+
+    `error_type` is Net-Razor's classification when it published one, so a
+    caller can branch on the same names it already reads out of a soft error.
+    """
+
+    def __init__(self, message: str, *, error_type: str | None = None) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+
+
+def _describe_error(error: ToolException) -> NetRazorError:
+    """Recover Net-Razor's classification from the adapter's error text.
+
+    The adapter raises before it builds the structured artifact, so the type and
+    the message survive only inside the exception string. Net-Razor's soft
+    errors carry `type` and `message`, and this reads the same pair back out.
+    The exact wire shape of its MCP errors is not settled yet, so anything that
+    does not parse is passed through whole rather than discarded.
+    """
+    try:
+        payload = json.loads(str(error))
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        return NetRazorError(f"Net-Razor failed: {error}")
+
+    message = payload.get("message")
+    if not isinstance(message, str):
+        message = str(error)
+    error_type = payload.get("type") or payload.get("code")
+    if not isinstance(error_type, str):
+        return NetRazorError(f"Net-Razor failed: {message}")
+    return NetRazorError(
+        f"Net-Razor returned {error_type}: {message}",
+        error_type=error_type,
+    )
+
+
+async def call_net_razor_tool(
+    tool: BaseTool,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Call one Net-Razor tool and return the structured JSON it published.
+
+    Every Net-Razor call in ORIS goes through here, so a failure has one shape
+    at the boundary no matter which specialist made the call.
+    """
+    try:
+        result = await tool.ainvoke(
+            {
+                "type": "tool_call",
+                "id": str(uuid4()),
+                "name": tool.name,
+                "args": arguments,
+            }
+        )
+    except ToolException as error:
+        raise _describe_error(error) from error
+    if not isinstance(result, ToolMessage):
+        raise NetRazorError("Net-Razor did not return a LangChain ToolMessage")
+    if not isinstance(result.artifact, dict):
+        raise NetRazorError("Net-Razor did not return structured JSON")
+    structured_content = result.artifact.get("structured_content")
+    if not isinstance(structured_content, dict):
+        raise NetRazorError("Net-Razor did not return structured JSON")
+    return structured_content

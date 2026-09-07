@@ -3,16 +3,14 @@
 import asyncio
 import json
 from typing import Any, Literal, NotRequired, TypedDict
-from uuid import uuid4
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
-from oris.net_razor import COMMUNITY_RESEARCH_TOOL_NAMES
+from oris.net_razor import COMMUNITY_RESEARCH_TOOL_NAMES, call_net_razor_tool
 from oris.prompts import load_system_prompt, with_current_date
 from oris.search import NonEmptyText
 
@@ -232,26 +230,15 @@ def create_community_research_graph(
     async def collect_evidence(
         state: CommunityResearchState,
     ) -> dict[str, dict[str, Any]]:
-        result = await research_tool.ainvoke(
+        structured_content = await call_net_razor_tool(
+            research_tool,
             {
-                "type": "tool_call",
-                "id": str(uuid4()),
-                "name": research_tool.name,
-                "args": {
-                    "topic": state["topic"],
-                    "days": state["days"],
-                    "sources": state["sources"],
-                    "max_results_per_source": state["max_results_per_source"],
-                },
-            }
+                "topic": state["topic"],
+                "days": state["days"],
+                "sources": state["sources"],
+                "max_results_per_source": state["max_results_per_source"],
+            },
         )
-        if not isinstance(result, ToolMessage):
-            raise TypeError("Net-Razor did not return a LangChain ToolMessage")
-        if not isinstance(result.artifact, dict):
-            raise ValueError("Net-Razor did not return structured JSON")
-        structured_content = result.artifact.get("structured_content")
-        if not isinstance(structured_content, dict):
-            raise ValueError("Net-Razor did not return structured JSON")
         return {"research_result": structured_content}
 
     async def synthesize_answer(

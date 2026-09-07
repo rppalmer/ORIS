@@ -15,8 +15,9 @@ from uuid import uuid4
 import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, ToolException
 
+from oris.net_razor import NetRazorError
 from oris.podcast_catch_up import (
     PodcastCatchUpAnswer,
     TranscriptSummary,
@@ -1314,3 +1315,63 @@ def test_a_feed_that_cannot_be_read_is_reported_beside_the_ones_that_could() -> 
 
     assert result["caveats"] == ["Feed problem: Feed timed out."]
     assert "Working Show" in result["answer"]
+
+
+def test_a_raised_transcript_failure_is_a_caveat_like_a_reported_one() -> None:
+    """One episode Net-Razor cannot serve does not end the catch-up.
+
+    Net-Razor is moving its failures from an `errors` array inside a successful
+    result to real MCP errors. The run has to survive both, or the day it flips
+    a missing transcript would stop a catch-up that used to cover the rest.
+    """
+    tools = make_tools(episodes=[make_episode(1), make_episode(2)], transcript_pages=[])
+    first_episode = tool_message(
+        "net_razor_podcast_transcript",
+        transcript_page("call-1", "The first episode."),
+    )
+    tools["transcript"].ainvoke = AsyncMock(
+        side_effect=[
+            first_episode,
+            ToolException(
+                json.dumps(
+                    {"type": "audio_unavailable", "message": "The feed returned 404."}
+                )
+            ),
+            # Read once to decide whether a transcript exists, then again to
+            # summarize it.
+            first_episode,
+        ]
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        read_store(),
+        make_model(),
+    )
+
+    result = asyncio.run(graph.ainvoke({}))
+
+    assert [episode["episode_id"] for episode in result["episodes"]] == ["episode-1"]
+    assert any("audio_unavailable" in caveat for caveat in result["caveats"])
+
+
+def test_discovery_failing_ends_the_run_and_says_why() -> None:
+    """No episodes at all is not a partial answer, so it stays loud.
+
+    A caveat here would report an empty catch-up as a complete one.
+    """
+    tools = make_tools(episodes=[make_episode(1)], transcript_pages=[])
+    tools["discovery"].ainvoke = AsyncMock(
+        side_effect=ToolException(
+            json.dumps({"type": "not_configured", "message": "No feeds are set."})
+        )
+    )
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"],
+        tools["transcript"],
+        read_store(),
+        make_model(),
+    )
+
+    with pytest.raises(NetRazorError, match="not_configured"):
+        asyncio.run(graph.ainvoke({}))

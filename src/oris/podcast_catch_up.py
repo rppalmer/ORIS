@@ -8,16 +8,18 @@ was touched.
 
 import json
 from typing import Any, NotRequired, TypedDict
-from uuid import uuid4
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
-from oris.net_razor import PODCAST_CATCH_UP_TOOL_NAMES
+from oris.net_razor import (
+    PODCAST_CATCH_UP_TOOL_NAMES,
+    NetRazorError,
+    call_net_razor_tool,
+)
 from oris.podcast_output import PodcastEpisodeSummary, show_lines
 from oris.prompts import load_system_prompt
 from oris.read_state import ProcessedItem, ProcessedItemStore
@@ -131,18 +133,6 @@ class PodcastCatchUpState(TypedDict):
     cited_urls: NotRequired[list[str]]
 
 
-def _structured_content(result: object) -> dict[str, Any]:
-    """Unwrap the structured JSON the official MCP adapter attaches."""
-    if not isinstance(result, ToolMessage):
-        raise TypeError("Net-Razor did not return a LangChain ToolMessage")
-    if not isinstance(result.artifact, dict):
-        raise ValueError("Net-Razor did not return structured JSON")
-    content = result.artifact.get("structured_content")
-    if not isinstance(content, dict):
-        raise ValueError("Net-Razor did not return structured JSON")
-    return content
-
-
 def _first_error_type(page: dict[str, Any]) -> str | None:
     """Read the error classification Net-Razor published, if it reported one."""
     errors = page.get("errors")
@@ -250,16 +240,23 @@ def create_podcast_catch_up_preparation_graph(
         episode: dict[str, Any],
         offset: int,
     ) -> dict[str, Any]:
-        return _structured_content(
-            await tool.ainvoke(
-                {
-                    "type": "tool_call",
-                    "id": str(uuid4()),
-                    "name": tool.name,
-                    "args": {**_episode_reference(episode), "offset": offset},
-                }
+        """Read one page, reporting a failed call the way a reported one reads.
+
+        One episode without a transcript has never ended a catch-up: it becomes
+        a caveat and the run covers the rest. That tolerance was written around
+        Net-Razor's `errors` array, so the same failure delivered as an MCP
+        error would have ended the whole run instead. Both shapes arrive here as
+        an entry the caller already knows how to read.
+        """
+        try:
+            return await call_net_razor_tool(
+                tool,
+                {**_episode_reference(episode), "offset": offset},
             )
-        )
+        except NetRazorError as error:
+            # `type` is what the caveat prints, so an unclassified failure puts
+            # its message there rather than a placeholder nobody can act on.
+            return {"errors": [{"type": error.error_type or str(error)}]}
 
     async def list_configured_shows(
         _state: PodcastCatchUpState,
@@ -276,16 +273,7 @@ def create_podcast_catch_up_preparation_graph(
         """
         if feeds_tool is None:
             raise ValueError("Listing shows requires the podcast feeds tool")
-        listing = _structured_content(
-            await feeds_tool.ainvoke(
-                {
-                    "type": "tool_call",
-                    "id": str(uuid4()),
-                    "name": feeds_tool.name,
-                    "args": {},
-                }
-            )
-        )
+        listing = await call_net_razor_tool(feeds_tool, {})
         shows = listing.get("shows")
         if not isinstance(shows, list):
             raise ValueError("Net-Razor did not return a show list")
@@ -318,16 +306,7 @@ def create_podcast_catch_up_preparation_graph(
         if "days" in state:
             tool_args["days"] = state["days"]
 
-        discovery_result = _structured_content(
-            await discovery_tool.ainvoke(
-                {
-                    "type": "tool_call",
-                    "id": str(uuid4()),
-                    "name": discovery_tool.name,
-                    "args": tool_args,
-                }
-            )
-        )
+        discovery_result = await call_net_razor_tool(discovery_tool, tool_args)
 
         episodes = discovery_result.get("items")
         if not isinstance(episodes, list):

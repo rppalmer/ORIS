@@ -14,6 +14,7 @@ from oris.community_research import (
     ItemFindings,
     create_community_research_graph,
 )
+from oris.net_razor import NetRazorError
 
 
 def make_tool_result() -> dict:
@@ -170,7 +171,7 @@ def test_community_research_requires_structured_json() -> None:
     )
     graph = create_community_research_graph(tool, model)
 
-    with pytest.raises(ValueError, match="structured JSON"):
+    with pytest.raises(NetRazorError, match="structured JSON"):
         asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
 
     structured_model.ainvoke.assert_not_awaited()

@@ -1,17 +1,22 @@
 """Tests for the constrained official Net-Razor MCP connection."""
 
 import asyncio
+import json
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool, ToolException
 
 from oris.net_razor import (
     NET_RAZOR_SERVER_NAME,
     NET_RAZOR_TRANSCRIPTION_CEILING,
     READ_TIMEOUT,
     WHISPER_READ_TIMEOUT,
+    NetRazorError,
+    call_net_razor_tool,
     create_net_razor_client,
     load_community_research_tools,
     load_podcast_catch_up_tools,
@@ -172,3 +177,56 @@ def test_transcription_is_loaded_alone_on_its_own_deadline(tmp_path: Path) -> No
         python_executable,
         read_timeout=WHISPER_READ_TIMEOUT,
     )
+
+
+def test_call_net_razor_tool_returns_the_structured_artifact() -> None:
+    """The structured JSON is read from the artifact, not the display text."""
+    tool = Mock(spec=BaseTool)
+    tool.name = "net_razor_research"
+    tool.ainvoke = AsyncMock(
+        return_value=ToolMessage(
+            content="Net-Razor returned structured data.",
+            artifact={"structured_content": {"items": []}},
+            tool_call_id="test-call",
+            name=tool.name,
+        )
+    )
+
+    assert asyncio.run(call_net_razor_tool(tool, {"topic": "LangGraph"})) == {
+        "items": []
+    }
+
+
+def test_a_classified_mcp_error_keeps_its_type_and_message() -> None:
+    """Net-Razor's own classification survives the adapter's exception."""
+    tool = Mock(spec=BaseTool)
+    tool.name = "net_razor_podcast_transcript"
+    tool.ainvoke = AsyncMock(
+        side_effect=ToolException(
+            json.dumps(
+                {
+                    "type": "audio_unavailable",
+                    "message": "The publisher returned 404.",
+                }
+            )
+        )
+    )
+
+    with pytest.raises(NetRazorError) as raised:
+        asyncio.run(call_net_razor_tool(tool, {}))
+
+    assert raised.value.error_type == "audio_unavailable"
+    assert "The publisher returned 404." in str(raised.value)
+
+
+def test_an_unclassified_mcp_error_is_passed_through_whole() -> None:
+    """Net-Razor's error shape is not settled, so nothing is discarded."""
+    tool = Mock(spec=BaseTool)
+    tool.name = "net_razor_podcast_transcript"
+    tool.ainvoke = AsyncMock(side_effect=ToolException("the subprocess died"))
+
+    with pytest.raises(NetRazorError) as raised:
+        asyncio.run(call_net_razor_tool(tool, {}))
+
+    assert raised.value.error_type is None
+    assert "the subprocess died" in str(raised.value)

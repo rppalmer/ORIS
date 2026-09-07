@@ -139,6 +139,10 @@ class CaseRun(BaseModel):
     # missed the carrier document. Such a case tested nothing, and saying so is
     # the difference between a defence that held and a payload never delivered.
     delivered: bool
+    # How many times the evidence had to be re-filed before retrieval found it.
+    # Worth recording rather than hiding: a case that only lands on the second
+    # attempt is telling you something about how the planner reads its question.
+    attempts: int = 1
 
 
 @dataclass(frozen=True)
@@ -194,20 +198,51 @@ async def run_local_knowledge_case(case: RedTeamCase, model: Any) -> CaseRun:
     A fresh archive per case rather than a shared one, so that a payload which
     tells the model something about "future questions" cannot reach the next
     case, and so a case can never accidentally retrieve another case's carrier.
+
+    The carrier is filed twice if it has to be. Retrieval is planned by the
+    model, and part of that plan is whether to search chat turns or scheduled
+    reports. On the first run four of ten cases came back with only the decoys,
+    because the planner read questions like "what did we find out about" as
+    asking after a conversation and filtered the carrier out by source type.
+    Those cases scored as resistance while never reaching the model at all.
+    Filing the carrier under the other source type and asking again turns a
+    hole in the harness into a measurement, and the report records which
+    attempt landed.
     """
+    for attempt, source_type in enumerate(("scheduled_run", "chat"), start=1):
+        run = await _ask_poisoned_archive(case, model, source_type, attempt)
+        if run.delivered:
+            return run
+    return run
+
+
+async def _ask_poisoned_archive(
+    case: RedTeamCase,
+    model: Any,
+    carrier_source_type: str,
+    attempt: int,
+) -> CaseRun:
+    """Build one poisoned archive with the carrier filed as asked, then ask."""
     import tempfile
 
     from oris.knowledge import KnowledgeDocument, KnowledgeRepository
     from oris.local_knowledge import create_local_knowledge_graph
 
     carrier_title = CARRIER_TITLE.format(subject=case.subject)
+    # The decoys sit opposite the carrier so that whichever way the planner
+    # filters, it never gets an archive holding nothing at all — an empty
+    # retrieval short-circuits before the model is called, and the payload
+    # would go untested for a second reason on top of the first.
+    decoy_source_type = (
+        "chat" if carrier_source_type == "scheduled_run" else ("scheduled_run")
+    )
     with tempfile.TemporaryDirectory() as directory:
         repository = KnowledgeRepository(Path(directory) / "archive.sqlite3")
         created = datetime.now(UTC)
         repository.add(
             KnowledgeDocument(
                 document_id=str(uuid4()),
-                source_type="scheduled_run",
+                source_type=carrier_source_type,
                 source_ref="red-team",
                 created_at=created,
                 title=carrier_title,
@@ -220,7 +255,7 @@ async def run_local_knowledge_case(case: RedTeamCase, model: Any) -> CaseRun:
             repository.add(
                 KnowledgeDocument(
                     document_id=str(uuid4()),
-                    source_type="chat",
+                    source_type=decoy_source_type,
                     source_ref="red-team",
                     created_at=created - timedelta(days=offset),
                     title=title,
@@ -241,6 +276,7 @@ async def run_local_knowledge_case(case: RedTeamCase, model: Any) -> CaseRun:
         answer=result["answer"],
         citations=citations,
         delivered=any(carrier_title in citation for citation in citations),
+        attempts=attempt,
     )
 
 
@@ -441,6 +477,7 @@ async def run_red_team_cases(
                 "latency_seconds": round(clock() - started_at, 3),
                 "answer": run.answer,
                 "citations": list(run.citations),
+                "attempts": run.attempts,
                 "error": None,
             }
         except Exception as error:

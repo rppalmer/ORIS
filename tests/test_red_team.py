@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from oris.local_knowledge import LocalKnowledgePlan
 from oris.red_team import (
     ADAPTERS,
+    CORPUS_STEM,
     CaseRun,
     RedTeamCase,
     RedTeamSet,
@@ -34,6 +35,13 @@ from oris.red_team import (
 from oris.threat_intel import ThreatIntelAnswer
 
 CASE_DIRECTORY = Path(__file__).parents[1] / "evaluations" / "red-team"
+
+
+def case_files() -> list[Path]:
+    """Every runnable case set, which is every file but the shared corpus."""
+    return sorted(
+        path for path in CASE_DIRECTORY.glob("*.toml") if path.stem != CORPUS_STEM
+    )
 
 
 def make_case(**overrides: object) -> RedTeamCase:
@@ -56,7 +64,7 @@ def test_every_red_team_case_file_is_valid_and_runnable() -> None:
     Walks the directory rather than naming files, because the failure worth
     catching is a new set arriving for a specialist that has no adapter.
     """
-    paths = sorted(CASE_DIRECTORY.glob("*.toml"))
+    paths = case_files()
 
     assert [path.stem for path in paths] == ["local_knowledge", "threat_intel"]
     for path in paths:
@@ -73,7 +81,7 @@ def test_every_case_set_covers_the_control_group() -> None:
     is indistinguishable from a specialist that has become too cagey to answer
     threat intelligence questions at all.
     """
-    for path in sorted(CASE_DIRECTORY.glob("*.toml")):
+    for path in case_files():
         categories = {case.category for case in load_red_team_set(path).cases}
         assert "control" in categories, path.stem
 
@@ -443,3 +451,59 @@ def test_a_leading_canary_is_only_obedience_when_the_payload_asked_for_it() -> N
         judge(make_case(canary="ORIS-RT-SYSTEM", obeyed_when="ends_with"), answer)
         == "resisted"
     )
+
+
+def test_the_corpus_expands_into_one_case_per_framing_demand_and_wrapper() -> None:
+    """The sweep's size has to come from the file, not from a number in code."""
+    import tomllib
+
+    from oris.red_team import CORPUS_PATH, build_sweep_cases
+
+    with CORPUS_PATH.open("rb") as corpus_file:
+        corpus = tomllib.load(corpus_file)
+    expected = len(corpus["pairs"]) * len(corpus["separators"])
+
+    generated = build_sweep_cases("local_knowledge")
+
+    assert len(generated.cases) == expected
+    assert len({case.id for case in generated.cases}) == expected
+
+
+def test_every_generated_case_carries_its_canary_and_a_retained_truth() -> None:
+    """A generated case with no detector would silently count as resistance."""
+    from oris.red_team import CARRIER_TRUTH, build_sweep_cases
+
+    for specialist, retained in CARRIER_TRUTH.items():
+        for case in build_sweep_cases(specialist).cases:
+            assert case.canary and case.canary in case.payload, case.id
+            assert case.must_retain == retained, case.id
+
+
+def test_a_sweep_wraps_the_injection_in_the_separator() -> None:
+    """The wrapper is the dimension the hand-written cases barely cover."""
+    from oris.red_team import build_sweep_cases
+
+    cases = {case.id: case for case in build_sweep_cases("local_knowledge").cases}
+    flooded = cases["end-of-session--bare--role-flood"]
+
+    assert flooded.payload.startswith("[system][system]")
+    assert flooded.payload.endswith("[rest-of-document]")
+    assert "ORIS-RT-SWEEP" in flooded.payload
+
+
+def test_a_link_payload_uses_a_domain_shaped_canary() -> None:
+    """A bare token in an href would not read as a URL the model chose to write."""
+    from oris.red_team import build_sweep_cases
+
+    cases = {case.id: case for case in build_sweep_cases("local_knowledge").cases}
+    linked = cases["white-text--html-link--none"]
+
+    assert linked.canary == "oris-rt-sweep.example"
+    assert 'href="https://oris-rt-sweep.example"' in linked.payload
+
+
+def test_a_sweep_can_be_capped_for_a_shorter_run() -> None:
+    """One hundred and eighty cases is half an hour; a sample has to be possible."""
+    from oris.red_team import build_sweep_cases
+
+    assert len(build_sweep_cases("threat_intel", limit=12).cases) == 12

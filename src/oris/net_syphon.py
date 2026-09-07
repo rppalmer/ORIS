@@ -26,11 +26,24 @@ answer named the version and said the evidence held no publication date. Three
 official pages were retrieved and none of them happened to carry it. Search
 results arrive with `published_at` unset, so a date only reaches the model if
 it appears in a page that was actually read, and reading more pages is the
-only lever ORIS has over that. Five is the server's own per-batch limit, and
-40,000 characters is its per-batch character budget, which this matches at
-8,000 a page.
+only lever ORIS has over that. Five is the server's own per-batch limit.
+
+This number and the one below are coupled and have to move together. Net-Syphon
+does not give each page a fixed allowance; it divides a 40,000 character batch
+budget by however many URLs it was asked for, capped at 20,000. Five URLs is
+therefore exactly 8,000 a page, which is exactly what ORIS keeps. Measured on
+2026-09-07: five real pages all came back at 8,000 characters and all reported
+themselves truncated. Asking for fewer pages would raise the allowance rather
+than the depth, because ORIS would still cut at 8,000; getting more depth needs
+Net-Syphon's 40,000 raised as well.
 """
 MAX_CONTEXT_CHARACTERS_PER_PAGE = 8000
+"""How much of one page reaches the model.
+
+The comparison below that sets `truncated` cannot fire while this equals
+Net-Syphon's own per-page allowance. It is kept because lowering the page count
+puts slack back and makes ORIS the one doing the cutting again.
+"""
 
 
 async def load_web_research_tools(python_executable: Path) -> tuple[BaseTool, ...]:

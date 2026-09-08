@@ -52,8 +52,13 @@ the deployed Qwen3.5-35B-A3B, synthesising real evidence batches: 8,026 input
 tokens took 29 seconds, 18,551 took 58, and 44,867 took 170. Cost tracks total
 input tokens and nothing else -- two pages at 50,000 characters and five at
 20,000 are the same token count and finish within four seconds of each other.
-With the observed two-fold spread on top, the largest batch Net-Syphon will
-serve sits near 340 seconds, which the old 240 would have cut off.
+
+What ORIS actually sends is the 18,551 token batch, so this is not sized to a
+call it makes every day. It is sized so that the slowest call the hardware will
+accept still completes. That bound is memory rather than time: oMLX's prefill
+guard rejected the 44,867 token prompt outright on a later attempt, and 170
+seconds is what one costs when it is accepted. See
+`oris.net_syphon.MAX_CONTEXT_CHARACTERS_PER_PAGE`.
 
 A timeout that fires mid-generation loses the whole call: there is no partial
 answer to keep, and the fan-out that produced the evidence has already been

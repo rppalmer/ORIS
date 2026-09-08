@@ -46,12 +46,23 @@ hand. Net-Syphon dropped that division on 2026-09-08 and takes a per-page
 allowance from the caller instead, bounded at 50,000.
 
 Why 20,000 and not the 50,000 ceiling: the batch total is the real budget, not
-the per-page number. Five pages at 20,000 is 100,000 characters, which measured
-at about 20,000 input tokens on the deployed Qwen3.5-35B-A3B. Five at 50,000
-would be two and a half times that in one prompt, and the cost lands in prefill
-time rather than in the context window, which has room to spare. Reading one page
-deeply is available by asking for fewer URLs at a higher allowance; it is not
-what an ordinary research run wants.
+the per-page number, and the machine runs out of memory before it runs out of
+context window. Measured 2026-09-08 on the deployed Qwen3.5-35B-A3B.
+
+Five pages at 20,000 is 18,551 input tokens and 58 seconds of synthesis. Five at
+50,000 is 44,867 tokens, and oMLX's prefill guard refuses it: the weights hold
+about 21.9 GB, the prompt's KV and attention working set needs another 1.9 GB,
+and the guard's ceiling is 23.6 GB. It succeeded once and was rejected outright
+on the next attempt, which makes it not an operating point but a coin toss. The
+usable limit is roughly 40,000 input tokens, so the batch ORIS sends leaves
+about half the headroom spare.
+
+The 262,144 token context window is not the constraint and never was. It has
+room for six times what the memory guard will accept.
+
+Reading one page deeply stays available by asking for fewer URLs at a higher
+allowance -- two at 50,000 is the same token count as five at 20,000, and
+finished within four seconds of it.
 """
 
 

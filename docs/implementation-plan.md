@@ -617,8 +617,16 @@ that has never successfully run would be scheduling a guess.
   page count is not the cost. The total is.
 
   The context window was never the constraint and still is not: 44,867 tokens is
-  under a fifth of the configured 262,144. The cost is prefill time, which is
-  why the model timeout moved with this.
+  under a fifth of the configured 262,144. Memory is. oMLX's prefill guard
+  refused the five-by-fifty prompt -- about 21.9 GB of weights resident, 1.9 GB
+  of KV and attention working set for the prompt, against a 23.6 GB ceiling. It
+  was accepted once and refused on the next attempt, so it is a coin toss rather
+  than an operating point. The usable limit is roughly 40,000 input tokens and
+  ORIS sends 18,551, leaving about half the headroom spare.
+
+  Raising it is possible: oMLX reports its custom ceiling pinned at 28 GB while
+  the guard is enforcing a lower dynamic cap of 23.6 GB. That is a decision about
+  the machine, not about Web Research, and nothing needs it today.
 - [ ] Net-Razor is switching its failures from an `errors` array inside a
   successful result to real MCP errors. ORIS's side is done and pushed
   (2026-09-07): every Net-Razor call goes through one helper that catches the

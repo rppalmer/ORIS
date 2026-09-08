@@ -38,19 +38,27 @@ matching environment variable still overrides it, which is how an existing
 installation keeps pointing at the directories it already has.
 """
 
-DEFAULT_LLM_TIMEOUT_SECONDS = 240.0
+DEFAULT_LLM_TIMEOUT_SECONDS = 600.0
 """How long one model call may take before the client gives up.
 
 Raised from 120 on 2026-08-27 after measuring the Community Research synthesis
-call, which is the longest in ORIS. It prefills about 12,000 evidence tokens and
-then generates up to a few thousand. Observed wall times for the same request on
-the same evidence ranged from 58 to 108 seconds, which put the old default
-inside the run-to-run spread rather than above it.
+call. It prefills about 12,000 evidence tokens and then generates up to a few
+thousand. Observed wall times for the same request on the same evidence ranged
+from 58 to 108 seconds, which put the old default inside the run-to-run spread
+rather than above it.
+
+Raised again to 600 on 2026-09-08, when Web Research overtook it. Measured on
+the deployed Qwen3.5-35B-A3B, synthesising real evidence batches: 8,026 input
+tokens took 29 seconds, 18,551 took 58, and 44,867 took 170. Cost tracks total
+input tokens and nothing else -- two pages at 50,000 characters and five at
+20,000 are the same token count and finish within four seconds of each other.
+With the observed two-fold spread on top, the largest batch Net-Syphon will
+serve sits near 340 seconds, which the old 240 would have cut off.
 
 A timeout that fires mid-generation loses the whole call: there is no partial
 answer to keep, and the fan-out that produced the evidence has already been
 paid for. This is a backstop against a hung server, so it belongs well clear of
-normal variation.
+normal variation rather than close to it.
 """
 
 DEFAULT_MAX_HISTORY_TOKENS = 8000

@@ -563,22 +563,23 @@ that has never successfully run would be scheduling a guess.
 - [ ] Decide whether a long turn needs a cancel key. Per-step status now names
   the running graph node, which was the larger half of the complaint; whether
   the remaining wait is worth interrupting is a question for real use.
-- [ ] Export a stored Threat Intel report to a file the user names. The evidence
-  is already JSON on disk, so this is not about producing it -- it is about
-  getting a copy out of the store without knowing the store's directory or its
-  filename scheme, which encodes timestamp, id, subject and thread and is
-  deliberately the only index there is.
+- [x] Export a stored Threat Intel report to a file. Done 2026-09-08:
+  `/threat export [id]` copies one report into the fixed export folder, newest
+  when no ID is given, in both interfaces and shared through `commands.py`.
 
-  Two things to settle before building it. Whether "the research JSON" means the
-  full provider responses the store holds, or the pivoted report the
-  conversation showed plus its evidence, which is a smaller and more useful file
-  for handing to another tool. And whether the destination is a path the user
-  types or a fixed export directory, because a command that writes anywhere the
-  user names is the first thing in ORIS that does.
+  A fixed folder rather than a path the user types, which keeps this from being
+  the first command in ORIS that writes anywhere it is told to. It reuses the
+  export directory the activity export already writes to, so there is no second
+  setting to keep in step.
 
-  Belongs in the terminal interface first, beside `/threat show`, since that is
-  the primary interface now. Share it through `commands.py` as `/schedule` and
-  `/runs` already are, so the CLI gets it without a second implementation.
+  The copy is verbatim and keeps the stored filename, because the store owns
+  that scheme and the name already carries the timestamp, ID, subject and
+  conversation. Re-exporting overwrites rather than accumulating copies.
+
+  Retention does not follow the copy, and a test pins that: an exported report
+  survives the prune that deletes the original. That is the point of exporting
+  and the reason to think about where the export folder lives, since these are
+  the most sensitive files ORIS writes.
 
 ### Evidence providers
 

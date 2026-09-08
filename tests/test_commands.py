@@ -1,5 +1,6 @@
 """Tests for the command vocabulary both front ends read."""
 
+import io
 import json
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -11,6 +12,7 @@ from oris.commands import (
     Routed,
     SelfHandled,
     command_table,
+    export_threat_report,
     read_command,
     render_runs,
     render_schedule,
@@ -23,6 +25,7 @@ from oris.scheduled_run_history import (
     ScheduledRunHistory,
     ScheduledRunListing,
 )
+from oris.threat_reports import ThreatReportStore
 
 
 def test_command_help_shows_bracketed_usage_verbatim(capsys) -> None:
@@ -92,6 +95,49 @@ def test_showing_evidence_keeps_its_arguments() -> None:
         "show_evidence", "a3f21c shodan"
     )
     assert read_command("/threat show") == SelfHandled("show_evidence", "")
+
+
+def test_exporting_evidence_keeps_its_optional_id() -> None:
+    """`/threat export` takes an optional report ID and nothing else."""
+    assert read_command("/threat export a3f21c") == SelfHandled(
+        "export_evidence", "a3f21c"
+    )
+    assert read_command("/threat export") == SelfHandled("export_evidence", "")
+
+
+def test_export_is_not_read_as_a_threat_lookup() -> None:
+    """`/threat export` and `/threat show` are both prefixed by `/threat`.
+
+    Reading either as a lookup would send it to the providers and spend credits
+    on a word that was never an indicator.
+    """
+    assert read_command("/threat export") != Routed("threat_intel", "export")
+
+
+def test_exported_evidence_reports_where_the_file_went(tmp_path) -> None:
+    """The point of the command is the path, so the answer has to carry it."""
+    store = ThreatReportStore(tmp_path / "store", retention_days=30)
+    exports = tmp_path / "exports"
+    stored = store.save("enrich 8.8.8.8", {"8.8.8.8": {}}, thread_id="thread")
+
+    console = Console(file=io.StringIO(), width=200)
+    console.print(export_threat_report(store, exports, stored.report_id))
+    printed = console.file.getvalue()
+
+    assert stored.path.name in printed
+    assert str(exports) in printed
+
+
+def test_exporting_a_report_that_is_gone_says_so(tmp_path) -> None:
+    """A missing report must not read as a successful export."""
+    store = ThreatReportStore(tmp_path / "store", retention_days=30)
+
+    console = Console(file=io.StringIO(), width=200)
+    console.print(export_threat_report(store, tmp_path / "exports", "a3f21c"))
+    printed = console.file.getvalue()
+
+    assert "No stored report" in printed
+    assert "30 days" in printed
 
 
 def test_a_threat_request_is_not_mistaken_for_the_evidence_viewer() -> None:

@@ -156,6 +156,42 @@ class ThreatReportStore:
             return None
         return document if isinstance(document, dict) else None
 
+    def export(self, report_id: str, directory: Path) -> Path | None:
+        """Copy one stored report out of the store, or None when it is gone.
+
+        An empty `report_id` means the newest, matching `/threat show`.
+
+        The store owns the filename scheme, so exporting belongs here rather
+        than in an interface that would have to reproduce it. The copy keeps
+        that name: it already carries the timestamp, the ID, the subject and
+        the conversation, so an exported file stays traceable to the report it
+        came from, and exporting the same report twice overwrites rather than
+        accumulating near-identical copies.
+
+        Copied verbatim rather than re-serialised. The stored document already
+        carries its own header, so it is self-describing wherever it lands, and
+        reading it only to write it back could change what a reader is handed.
+
+        Retention does not follow the copy. These are the most sensitive files
+        ORIS writes, and an export is a deliberate act of taking one out of the
+        window that would otherwise delete it -- which is the point, and worth
+        knowing when choosing where the export directory lives.
+        """
+        source = self._newest_path() if not report_id.strip() else self._path_for(report_id)
+        if source is None:
+            return None
+        directory.mkdir(parents=True, exist_ok=True)
+        destination = directory / source.name
+        try:
+            # Through a temporary file for the same reason `save` does: a
+            # reader watching the export directory must never see half a file.
+            temporary_path = destination.with_name(f".{destination.name}.tmp")
+            temporary_path.write_bytes(source.read_bytes())
+            temporary_path.replace(destination)
+        except OSError:
+            return None
+        return destination
+
     def prune(self, *, now: datetime | None = None) -> int:
         """Delete reports older than the retention window and return the count.
 

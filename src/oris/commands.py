@@ -39,6 +39,7 @@ from oris.schedules import (
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle: knowledge imports this
     from oris.scheduled_runs import ScheduledRunRecordBase
+    from oris.threat_reports import ThreatReportStore
 
 SLASH_COMMANDS = {
     "/research": (
@@ -84,6 +85,10 @@ SIMPLE_COMMANDS = (
     (
         "/threat show [id] [source]",
         "Print stored evidence, newest by default. Not sent to chat.",
+    ),
+    (
+        "/threat export [id]",
+        "Copy stored evidence to the export folder, newest by default.",
     ),
     (
         "/runs [job|id]",
@@ -149,6 +154,7 @@ SelfHandledName = Literal[
     "session",
     "new",
     "show_evidence",
+    "export_evidence",
     "show_runs",
     "show_schedule",
     "run_job",
@@ -225,6 +231,11 @@ def read_command(query: str) -> Routed | SelfHandled | Rejected:
         if topic is None:
             return Rejected(f"Unknown command: {wanted}")
         return SelfHandled("help", topic)
+
+    if query.startswith("/threat export"):
+        return SelfHandled(
+            "export_evidence", query.removeprefix("/threat export").strip()
+        )
 
     if query.startswith("/threat show"):
         return SelfHandled("show_evidence", query.removeprefix("/threat show").strip())
@@ -364,6 +375,32 @@ def run_table(listing: ScheduledRunListing) -> RenderableType:
         else f"{listing.total} run{plural}{scope}."
     )
     return Group(table, Text(note, style="dim"))
+
+
+def export_threat_report(
+    store: "ThreatReportStore",
+    directory: Path,
+    argument: str,
+) -> RenderableType:
+    """Answer one `/threat export` command in either interface.
+
+    Rendered here rather than in each front end because the two would otherwise
+    have to agree by hand on what a missing report says and on whether the
+    destination path is worth printing. It is: the whole point of the command is
+    to hand the file to something else, and a reader who cannot see where it
+    went has to go looking.
+    """
+    report_id = argument.strip()
+    destination = store.export(report_id, directory)
+    if destination is None:
+        missing = (
+            f"No stored report {report_id!r}." if report_id else "No reports yet."
+        )
+        return Text(
+            f"{missing} Reports are kept for {store.retention_days} days.",
+            style="yellow",
+        )
+    return Text(f"Exported to {destination}", style="green")
 
 
 def render_runs(history: ScheduledRunHistory, argument: str) -> RenderableType:

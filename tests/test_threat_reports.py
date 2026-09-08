@@ -254,3 +254,68 @@ def test_a_report_stored_without_a_conversation_is_not_deleted_by_one(
     assert legacy.exists()
     # Still listed, so it still ages out rather than living here forever.
     assert legacy in {report.path for report in store.recent()}
+
+
+def test_export_copies_a_report_out_under_its_stored_name(tmp_path) -> None:
+    """The export keeps the name, so a copy is still traceable to its report."""
+    store = ThreatReportStore(tmp_path / "store", retention_days=30)
+    exports = tmp_path / "exports"
+
+    stored = store.save("enrich 8.8.8.8", EVIDENCE, thread_id=THREAD)
+    exported = store.export(stored.report_id, exports)
+
+    assert exported is not None
+    assert exported.name == stored.path.name
+    assert exported.read_bytes() == stored.path.read_bytes()
+
+
+def test_export_without_an_id_takes_the_newest(tmp_path) -> None:
+    """`/threat export` with no ID means the report just produced."""
+    store = ThreatReportStore(tmp_path / "store", retention_days=30)
+    exports = tmp_path / "exports"
+    now = datetime(2026, 9, 8, 12, 0, tzinfo=UTC)
+
+    store.save("enrich 1.1.1.1", EVIDENCE, thread_id=THREAD, now=now)
+    newest = store.save(
+        "enrich 8.8.8.8", EVIDENCE, thread_id=THREAD, now=now + timedelta(minutes=1)
+    )
+    exported = store.export("", exports)
+
+    assert exported is not None
+    assert exported.name == newest.path.name
+
+
+def test_exporting_the_same_report_twice_overwrites(tmp_path) -> None:
+    """Re-exporting must not accumulate near-identical copies."""
+    store = ThreatReportStore(tmp_path / "store", retention_days=30)
+    exports = tmp_path / "exports"
+
+    stored = store.save("enrich 8.8.8.8", EVIDENCE, thread_id=THREAD)
+    store.export(stored.report_id, exports)
+    store.export(stored.report_id, exports)
+
+    assert [path.name for path in exports.iterdir()] == [stored.path.name]
+
+
+def test_exporting_a_missing_report_returns_none(tmp_path) -> None:
+    """A wrong ID says so rather than writing an empty file."""
+    store = ThreatReportStore(tmp_path / "store", retention_days=30)
+    exports = tmp_path / "exports"
+
+    store.save("enrich 8.8.8.8", EVIDENCE, thread_id=THREAD)
+
+    assert store.export("abc123", exports) is None
+
+
+def test_export_outlives_the_retention_window(tmp_path) -> None:
+    """Taking a report out of the store takes it out of what deletes it."""
+    store = ThreatReportStore(tmp_path / "store", retention_days=30)
+    exports = tmp_path / "exports"
+    stored_at = datetime(2026, 9, 8, 12, 0, tzinfo=UTC)
+
+    stored = store.save("enrich 8.8.8.8", EVIDENCE, thread_id=THREAD, now=stored_at)
+    exported = store.export(stored.report_id, exports)
+    store.prune(now=stored_at + timedelta(days=31))
+
+    assert not stored.path.exists()
+    assert exported is not None and exported.exists()

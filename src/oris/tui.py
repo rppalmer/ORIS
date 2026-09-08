@@ -54,6 +54,7 @@ from oris.commands import (
     Rejected,
     SelfHandled,
     command_table,
+    export_threat_report,
     phase_label,
     read_command,
     render_runs,
@@ -678,6 +679,8 @@ class OrisTui(App):
             # open stored evidence instead of doing its own job.
             elif parsed.name == "show_evidence":
                 self._show_evidence(parsed.argument)
+            elif parsed.name == "export_evidence":
+                self._export_evidence(parsed.argument)
             return
 
         self._write_request(query)
@@ -1143,6 +1146,21 @@ class OrisTui(App):
             )
             return
         self._show_evidence(report_id)
+
+    def _export_evidence(self, report_id: str) -> None:
+        """Copy one stored report to the export folder, newest when unnamed.
+
+        A notification rather than a pane. The reader already knows what is in
+        the report -- `/threat show` is for reading it -- and what they need
+        back from an export is where the file went.
+        """
+        if self.threat_report_store is None or self.export_directory is None:
+            self.notify("Stored evidence reports are not configured.")
+            return
+        outcome = export_threat_report(
+            self.threat_report_store, self.export_directory, report_id
+        )
+        self.notify(str(outcome))
 
     def _show_evidence(self, report_id: str) -> None:
         """Open one stored report, newest when no ID is given.

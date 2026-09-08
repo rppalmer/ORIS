@@ -27,6 +27,7 @@ from oris.commands import (
     Rejected,
     SelfHandled,
     command_table,
+    export_threat_report,
     phase_label,
     read_command,
     render_runs,
@@ -188,6 +189,7 @@ async def run_chat(
     thread_id: str,
     console: Console | None = None,
     threat_report_store: ThreatReportStore | None = None,
+    export_directory: Path | None = None,
 ) -> None:
     """Read chat, research, or local archive requests and print responses."""
     # Runtime text — error messages, tool output, whatever the user typed — is
@@ -238,6 +240,22 @@ async def run_chat(
             # Named rather than left to `else`: a new self-handled command
             # added to the vocabulary would otherwise land here silently and
             # print stored evidence instead of doing its own job.
+            elif parsed.name == "export_evidence":
+                if threat_report_store is None or export_directory is None:
+                    console.print(
+                        Text(
+                            "Stored evidence reports are not configured.",
+                            style="yellow",
+                        )
+                    )
+                else:
+                    console.print(
+                        export_threat_report(
+                            threat_report_store,
+                            export_directory,
+                            parsed.argument,
+                        )
+                    )
             elif parsed.name == "show_evidence":
                 if threat_report_store is None:
                     console.print(
@@ -312,6 +330,7 @@ async def _main() -> None:
                 session_file_path=session_file_path,
                 thread_id=thread_id,
                 threat_report_store=threat_report_store,
+                export_directory=settings.export_directory,
             )
 
 

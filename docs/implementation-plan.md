@@ -575,32 +575,85 @@ that has never successfully run would be scheduling a guess.
   had answered confidently by citing a third-party tracker the case's own goal
   says does not count. Raising the page count from three to five fixed it. All
   four cases now answer well, at 41 to 49 seconds each.
-- [ ] Ask Net-Syphon to populate `published_at` on search results. Measured
-  2026-09-07: it is null on every result, on both the Firecrawl news path and
-  the SearXNG general path. A date therefore reaches the model only when it
-  happens to appear in the text of a page that was retrieved, which is why the
-  page count is load-bearing for date questions. Net-Syphon was building a
-  relative-date converter for the news path on 2026-09-07; check whether it
-  landed before doing anything else here.
-- [ ] Decide whether Web Research needs more than 8,000 characters a page.
-  Net-Syphon divides a 40,000 character batch budget by the number of URLs
-  requested, so five pages is exactly 8,000 each, which is exactly what ORIS
-  keeps. Measured 2026-09-07: five real pages all returned at 8,000 and all
-  reported themselves truncated. Raising ORIS's own limit alone buys nothing;
-  Net-Syphon's 40,000 has to move with it. No case has failed at 8,000 yet, so
-  there is nothing to act on until one does.
+- [x] Ask Net-Syphon to populate `published_at` on search results. Its
+  converter landed, and news search now carries a date on every result where it
+  carried none before. General and filtered web search still carry no date at
+  all, which Net-Syphon has closed as won't-do, so the search category decides
+  whether a date reaches ORIS.
+
+  ORIS made two changes on 2026-09-08 rather than one. The planner now picks the
+  news category whenever it applies a date filter for publication recency, not
+  only when a question asks for news in those words -- "what is the newest
+  Python 3.12 release" was routed to the path with no dates. And the Web Research
+  prompt now accepts a publication date printed in a page it actually read.
+
+  The prompt change is the one that mattered. The old rule told the model to
+  treat a missing `published_at` as insufficient for any date claim, while the
+  line below it demanded concrete dates and used a Python release date as its
+  worked example. The evaluation failure on 2026-09-07 was the model obeying the
+  restrictive half of a prompt that contradicted itself.
+
+  Nothing structural checks a date read off a page. The validator verifies
+  citation numbers, not dates. Requiring the model to say the date came from the
+  page makes a misread visible to a reader; it does not prevent one.
+
+  Reverse the category change first if answers get worse. News search is a
+  different provider mix and skews to news outlets, so a release question may
+  land on worse pages than a general search that finds the vendor's own site.
+- [x] Decide whether Web Research needs more than 8,000 characters a page. It
+  gets 20,000 as of 2026-09-08, and asks for it explicitly.
+
+  Net-Syphon dropped the division that made 8,000 the answer. It used to split a
+  40,000 character batch budget across however many URLs were requested; it now
+  takes a per-page allowance from the caller, bounded at 50,000. ORIS sends
+  `max_characters` on every batch, so its constant is the request rather than a
+  prediction of the server's arithmetic that had to be maintained by hand.
+
+  20,000 rather than the ceiling, because the batch total is the real budget.
+  Measured on the deployed model, synthesising real evidence: five pages at
+  20,000 is 18,551 input tokens and 58 seconds, and five at 50,000 is 44,867
+  tokens and 170 seconds. Two pages at 50,000 came in at 18,239 tokens and 53
+  seconds -- the same token count as five at 20,000, and the same wall time. The
+  page count is not the cost. The total is.
+
+  The context window was never the constraint and still is not: 44,867 tokens is
+  under a fifth of the configured 262,144. The cost is prefill time, which is
+  why the model timeout moved with this.
 - [ ] Net-Razor is switching its failures from an `errors` array inside a
   successful result to real MCP errors. ORIS's side is done and pushed
   (2026-09-07): every Net-Razor call goes through one helper that catches the
   exception and recovers Net-Razor's own type and message. Transcript reads
   turn that into the same caveat a reported error takes, so one episode without
   audio still cannot end a catch-up. Discovery and community research stay
-  loud. `handle_tool_errors` stays False on all three MCP clients; setting it
-  True hands back a message with no structured payload and loses the error
-  code. Net-Razor can flip whenever it likes. The one thing not verified is the
-  live shape of its MCP errors, because it has not shipped them: the parser
-  reads `type`/`code` and `message` out of JSON and passes anything else
-  through whole. Re-check that once real errors exist.
+  loud, which is deliberate -- a call that failed outright has no partial answer
+  to salvage, and `close_failed_request` is registered on every node, so the run
+  ends with Net-Razor's own classification on screen rather than a stack trace.
+  `handle_tool_errors` stays False on all three MCP clients; setting it True
+  hands back a message with no structured payload and loses the error code.
+
+  The one thing Net-Razor must preserve is the difference between a call that
+  failed and an item that failed inside a call that succeeded. Podcast discovery
+  reporting two unreadable feeds out of eight, and community research reporting
+  one dead source out of three, are successful results today: ORIS reads those
+  `errors` arrays and renders them as caveats beside a complete answer. If
+  per-item failures become MCP errors, six working feeds are destroyed to report
+  two broken ones, and no change on the ORIS side can recover data that was
+  never sent. Whole-call failures becoming MCP errors is fine and ORIS is ready
+  for it. Raised with Net-Razor on 2026-09-08; the rest of its proposal --
+  `extra="forbid"`, declared output schemas, read-only hints -- needs nothing
+  from ORIS.
+
+  Audited 2026-09-08 for `extra="forbid"`: ORIS sends `topic`, `days`,
+  `sources` and `max_results_per_source` to research; `days` to discovery;
+  nothing to feeds; and `episode_id`, `feed_url` and `offset` to the transcript
+  tools. No extras, so the flip breaks nothing. Worth Net-Razor knowing that the
+  last two are renamed on ORIS's side, because discovery returns them in its
+  generic evidence shape as `source_id` and `query_used`. A change to those
+  field names breaks transcript calls, and `extra="forbid"` will not catch it.
+
+  The one thing not verified is the live shape of its MCP errors, because it has
+  not shipped them: the parser reads `type`/`code` and `message` out of JSON and
+  passes anything else through whole. Re-check that once real errors exist.
 - [ ] Add a free company lookup, so the organisation behind an ASN or a domain
   can be turned into basic company facts — what it is, where it is registered,
   roughly how big, who owns it. Crunchbase is the shape; the free part is the

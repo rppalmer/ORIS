@@ -566,15 +566,41 @@ that has never successfully run would be scheduling a guess.
 
 ### Evidence providers
 
-- [ ] Run the Web Research semantic evaluation set against Net-Syphon. The
-  live contract is done: it passed on both machines on 2026-09-07, in 34
-  seconds, returning a cited answer whose sources all carry page text. What has
-  not been run is the evaluation set, and that is the one that matters, because
-  its cases were written and judged against Tavily results. Two reports side by
-  side is the only way to see whether the answers changed with the provider. Check news/date
-  coverage, partial retrievals, latency and local-model context use. Search
-  dates are constraints, not verified publication timestamps; missing dates
-  must not become date-specific claims. Do not require exact Tavily equivalence.
+- [x] Run the Web Research semantic evaluation set against Net-Syphon. Done
+  2026-09-07, twice. The live contract passed on both machines in 34 seconds.
+  Answers came back two to three times longer than Tavily's and better sourced,
+  reaching primary documentation instead of summarising previews. The one
+  regression was dates: asked for the newest Python 3.12 release, the first run
+  named the version but said the evidence held no publication date, where Tavily
+  had answered confidently by citing a third-party tracker the case's own goal
+  says does not count. Raising the page count from three to five fixed it. All
+  four cases now answer well, at 41 to 49 seconds each.
+- [ ] Ask Net-Syphon to populate `published_at` on search results. Measured
+  2026-09-07: it is null on every result, on both the Firecrawl news path and
+  the SearXNG general path. A date therefore reaches the model only when it
+  happens to appear in the text of a page that was retrieved, which is why the
+  page count is load-bearing for date questions. Net-Syphon was building a
+  relative-date converter for the news path on 2026-09-07; check whether it
+  landed before doing anything else here.
+- [ ] Decide whether Web Research needs more than 8,000 characters a page.
+  Net-Syphon divides a 40,000 character batch budget by the number of URLs
+  requested, so five pages is exactly 8,000 each, which is exactly what ORIS
+  keeps. Measured 2026-09-07: five real pages all returned at 8,000 and all
+  reported themselves truncated. Raising ORIS's own limit alone buys nothing;
+  Net-Syphon's 40,000 has to move with it. No case has failed at 8,000 yet, so
+  there is nothing to act on until one does.
+- [ ] Net-Razor is switching its failures from an `errors` array inside a
+  successful result to real MCP errors. ORIS's side is done and pushed
+  (2026-09-07): every Net-Razor call goes through one helper that catches the
+  exception and recovers Net-Razor's own type and message. Transcript reads
+  turn that into the same caveat a reported error takes, so one episode without
+  audio still cannot end a catch-up. Discovery and community research stay
+  loud. `handle_tool_errors` stays False on all three MCP clients; setting it
+  True hands back a message with no structured payload and loses the error
+  code. Net-Razor can flip whenever it likes. The one thing not verified is the
+  live shape of its MCP errors, because it has not shipped them: the parser
+  reads `type`/`code` and `message` out of JSON and passes anything else
+  through whole. Re-check that once real errors exist.
 - [ ] Add a free company lookup, so the organisation behind an ASN or a domain
   can be turned into basic company facts — what it is, where it is registered,
   roughly how big, who owns it. Crunchbase is the shape; the free part is the
@@ -653,6 +679,11 @@ treated as accepted precedent.
   to the checkout, so `schedules.toml` and `artifacts/scheduled/` resolve
   under launchd rather than against whatever directory a process started in.
   That was a real defect twice on 2026-09-05.
+- [ ] Deploy 2026-09-07's commits to the mini: `git pull` then
+  `uv sync --extra whisper`. Plain `uv sync` drops the optional whisper extra
+  and silently breaks transcription there. Until this is done the mini still
+  runs the old podcast allowlist, which asks for a Net-Razor tool that no
+  longer exists, so both podcast graphs fail to load.
 - [ ] **Verify a scheduled run after reboot without a user login.** oMLX is
   verified across a reboot. The scheduler is installed but no job has yet
   fired unattended: the first proof will be `overnight-podcast-catch-up` at

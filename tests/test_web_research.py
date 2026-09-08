@@ -10,7 +10,11 @@ from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
-from oris.net_syphon import MAX_RESEARCH_PAGES, NetSyphonWebSearch
+from oris.net_syphon import (
+    MAX_CONTEXT_CHARACTERS_PER_PAGE,
+    MAX_RESEARCH_PAGES,
+    NetSyphonWebSearch,
+)
 from oris.search import (
     SearchProviderError,
     WebSearchRequest,
@@ -273,7 +277,7 @@ def test_web_research_uses_bounded_page_content(monkeypatch, all_failed):
                             "page": None
                             if all_failed or i == 0
                             else {
-                                "text": "Retrieved body " * 1000,
+                                "text": "Retrieved body " * 2000,
                                 "final_url": None,
                                 "retrieved_at": "2026-09-07T12:00:00Z",
                                 "truncated": False,
@@ -316,7 +320,8 @@ def test_web_research_uses_bounded_page_content(monkeypatch, all_failed):
             "2026-09-07T12:00:00",
         ]
         assert all(
-            len(source.content) <= 8000 and source.truncated
+            len(source.content) == MAX_CONTEXT_CHARACTERS_PER_PAGE
+            and source.truncated
             for source in result["sources"]
         )
         evidence = answer_model.invoke.call_args.args[0][1][1]
@@ -333,7 +338,8 @@ def test_web_research_uses_bounded_page_content(monkeypatch, all_failed):
     }
     page_tool.ainvoke.assert_awaited_once()
     assert page_tool.ainvoke.call_args.args[0]["args"] == {
-        "urls": [f"https://example.org/{i}" for i in range(MAX_RESEARCH_PAGES)]
+        "urls": [f"https://example.org/{i}" for i in range(MAX_RESEARCH_PAGES)],
+        "max_characters": MAX_CONTEXT_CHARACTERS_PER_PAGE,
     }
 
 

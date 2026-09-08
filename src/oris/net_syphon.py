@@ -20,29 +20,38 @@ TOOL_NAMES = ("net_syphon_search_web", "net_syphon_get_pages")
 MAX_RESEARCH_PAGES = 5
 """How many pages one research run reads, which is Net-Syphon's batch maximum.
 
-Three at first, matching what a snippet-based provider gave. The evaluation on
-2026-09-07 showed the cost: asked for the newest Python 3.12 release, the
-answer named the version and said the evidence held no publication date. Three
-official pages were retrieved and none of them happened to carry it. Search
-results arrive with `published_at` unset, so a date only reaches the model if
-it appears in a page that was actually read, and reading more pages is the
-only lever ORIS has over that. Five is the server's own per-batch limit.
+Three at first, matching what a snippet-based provider gave. Five since the
+evaluation on 2026-09-07, which asked for the newest Python 3.12 release and got
+back the version with a note that the evidence held no publication date. Three
+official pages were read and none happened to carry a date, so the fix at the
+time was to read more of them.
 
-This number and the one below are coupled and have to move together. Net-Syphon
-does not give each page a fixed allowance; it divides a 40,000 character batch
-budget by however many URLs it was asked for, capped at 20,000. Five URLs is
-therefore exactly 8,000 a page, which is exactly what ORIS keeps. Measured on
-2026-09-07: five real pages all came back at 8,000 characters and all reported
-themselves truncated. Asking for fewer pages would raise the allowance rather
-than the depth, because ORIS would still cut at 8,000; getting more depth needs
-Net-Syphon's 40,000 raised as well.
+That is no longer why five is here. A date now reaches the model two other ways:
+Net-Syphon resolves publication dates on news search, and the Web Research
+prompt accepts a date printed in a page it actually read. Five stays because a
+survey question is better served by five sources than by three, which is an
+ordinary breadth judgement rather than a workaround.
 """
-MAX_CONTEXT_CHARACTERS_PER_PAGE = 8000
-"""How much of one page reaches the model.
+MAX_CONTEXT_CHARACTERS_PER_PAGE = 20000
+"""How much of one page reaches the model, and what ORIS asks Net-Syphon for.
 
-The comparison below that sets `truncated` cannot fire while this equals
-Net-Syphon's own per-page allowance. It is kept because lowering the page count
-puts slack back and makes ORIS the one doing the cutting again.
+Sent as `max_characters` on every retrieval batch rather than left to
+Net-Syphon's default, so this constant is the request instead of a prediction of
+what the server would have done anyway.
+
+It used to be a prediction, and a fragile one. Net-Syphon divided a 40,000
+character batch budget by the number of URLs requested, so ORIS held 8,000 to
+match what five URLs would produce, and the two numbers had to be kept in step by
+hand. Net-Syphon dropped that division on 2026-09-08 and takes a per-page
+allowance from the caller instead, bounded at 50,000.
+
+Why 20,000 and not the 50,000 ceiling: the batch total is the real budget, not
+the per-page number. Five pages at 20,000 is 100,000 characters, which measured
+at about 20,000 input tokens on the deployed Qwen3.5-35B-A3B. Five at 50,000
+would be two and a half times that in one prompt, and the cost lands in prefill
+time rather than in the context window, which has room to spare. Reading one page
+deeply is available by asking for fewer URLs at a higher allowance; it is not
+what an ordinary research run wants.
 """
 
 
@@ -137,7 +146,13 @@ class NetSyphonWebSearch:
         selected = found["results"][:MAX_RESEARCH_PAGES]
         if not selected:
             raise SearchProviderError("No search results were available for retrieval")
-        pages = await _call(pages_tool, {"urls": [item["url"] for item in selected]})
+        pages = await _call(
+            pages_tool,
+            {
+                "urls": [item["url"] for item in selected],
+                "max_characters": MAX_CONTEXT_CHARACTERS_PER_PAGE,
+            },
+        )
         sources = []
         for outcome in pages["results"]:
             page = outcome["page"]
@@ -150,6 +165,12 @@ class NetSyphonWebSearch:
                     url=item["url"],
                     snippet=item.get("snippet") or "",
                     published_at=item.get("published_at"),
+                    # Net-Syphon was asked to cut at this length and reports
+                    # whether it had to, so its flag is the answer. The slice
+                    # and the comparison stay as a backstop for the one case
+                    # its flag cannot cover: a server that returns more than the
+                    # caller asked for has not truncated anything, and ORIS
+                    # would silently overspend its prompt budget.
                     content=page["text"][:MAX_CONTEXT_CHARACTERS_PER_PAGE],
                     final_url=page["final_url"],
                     retrieved_at=page["retrieved_at"],

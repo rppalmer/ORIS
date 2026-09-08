@@ -563,6 +563,22 @@ that has never successfully run would be scheduling a guess.
 - [ ] Decide whether a long turn needs a cancel key. Per-step status now names
   the running graph node, which was the larger half of the complaint; whether
   the remaining wait is worth interrupting is a question for real use.
+- [ ] Export a stored Threat Intel report to a file the user names. The evidence
+  is already JSON on disk, so this is not about producing it -- it is about
+  getting a copy out of the store without knowing the store's directory or its
+  filename scheme, which encodes timestamp, id, subject and thread and is
+  deliberately the only index there is.
+
+  Two things to settle before building it. Whether "the research JSON" means the
+  full provider responses the store holds, or the pivoted report the
+  conversation showed plus its evidence, which is a smaller and more useful file
+  for handing to another tool. And whether the destination is a path the user
+  types or a fixed export directory, because a command that writes anywhere the
+  user names is the first thing in ORIS that does.
+
+  Belongs in the terminal interface first, beside `/threat show`, since that is
+  the primary interface now. Share it through `commands.py` as `/schedule` and
+  `/runs` already are, so the CLI gets it without a second implementation.
 
 ### Evidence providers
 
@@ -618,6 +634,13 @@ that has never successfully run would be scheduling a guess.
   So this change removes a rule that could bite on a less clear-cut case rather
   than one that demonstrably did. It is not validated by the evaluation, because
   the evaluation was already passing before it.
+
+  Re-run after both changes on 2026-09-08: four cases, four ran, none errored.
+  The Python case answers in full -- 3.12.14, published 12 August 2026, a
+  source-only security release, cited to python.org. Latency rose with the larger
+  page budget, from 41-49 seconds a case to 46-116. The slowest is the SQLite
+  WAL case at 116 seconds, which more than doubled. Nothing came close to the
+  timeout, and answers gained citations rather than losing them.
 
   Nothing structural checks a date read off a page. The validator verifies
   citation numbers, not dates. Requiring the model to say the date came from the

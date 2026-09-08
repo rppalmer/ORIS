@@ -679,11 +679,17 @@ treated as accepted precedent.
   to the checkout, so `schedules.toml` and `artifacts/scheduled/` resolve
   under launchd rather than against whatever directory a process started in.
   That was a real defect twice on 2026-09-05.
-- [ ] Deploy 2026-09-07's commits to the mini: `git pull` then
-  `uv sync --extra whisper`. Plain `uv sync` drops the optional whisper extra
-  and silently breaks transcription there. Until this is done the mini still
-  runs the old podcast allowlist, which asks for a Net-Razor tool that no
-  longer exists, so both podcast graphs fail to load.
+- [ ] Deploy 2026-09-07's commits to the mini. Two checkouts, two different
+  extras, and neither one is optional in practice:
+  - ORIS: `git pull` then `uv sync --extra tui`. `whisper` is not an ORIS
+    extra; it belongs to Net-Razor. Syncing ORIS without `--extra tui` removes
+    `textual` and `oris-tui` then fails to start.
+  - Net-Razor: `git pull` then `uv sync --extra whisper`. Plain `uv sync` drops
+    the whisper extra and silently breaks transcription there.
+
+  Until the ORIS pull is done the mini still runs the old podcast allowlist,
+  which asks for a Net-Razor tool that no longer exists, so both podcast graphs
+  fail to load.
 - [ ] **Verify a scheduled run after reboot without a user login.** oMLX is
   verified across a reboot. The scheduler is installed but no job has yet
   fired unattended: the first proof will be `overnight-podcast-catch-up` at

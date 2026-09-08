@@ -40,8 +40,9 @@ class SearchPlan(BaseModel):
     search_category: SearchCategory = Field(
         default="general",
         description=(
-            "Use news only when the question explicitly requests news or news "
-            "coverage; otherwise use general."
+            "Use news when the question explicitly requests news or news "
+            "coverage, and whenever a provider date filter is applied for "
+            "publication recency; otherwise use general."
         ),
     )
     time_range: SearchTimeRange | None = Field(

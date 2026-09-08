@@ -583,15 +583,41 @@ that has never successfully run would be scheduling a guess.
 
   ORIS made two changes on 2026-09-08 rather than one. The planner now picks the
   news category whenever it applies a date filter for publication recency, not
-  only when a question asks for news in those words -- "what is the newest
-  Python 3.12 release" was routed to the path with no dates. And the Web Research
-  prompt now accepts a publication date printed in a page it actually read.
+  only when a question asks for news in those words. And the Web Research prompt
+  now accepts a publication date printed in a page it actually read.
 
-  The prompt change is the one that mattered. The old rule told the model to
-  treat a missing `published_at` as insufficient for any date claim, while the
-  line below it demanded concrete dates and used a Python release date as its
-  worked example. The evaluation failure on 2026-09-07 was the model obeying the
-  restrictive half of a prompt that contradicted itself.
+  Probed against the live planner on 2026-09-08, the category change fires on
+  genuine recency questions and none of them would have reached news under the
+  old rule: OpenSSL advisories in the past month, what Anthropic announced last
+  week, and the latest post-quantum standardisation developments all came back
+  as news. A Kubernetes CVE question took a date filter but stayed general, so
+  the rule is followed most of the time rather than always, which is what a
+  prompt line buys.
+
+  It does not fire on the Python release case, which is what motivated it. The
+  planner applies no date filter there, reasonably -- "which version is newest"
+  is a question about current state, not about pages published recently, and the
+  carve-out below exists for exactly that distinction. Weather, correctly, also
+  stays general with no filter. So the category change helps recency questions
+  in general and does nothing for the case that prompted it.
+
+  The prompt did contradict itself. One line told the model to treat a missing
+  `published_at` as insufficient for any date claim, and the line below it
+  demanded concrete dates and used a Python release date as its worked example.
+  Splitting the first line fixes that.
+
+  It is not, however, what failed on 2026-09-07, and the first write-up of this
+  said otherwise. Reading the two reports back shows the real cause: the failing
+  run never retrieved the 3.12.14 page at all. It cited 3.12.12, 3.12.13 and
+  3.12.0 and said, accurately, that the evidence did not carry a date for
+  3.12.14. That was missing retrieval coverage, and raising the page count from
+  three to five fixed it by pulling the right page in. The passing run then
+  stated the date from page text with `published_at` still null, so the model was
+  already ignoring the restrictive rule when a page said the date plainly.
+
+  So this change removes a rule that could bite on a less clear-cut case rather
+  than one that demonstrably did. It is not validated by the evaluation, because
+  the evaluation was already passing before it.
 
   Nothing structural checks a date read off a page. The validator verifies
   citation numbers, not dates. Requiring the model to say the date came from the

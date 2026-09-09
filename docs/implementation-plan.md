@@ -794,27 +794,38 @@ treated as accepted precedent.
   to the checkout, so `schedules.toml` and `artifacts/scheduled/` resolve
   under launchd rather than against whatever directory a process started in.
   That was a real defect twice on 2026-09-05.
-- [ ] Deploy to the mini. Two checkouts with different extras, then two
-  daemons that are holding the old code in memory.
+- [ ] Deploy to the mini. Three checkouts, then the daemon that is holding the
+  old code in memory.
 
-  1. Net-Razor: `git pull` then `uv sync --extra whisper`. Plain `uv sync` drops
+  1. Net-Syphon: `git pull` then `uv sync`. No extras. **This one is not
+     optional and it is not last.** ORIS now sends `max_characters` on every
+     retrieval batch, and a Net-Syphon without T14 rejects the whole request as
+     `invalid_input`, because its contracts forbid unknown fields. Deploying
+     ORIS ahead of Net-Syphon breaks Web Research outright.
+  2. Net-Razor: `git pull` then `uv sync --extra whisper`. Plain `uv sync` drops
      the extra and breaks transcription silently, at the first episode without a
      publisher transcript, in the middle of an unattended run.
-  2. ORIS: `git pull` then `uv sync --extra tui`. `whisper` is not an ORIS extra.
+  3. ORIS: `git pull` then `uv sync --extra tui`. `whisper` is not an ORIS extra.
      Syncing without `--extra tui` removes `textual`, and `oris-tui` then fails
      to start.
-  3. `sudo orisctl scheduler restart --project-root <checkout> --user <account>`.
-     The daemon is long-running, so a pull alone changes nothing it executes.
-  4. `sudo orisctl phoenix restart` with the same arguments, if tracing is
-     wanted on the new code.
+  4. `sudo launchctl kickstart -k system/com.rppalmer.oris.scheduler`. The
+     daemon is long-running, so a pull alone changes nothing it executes. Plain
+     `launchctl` rather than `orisctl` because the label is fixed and the
+     installed plist lives in `/Library/LaunchDaemons`, so a restart needs
+     neither the checkout path nor the service account.
+
+  The providers go first because ORIS is the caller. A provider ahead of its
+  caller is compatible; a caller ahead of its provider sends arguments the
+  provider refuses.
 
   Nothing to migrate. The read-state table creates itself on first use, so the
   first podcast run after the pull makes it under the service account's own
   ORIS home.
 
   Verify in this order, because each step only means something if the one before
-  it passed: `orisctl scheduler status`, then `/podcasts list` for tool loading
-  without spending a run, then one real catch-up.
+  it passed: `orisctl scheduler status`, then `/research` for the Net-Syphon
+  contract, then `/podcasts list` for tool loading without spending a run, then
+  one real catch-up.
 
   Until the ORIS pull is done the mini runs the old podcast allowlist, which asks
   for a Net-Razor tool that no longer exists, so both podcast graphs fail to

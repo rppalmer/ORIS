@@ -160,13 +160,25 @@ def domain_target() -> str:
 def require_root(action: str) -> None:
     """Fail before doing any work when this lacks the privileges to finish.
 
-    Checked up front rather than left to the first write. A plist on disk
-    that launchd never loaded looks exactly like a working install until
-    the machine reboots without it.
+    Checked up front rather than left to the first write or the first
+    `launchctl` call. A plist on disk that launchd never loaded looks exactly
+    like a working install until the machine reboots without it, and a
+    `launchctl` refusal arrives as a called-process traceback that says
+    nothing about needing root.
+
+    Every action that changes the job needs this, not only the two that write
+    the plist. Bootstrapping, booting out and kickstarting all address
+    launchd's system domain, which belongs to root no matter which
+    unprivileged account the service is configured to run as -- a distinction
+    the message spells out, because the natural reading of an unprivileged
+    service is that managing it should be unprivileged too.
     """
     if os.geteuid() != 0:
         raise PermissionError(
-            f"{action} writes to {LAUNCH_DAEMONS} and needs root. Re-run with sudo."
+            f"{action} needs root. The daemon is installed in {LAUNCH_DAEMONS} and "
+            "loads into launchd's system domain, which only root may change -- "
+            "regardless of the unprivileged account the service itself runs as. "
+            "Re-run with sudo."
         )
 
 
@@ -191,6 +203,7 @@ def is_loaded(label: str) -> bool:
 
 def start(paths: LaunchAgentPaths) -> None:
     """Load an installed LaunchAgent if it is not already running."""
+    require_root("Starting a LaunchDaemon")
     if not paths.installed.is_file():
         raise FileNotFoundError(f"LaunchAgent is not installed: {paths.installed}")
     if not is_loaded(paths.label):
@@ -202,6 +215,7 @@ def start(paths: LaunchAgentPaths) -> None:
 
 def stop(paths: LaunchAgentPaths) -> None:
     """Unload the LaunchAgent if it is currently running."""
+    require_root("Stopping a LaunchDaemon")
     if is_loaded(paths.label):
         subprocess.run(
             [str(LAUNCHCTL), "bootout", service_target(paths.label)],
@@ -243,6 +257,7 @@ def uninstall(paths: LaunchAgentPaths) -> None:
 
 def restart(paths: LaunchAgentPaths) -> None:
     """Start an installed service or restart the loaded service."""
+    require_root("Restarting a LaunchDaemon")
     if not paths.installed.is_file():
         raise FileNotFoundError(f"LaunchAgent is not installed: {paths.installed}")
     if is_loaded(paths.label):

@@ -818,6 +818,13 @@ treated as accepted precedent.
   caller is compatible; a caller ahead of its provider sends arguments the
   provider refuses.
 
+  No MCP server needs restarting, and none of them is a daemon. The official
+  adapter is stateless and spawns a fresh stdio subprocess per tool call, then
+  tears it down, so a provider's new code is live on the next call. The ORIS
+  scheduler is the only process that holds code across a pull, which is why it
+  is the only restart here -- and why podcast catch-up kept failing for four
+  days on an allowlist that had already been fixed on disk.
+
   Nothing to migrate. The read-state table creates itself on first use, so the
   first podcast run after the pull makes it under the service account's own
   ORIS home.

@@ -38,7 +38,7 @@ other specialists receive standalone requests. Failed requests are kept out of
 conversation history and report their actual component and reason. Web Research
 distinguishes current-state lookups from publication-bounded news and selects
 Net-Syphon's news intent for explicit news requests. Web Research makes one search
-and retrieves the first three pages, then synthesizes only successful page content.
+and retrieves the first five pages, then synthesizes only successful page content.
 The new path is fixture-tested; its live acceptance run remains outstanding.
 Podcast Catch-up discovers recent episodes from configured feeds, prefers the
 publisher's transcript over a machine one, falls back to local Whisper, and

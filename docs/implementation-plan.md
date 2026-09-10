@@ -39,7 +39,10 @@ conversation history and report their actual component and reason. Web Research
 distinguishes current-state lookups from publication-bounded news and selects
 Net-Syphon's news intent for explicit news requests. Web Research makes one search
 and retrieves the first five pages, then synthesizes only successful page content.
-The new path is fixture-tested; its live acceptance run remains outstanding.
+The Net-Syphon path has now passed a live acceptance run (2026-09-10): four
+cases, all four completed, 47 to 92 seconds each. Three answered their goal.
+The fourth found a real defect in which pages get retrieved, recorded under
+Evidence providers below.
 Podcast Catch-up discovers recent episodes from configured feeds, prefers the
 publisher's transcript over a machine one, falls back to local Whisper, and
 summarises each show on its own; Net-Razor remains the sole owner of
@@ -724,6 +727,38 @@ that has never successfully run would be scheduling a guess.
   The one thing not verified is the live shape of its MCP errors, because it has
   not shipped them: the parser reads `type`/`code` and `message` out of JSON and
   passes anything else through whole. Re-check that once real errors exist.
+- [ ] **Search selection can miss the one page that answers the question.**
+  Found by the live acceptance run on 2026-09-10, by reading the answers rather
+  than the exit code.
+
+  Asked for the newest Python 3.12 release, ORIS answered 3.12.14, published
+  12 August 2026, security-only and source-only. Every one of those facts is
+  correct. The problem is where they came from: the version and the date are
+  cited to versionlog.com, a third-party tracker, while the three python.org
+  pages that were retrieved cover 3.12.0, 3.12.12 and 3.12.13. The case's goal
+  says in as many words that a third-party tracker cited where python.org would
+  do does not answer it, so this case still fails.
+
+  The page that answers the question outright exists and was checked by hand:
+  `python.org/downloads/release/python-31214/` returns 200 and carries the
+  release number, "Release date: Aug. 12, 2026", "This is a security release",
+  and the source-only note, all on one page. Search never returned it. Five
+  pages were read and the right one was not among them.
+
+  So this is not a prompt defect and not a model defect. The model was given an
+  evidence set that did not contain the answer and did well with it. Whatever is
+  fixed here belongs in how the search query is written or how results are
+  chosen, and it may belong in Net-Syphon rather than in ORIS. Diagnose before
+  changing anything: the search planner's query for this question has not been
+  read.
+
+  The same run showed a smaller version of the same problem. The SQLite case
+  retrieved `www.sqlite.org/wal.html` and `sqlite.org/wal.html` as two separate
+  sources, so one of the five page slots went to a page already held, and the
+  answer cites the same document as [2] and [3]. Deduplicating on the resolved
+  final URL rather than the requested one would catch it. Worth confirming which
+  side already normalises hosts before adding anything.
+
 - [ ] Add a free company lookup, so the organisation behind an ASN or a domain
   can be turned into basic company facts — what it is, where it is registered,
   roughly how big, who owns it. Crunchbase is the shape; the free part is the

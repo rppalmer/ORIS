@@ -8,6 +8,52 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-09-10 — The Net-Syphon Web Research path passes its live acceptance run
+
+Four cases against live oMLX and live Net-Syphon. All four completed, taking 47
+to 92 seconds each. The runner reports only that a case ran; the judging below
+came from reading the four answers against their goals.
+
+Three answered their goal. LangGraph's purpose and the checkpointer-versus-store
+comparison both drew on the official documentation and treated the two
+persistence roles as distinct rather than interchangeable, which is what that
+case exists to check. The SQLite question was answered from sqlite.org itself
+and got the substance right: readers and writers do not block each other, writes
+are still serialised behind one write lock, and the shared-memory index means
+every process must be on the same host, which rules out network filesystems.
+
+The fourth case failed, and it failed usefully. Asked for the newest Python 3.12
+release, ORIS said 3.12.14, published 12 August 2026, security-only and
+source-only. All of that is correct. But the version and the date are cited to a
+third-party tracker, and the case's goal was rewritten specifically to reject
+that: it asks for each fact attributed to an official Python source. The
+python.org pages that were retrieved cover 3.12.0, 3.12.12 and 3.12.13.
+
+Checking by hand settled where the fault lies. The 3.12.14 page on python.org
+exists, returns 200, and carries the release number, the release date, the words
+"This is a security release", and the source-only note, all in one place. Search
+never returned it. Five pages were read and the one page that answers the
+question outright was not among them.
+
+That makes this a retrieval defect rather than a prompt or model defect, which
+matters because the obvious response — tell the model to prefer official sources
+— would have changed nothing. The model cannot cite a page it was not given. The
+fix belongs in how the query is written or how results are selected, possibly in
+Net-Syphon rather than in ORIS, and the search planner's query for this question
+has not been read yet. It is recorded in the plan as a diagnosis to do, not a
+change to make.
+
+The run also showed a smaller version of the same thing: `www.sqlite.org/wal.html`
+and `sqlite.org/wal.html` were retrieved as two separate sources, so one of five
+page slots went to a page already held and the answer cites one document under
+two numbers.
+
+Worth recording that this is the third live run of this path, after 7 and 8
+September, and the first one judged case by case against the goals rather than
+checked for completing without raising. The first two runs would have looked
+identical to this one from the outside. Reading the answers is what found the
+defect.
+
 ## 2026-09-10 — "Answer quality" closed, with its case-set work unfinished
 
 The eleven system prompts were reviewed together on 2026-08-16 and the review's

@@ -8,6 +8,33 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-09-10 — "Answer quality" closed, with its case-set work unfinished
+
+The eleven system prompts were reviewed together on 2026-08-16 and the review's
+findings were worked through on 2026-09-05: Local Knowledge's dead-end sentence,
+Threat Intel's two internal contradictions, Community Research's citation
+requirement and the crash behind it, the injection guard on both planners, Local
+Knowledge's length rule sized against its token budget, and the Threat Intel
+planner's missing threat-actor category. Those are done and each was measured by
+running the affected cases before and after and reading the two sets side by
+side.
+
+What is now closed without being finished is the evaluation case work: rewriting
+the cases that cannot answer, replacing the time-sensitive case whose expected
+fact has already rotted, and recording a verdict per case so two reports can be
+compared without reading both in full.
+
+This was a decision to stop, not a finding that there was nothing left. The
+remaining items stay in the roadmap in full rather than being deleted, marked
+closed and unfinished, so reopening them costs nothing. The reason to reopen
+them is answers that start looking wrong; the reason not to do them now is that
+none of them changes what ORIS tells anyone today.
+
+Worth stating plainly, because the plan used to claim the opposite: with these
+closed there is no prompt work outstanding that is known to be wrong. The cases
+are a measuring instrument, and the instrument being imprecise is a different
+problem from the answers being bad.
+
 ## 2026-09-10 — The Mac mini runs current code
 
 Three checkouts were pulled and synced on the mini, and the scheduler daemon was

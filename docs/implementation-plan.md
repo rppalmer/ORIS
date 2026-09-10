@@ -89,8 +89,9 @@ directory, which is why this stays under open questions.
 The previous seventeen opt-in live contracts passed against oMLX and the then-current
 providers on 2026-08-16; that does not verify the replacement Web Research path.
 The eleven system prompts
-have been reviewed together; the findings are the "Answer quality" roadmap
-below and are the highest-value work outstanding.
+were reviewed together and the resulting fixes are done. What is left of
+"Answer quality" is case-set work, and it was closed unfinished on 2026-09-10
+by decision rather than by being completed.
 
 Deterministic and live verification details are retained in the
 [implementation history](implementation-history.md), including the accepted
@@ -923,18 +924,26 @@ answers to questions that keep getting asked again.
 ## Immediate next action
 
 The core milestone is complete, the August 13 foundation review is closed out,
-and its original providers were exercised against live services. The replacement
-Web Research path still needs the live acceptance check listed above.
+and the mini runs current code as of 2026-09-10.
 
-Take the Podcast Catch-up items first, in the order they are listed. They are
-short, they are blocking real use, and the first two are checks rather than
-code. Then "Answer quality".
+Two checks are the outstanding work, and both are about watching the system do
+something rather than changing it. Neither has been done on the mini.
 
-"Answer quality" is the only work on this roadmap that changes what an
-investigation actually tells you; everything else changes what ORIS can
-reach or how comfortable it is to drive. The current date is done. The
-evaluation cases were run for the first time on 2026-08-18 and found three
-defects, all recorded in the history. What they still lack is a recorded verdict
-per case, so two reports cannot be compared without reading both in full.
+1. Prove a scheduled job fires unattended. The scheduler is installed as a
+   system daemon and oMLX survives a reboot with nobody logged in, but no job
+   has yet run without a person present. The first proof is
+   `overnight-podcast-catch-up` appearing in `/runs` at 03:00 with nobody
+   having started it.
+2. Run one real podcast catch-up on the mini now that the tool allowlist there
+   matches the Net-Razor it is calling.
+
+After that, the one piece of remaining podcast work with code in it: letting a
+job run in the background instead of holding a chat turn. Build it as "run any
+job now, in the background" so the news job gets it too.
+
+"Answer quality" is closed. The prompt fixes it produced are done and are in the
+history; the case-set items behind it were closed unfinished on 2026-09-10 and
+are kept in the roadmap in full, to be reopened if the answers start looking
+wrong.
 
 Dynamic MCP exploration remains unapproved.

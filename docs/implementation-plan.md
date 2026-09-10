@@ -251,7 +251,13 @@ machinery for something touched a few times a month.
   indicator with genuinely thin coverage, where reading absence as clearance
   would cost something. That is a case-set change and is not urgent.
 
-- [ ] **Fix what the first evaluation run exposed** (run 2026-08-18, seventeen
+The two items below are **closed on 2026-09-10 without being finished**, by the
+user's decision. Neither is a defect in what ORIS answers: both are about the
+evaluation cases rather than the prompts. They are kept in full, because closing
+them is a choice to stop rather than a finding that there was nothing left. To
+reopen either one, turn it back into a checkbox.
+
+- **Closed unfinished — fix what the first evaluation run exposed** (run 2026-08-18, seventeen
   cases across four specialists, reports in `artifacts/evaluations/`). The cases
   were run for the first time and earned their place immediately, though mostly
   by catching problems in themselves rather than in the prompts. Worst first:
@@ -358,7 +364,8 @@ machinery for something touched a few times a month.
   reading is close to impossible, because both numberings run 1 to 5 over the
   same reports and only checking each claim against the stored document tells
   them apart.
-- [ ] **Make the evaluation sets precise enough to settle a prompt change.**
+- **Closed unfinished — make the evaluation sets precise enough to settle a
+  prompt change.**
   Partly done: Local Knowledge, Community Research, and Threat Intel now have
   versioned case files, and one runner drives all four answering specialists
   from a single table of how each is asked and read. That is enough to produce
@@ -794,49 +801,30 @@ treated as accepted precedent.
   to the checkout, so `schedules.toml` and `artifacts/scheduled/` resolve
   under launchd rather than against whatever directory a process started in.
   That was a real defect twice on 2026-09-05.
-- [ ] Deploy to the mini. Three checkouts, then the daemon that is holding the
-  old code in memory.
+- [x] **Deploy to the mini.** Done 2026-09-10 by Ryan. Three checkouts in a
+  fixed order, then the one daemon that was holding old code in memory.
 
-  1. Net-Syphon: `git pull` then `uv sync`. No extras. **This one is not
-     optional and it is not last.** ORIS now sends `max_characters` on every
-     retrieval batch, and a Net-Syphon without T14 rejects the whole request as
-     `invalid_input`, because its contracts forbid unknown fields. Deploying
-     ORIS ahead of Net-Syphon breaks Web Research outright.
-  2. Net-Razor: `git pull` then `uv sync --extra whisper`. Plain `uv sync` drops
-     the extra and breaks transcription silently, at the first episode without a
-     publisher transcript, in the middle of an unattended run.
-  3. ORIS: `git pull` then `uv sync --extra tui`. `whisper` is not an ORIS extra.
-     Syncing without `--extra tui` removes `textual`, and `oris-tui` then fails
-     to start.
-  4. `sudo launchctl kickstart -k system/com.rppalmer.oris.scheduler`. The
-     daemon is long-running, so a pull alone changes nothing it executes. Plain
-     `launchctl` rather than `orisctl` because the label is fixed and the
-     installed plist lives in `/Library/LaunchDaemons`, so a restart needs
-     neither the checkout path nor the service account.
+  Net-Syphon went first and that order was not cosmetic. ORIS now sends
+  `max_characters` on every retrieval batch, and a Net-Syphon without T14
+  rejects the whole request as `invalid_input`, because its contracts forbid
+  unknown fields. Deploying ORIS ahead of it would have broken Web Research
+  outright. The general rule is that a provider ahead of its caller is
+  compatible and a caller ahead of its provider is not.
 
-  The providers go first because ORIS is the caller. A provider ahead of its
-  caller is compatible; a caller ahead of its provider sends arguments the
-  provider refuses.
+  Net-Razor needs `uv sync --extra whisper`; a plain sync drops the extra and
+  breaks transcription silently, at the first episode without a publisher
+  transcript, in the middle of an unattended run. ORIS needs `--extra tui`, or
+  `textual` is removed and `oris-tui` will not start.
 
-  No MCP server needs restarting, and none of them is a daemon. The official
-  adapter is stateless and spawns a fresh stdio subprocess per tool call, then
-  tears it down, so a provider's new code is live on the next call. The ORIS
-  scheduler is the only process that holds code across a pull, which is why it
-  is the only restart here -- and why podcast catch-up kept failing for four
-  days on an allowlist that had already been fixed on disk.
+  Only the scheduler was restarted. No MCP server needed it and none of them is
+  a daemon: the official adapter spawns a fresh stdio subprocess per tool call
+  and tears it down, so a provider's new code is live on the next call. The
+  scheduler is the only process that holds code across a pull, which is why
+  podcast catch-up kept failing there for four days on an allowlist that had
+  already been fixed on disk.
 
-  Nothing to migrate. The read-state table creates itself on first use, so the
-  first podcast run after the pull makes it under the service account's own
-  ORIS home.
+  Nothing needed migrating. The read-state table creates itself on first use.
 
-  Verify in this order, because each step only means something if the one before
-  it passed: `orisctl scheduler status`, then `/research` for the Net-Syphon
-  contract, then `/podcasts list` for tool loading without spending a run, then
-  one real catch-up.
-
-  Until the ORIS pull is done the mini runs the old podcast allowlist, which asks
-  for a Net-Razor tool that no longer exists, so both podcast graphs fail to
-  load and `oris-tui` will not start.
 - [ ] **Verify a scheduled run after reboot without a user login.** oMLX is
   verified across a reboot. The scheduler is installed but no job has yet
   fired unattended: the first proof will be `overnight-podcast-catch-up` at

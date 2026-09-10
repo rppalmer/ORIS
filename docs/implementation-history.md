@@ -8,6 +8,43 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-09-10 — The Mac mini runs current code
+
+Three checkouts were pulled and synced on the mini, and the scheduler daemon was
+restarted. Before this the mini had been running an ORIS old enough that its
+podcast tool allowlist named a Net-Razor tool that no longer exists, so both
+podcast graphs failed to load and the terminal interface would not start there
+at all.
+
+The order was the substance of this change rather than an afterthought. Net-Syphon
+went first because ORIS is its caller and now sends `max_characters` on every
+retrieval batch. A Net-Syphon without that field forbids unknown arguments and
+rejects the whole request, so ORIS arriving first would have taken Web Research
+down completely. A provider ahead of its caller is compatible; a caller ahead of
+its provider is not. That is the rule the deploy order encodes, and it is why
+"deploy everything together" was rejected.
+
+Each checkout carries a different extra and syncing without it fails quietly
+rather than loudly. Net-Razor without `--extra whisper` loses transcription, and
+the failure surfaces at the first episode with no publisher transcript, in the
+middle of an unattended overnight run. ORIS without `--extra tui` loses
+`textual`, and `oris-tui` simply does not start.
+
+Only the scheduler was restarted, and the reason is worth keeping. No MCP server
+is a daemon here: the official adapter spawns a fresh stdio subprocess per tool
+call and tears it down afterwards, so new provider code is live on the next
+call with no restart at all. The scheduler is the only process that holds ORIS
+code in memory across a pull. Missing that distinction is what left podcast
+catch-up failing on the mini for four days against an allowlist that had already
+been fixed on disk.
+
+Nothing needed migrating. The podcast read-state table creates itself on first
+use under the service account's own ORIS home.
+
+Still unproven, and deliberately left open: no scheduled job has yet fired
+unattended on the mini. Installing a daemon and watching a daemon do its work at
+03:00 with nobody logged in are different claims.
+
 ## 2026-09-07 — Web Research uses Net-Syphon search and page retrieval
 
 Replaced direct Tavily access with the existing official `langchain-mcp-adapters`

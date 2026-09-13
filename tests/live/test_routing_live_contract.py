@@ -5,12 +5,13 @@ import os
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import get_args
 from unittest.mock import Mock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from oris.chat import create_oris_graph
+from oris.chat import RouterMode, create_oris_graph
 from oris.config import Settings
 from oris.model import create_chat_model
 
@@ -18,12 +19,13 @@ LIVE_ROUTING_ENABLED = os.environ.get("ORIS_RUN_LIVE_ROUTING_TESTS") == "1"
 PROJECT_ROOT = Path(__file__).parents[2]
 EVALUATION_PATH = PROJECT_ROOT / "evaluations" / "routing.toml"
 REPORT_DIRECTORY = PROJECT_ROOT / "artifacts" / "evaluations"
-ALLOWED_ROUTES = {
-    "chat",
-    "community_research",
-    "local_knowledge",
-    "web_research",
-}
+ALLOWED_ROUTES = set(get_args(RouterMode))
+"""Read from the router's own schema rather than restated here.
+
+This list was written out by hand and then drifted: `podcast_catch_up` joined
+`RouterMode` and the test kept failing correct routes. Deriving it means the
+two cannot disagree again.
+"""
 
 
 @pytest.mark.live
@@ -38,7 +40,6 @@ def test_router_returns_reviewable_fixed_route_decisions() -> None:
 
     settings = Settings()
     graph = create_oris_graph(
-        Mock(),
         Mock(),
         Mock(),
         Mock(),

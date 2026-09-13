@@ -685,13 +685,24 @@ that has never successfully run would be scheduling a guess.
   than an operating point. The usable limit is roughly 40,000 input tokens and
   ORIS sends 18,551, leaving about half the headroom spare.
 
-  The 23.6 GB is not the configured ceiling. oMLX's admin setting is 28 GB and so
-  is the kernel's `iogpu.wired_limit_mb`; the number the guard actually enforced
-  was lower and labelled `dynamic/metal_cap`, so raising the admin ceiling
-  changes nothing. oMLX's own advice is to raise the kernel wired limit with
-  `sysctl`, which is a decision about the machine rather than about Web Research.
-  Nothing needs it today: the batch ORIS sends is under half the headroom either
-  way.
+  Why the enforced ceiling was below the configured one was worked out on
+  2026-09-13, and the earlier guess here was wrong. It is not a Metal quirk. The
+  scheduler is handed the ceiling *minus* the hot-cache reservation:
+  `final_ceiling - min(hot_cache_max, hot_cache_used + 512 MiB)`. A 4GB hot
+  cache holding 2.62 GiB withheld 3.12 GiB, which is the whole gap. oMLX's own
+  throttle log hides this: it prints the post-reservation cap beside the names of
+  the pre-reservation constraints, then advises raising a ceiling that is not
+  what shrank.
+
+  Raised on 2026-09-13: kernel wired limit to 29696 MB, oMLX ceiling to 29, hot
+  cache to 2GB. The scheduler ceiling went 24.88 to 27.41 GiB. A 59,231-token
+  prompt is now accepted and no refusal was found at any size probed, against a
+  44,867-token prompt that was refused five days earlier. So the usable limit is
+  at least 59,231 tokens, and ORIS's 18,551 now sits under a third of it.
+
+  Two things stay unmeasured. The true new ceiling, because the probe never
+  provoked a refusal. And whether halving the hot cache costs anything, which
+  needs days of ordinary use rather than a single run.
 - [ ] Net-Razor is switching its failures from an `errors` array inside a
   successful result to real MCP errors. ORIS's side is done and pushed
   (2026-09-07): every Net-Razor call goes through one helper that catches the

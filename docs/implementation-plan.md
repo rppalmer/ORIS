@@ -885,6 +885,22 @@ treated as accepted precedent.
   This is a property of the host, not a defect, and it is one of the reasons
   the always-on Mac mini is the intended home. Do not chase it further on the
   MacBook.
+- [ ] **Rename the launchd label off a domain nobody owns.** Services install as
+  `com.rppalmer.oris.<service>`, built in `label_for()`. launchd labels are
+  reverse-DNS by convention, so this claims `rppalmer.com`. The conventional
+  prefix for something with no owned domain is `local.`, which is what this
+  machine's own `local.iogpu-wired-limit` daemon already uses -- so the box runs
+  both conventions side by side. Nothing breaks either way; labels only have to
+  be unique.
+
+  The rename is small: one function, two template filenames under `launchd/`,
+  two tests, two doc mentions. The install is where it bites. **Uninstall under
+  the old label first.** Changing the label and installing would load a second
+  scheduler alongside the running one, and both would fire the same jobs.
+
+  Not urgent, and not worth doing on the same day as anything else, because a
+  duplicated scheduler would be diagnosed as whatever else changed that day.
+
 - [ ] Consider LangGraph deployment cron only if persistent Agent Server
   infrastructure later becomes justified.
 

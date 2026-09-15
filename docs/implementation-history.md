@@ -8,6 +8,80 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-09-15 — Podcast reports stop repeating themselves
+
+A real catch-up came back at 29 KB and read as though it said everything twice,
+because it did. Two separate duplications, only one of them a design choice.
+
+**The parts were never read together.** A long transcript is summarised a page
+at a time, which is deliberate -- summarising a whole hour in one call rebuilds
+the oversized prompt the paging exists to prevent. But the page summaries were
+then joined with `"\n\n".join(...)` and shipped. Nothing ever saw them side by
+side, so a subject the episode kept returning to was reported once per page. One
+25-minute argument about a contract standoff explained "he feels disrespected"
+in three of its four paragraphs, and said twice more that the offer beat the
+alternative.
+
+A merge call now reads the parts together. It is told to merge restatements and
+keep every distinct fact, which is the opposite instruction from "summarise":
+the Linux episode named ten different tools once each, and a pass told to
+shorten would have replaced all ten with "various tools". Length is the result,
+not the target. A single-part episode skips the call.
+
+**The digest restated the episodes.** Above the episode list sat a per-show
+digest written from the same summaries printed below it. For That UFO Podcast,
+two episodes of one interview, it did real work. For LINUX Unplugged, one
+episode, it was a summary of a single item placed directly above that item --
+every element of it, the EF Core migration, the privilege loss, the $4,000
+donation, appeared again a paragraph later.
+
+So the digest is gone and every episode gets its own section: show, published,
+transcript, summary. One renderer builds it and both front ends print it, which
+also ended provenance being written in two places -- a structured line in the
+report and a sentence the digest model wrote in prose.
+
+**Citations stopped being a model's job.** The digest wrote its own URL list, so
+it could cite an episode it had never been given; that was a real failure and a
+validator existed to catch it. Each episode's canonical URL now comes straight
+out of the evidence, so the failure cannot occur and the validator, the answer
+schema and the catch-up prompt went with it. Community Research reached the same
+place on 2026-09-05 by the same route.
+
+What this gives up is stated rather than hidden: the digest was where "part 1
+calls the guest Corinne, part 2 calls her Karin" came from. Reading across a
+show's episodes is a different job from summarising one, and is being built
+separately rather than folded back in.
+
+Three tests were deleted rather than rewritten. Two guarded citations no model
+writes any more, and one guarded a show being crowded out of a digest that no
+longer exists. Provenance moved to a test of the renderer, which is the closest
+boundary that can still fail.
+
+## 2026-09-15 — The podcast job fires hourly instead of once
+
+Selection goes round-robin across feeds so a daily show cannot take every slot,
+which was measured and fixed on 2026-08-25. What went unnoticed is that
+round-robin only reaches every feed when the budget is at least the number of
+feeds publishing. With eight feeds configured and a budget of 2, it never got
+past the first two.
+
+The reports show it plainly. On both 14 and 15 September, both slots went to the
+two daily Pistons feeds and two other feeds were not attempted at all. Their
+episodes then expired at the three-day lookback rather than waiting, because an
+episode nobody reaches is not a backlog.
+
+Read state was not the gap, and this is worth recording because it was the first
+suspicion. It correctly filters unread episodes before the budget is spent and
+records only episodes actually read -- which is why two nights of failed
+transcription cost nothing and a later manual run picked the same episodes up.
+What read state cannot do is change which feed is reached first.
+
+The budget is now 8 and the job fires 03:00 through 06:00. A run takes up to 8
+and stops; the next hour drains what is left; a run with nothing unread costs
+one discovery call. 8 stays under the hourly interval deliberately -- about 40
+minutes when every episode needs Whisper -- because a job still running when its
+next firing is due loses that firing in silence.
+
 ## 2026-09-10 — The Net-Syphon Web Research path passes its live acceptance run
 
 Four cases against live oMLX and live Net-Syphon. All four completed, taking 47

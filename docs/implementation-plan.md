@@ -44,9 +44,13 @@ cases, all four completed, 47 to 92 seconds each. Three answered their goal.
 The fourth found a real defect in which pages get retrieved, recorded under
 Evidence providers below.
 Podcast Catch-up discovers recent episodes from configured feeds, prefers the
-publisher's transcript over a machine one, falls back to local Whisper, and
-summarises each show on its own; Net-Razor remains the sole owner of
-processed-episode state. Local
+publisher's transcript over a machine one, and falls back to local Whisper. A
+long transcript is summarised a part at a time and those parts are then merged
+into one episode summary, because parts written without seeing each other
+repeat whatever the episode returns to. The report is one section per episode
+with no digest above it, and cites each episode's own URL. ORIS owns
+processed-episode state, which moved out of Net-Razor on 2026-09-07 because it
+belongs to the reader. Local
 Knowledge plans each archive search into concise terms, a chat or
 scheduled-report filter, and relevance or newest ordering, and recall answers
 are not re-indexed as new knowledge. Its archive is stemmed, so a question
@@ -387,7 +391,7 @@ reopen either one, turn it back into a checkbox.
   - Podcast Catch-up has no set and does not fit this shape: it takes no
     question, and what it returns depends on what its feeds published that week.
     It needs a different kind of case — a fixed transcript fixture, or a goal
-    expressed about the digest's structure rather than its content.
+    expressed about the report's structure rather than its content.
   - The case files themselves are a first draft written against the prompts'
     stated rules, not against observed failures. Cases earn their place by
     catching something; these have not been run yet.
@@ -475,7 +479,7 @@ Two things worth remembering if this comes up again:
   and were never in question. A change would have been per-call-site.
 - Reasoning was only ever tested as a whole-pipeline swap, one call per item.
   The untested case is a single planning call — search planning, the Threat
-  Intel planner, the podcast digest — where one reasoning pass costs seconds
+  Intel planner, the podcast episode merge — where one reasoning pass costs seconds
   rather than an hour. That is a different question and is still open.
 
 ### Podcast Catch-up
@@ -534,7 +538,7 @@ That is why the run had nothing to work with.
   tool has always accepted `include_processed`; ORIS passed a hardcoded false.
   A recap now passes true, and reads without writing: it neither transcribes nor
   acknowledges. `/recall` remains the other route to a scheduled run's work,
-  since the run files its digest into the archive.
+  since the run files its report into the archive.
 - [x] **Say plainly, for every episode, whether its transcript was already
   there or was made just now.** Done 2026-08-26. Three states, not two: the
   publisher's transcript, one this run made, and one an earlier run left in

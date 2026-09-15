@@ -122,8 +122,9 @@ feed rather than per run.
    that per episode either. A per-episode cap punished only long episodes while
    short ones left the budget unused, and it cut the same weekly show short
    twice before this was corrected.
-7. Create one digest from the per-episode summaries, never from full transcripts.
-8. Validate all citations.
+7. Merge each episode's part summaries into one episode summary, never from
+   full transcripts. A single-part episode skips the merge.
+8. Render one section per episode and cite each episode's own canonical URL.
 9. Interactive use calls `net_razor_podcast_mark_processed` once with the
    successful call IDs. Scheduled use follows the persistence-first sequence
    below.
@@ -174,7 +175,7 @@ truncation status.
 
 `transcript_backend` is `publisher` or `whisper`, taken from Net-Razor's
 `source_backend` rather than inferred from which tool was called. Whisper gets
-names, acronyms, and version numbers wrong, and a digest that cannot tell will
+names, acronyms, and version numbers wrong, and a reader who cannot tell will
 repeat them as fact, cited to the episode.
 
 `transcript_created_now` separates a machine transcript this run produced from
@@ -190,21 +191,20 @@ does not recreate them. Full transcripts are never returned in public output or
 added to Local Knowledge. Call IDs stay in internal state until acknowledgement
 and never appear in chat, reports, or the archive.
 
-Every `cited_urls` entry must match the canonical URL of a successfully
-summarized episode. Citing a URL that was never supplied is fabrication and
-fails the run.
+`cited_urls` is every successfully summarized episode's canonical URL, taken
+from the evidence. No model writes it.
 
-A digest that cites **nothing** does not fail. It is reported as a caveat and
-the digest is kept. The two failures are not equal: the report already lists
-every episode with its canonical URL in its own section, so an uncited digest
-remains traceable, and failing there would discard a whole night's digest to
-protect something the reader already has. Web Research is deliberately stricter
-because its sources exist nowhere else in its output.
+There is nothing left to validate. A model that produced its own citation list
+could cite an episode it was never given, so fabrication was a real failure and
+a validator existed to catch it; a list read out of the evidence cannot be
+wrong. Web Research still validates because its model writes prose that could
+be uncited, which this specialist cannot produce.
 
-This resolves for podcasts the asymmetry the roadmap still records as undecided
-for Community Research. Observed 2026-08-25 against the real
-feeds: the model wrote a good cross-cutting digest, cited nothing, and the run
-died.
+That closes the same question Community Research closed on 2026-09-05, and for
+the same reason: the requirement was policing a failure the design no longer
+permits. Both were reached from the opposite direction first -- observed
+2026-08-25 against the real feeds, the model wrote a good cross-cutting digest,
+cited nothing, and the run died.
 
 ## Scheduled job contract
 
@@ -218,7 +218,7 @@ Measured cost is about five minutes a night across eight feeds, with a
 three-hour episode the worst single case at 8.3 minutes of transcription.
 
 Completion order is persistence-first: write the
-`running` record, produce and validate the digest without acknowledging, write
+`running` record, produce the episode summaries without acknowledging, write
 the report atomically, record its path, index it into Local Knowledge, then
 acknowledge, then mark the run succeeded. A failure before acknowledgement
 leaves the episodes discoverable on the next run. This at-least-once behavior
@@ -238,8 +238,8 @@ durable deliverable.
 - Failed transcription is never retried. `retriable` is present on every error
   and is deliberately ignored: retrying inside a run would multiply its cost
   against a budget the run cannot re-check.
-- Any failure before citation validation prevents acknowledgement.
-- Acknowledgement failure is non-fatal for a finished digest and is reported as
+- Any failure before the report is written prevents acknowledgement.
+- Acknowledgement failure is non-fatal for a finished report and is reported as
   a caveat.
 
 Net-Razor owns processed-episode state. ORIS keeps no second queue. A call that

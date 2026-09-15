@@ -23,7 +23,7 @@ reports. It is read-only with respect to external systems.
 - Podcast Catch-up uses Net-Razor to discover recent episodes from configured
   feeds, prefers the publisher's own transcript, and falls back to local Whisper
   transcription. Every episode says which it was, because machine transcription
-  mangles the names and version numbers a digest then repeats as fact. A
+  mangles the names and version numbers a summary then repeats as fact. A
   scheduled run may transcribe its whole budget; in chat only a named show does,
   because that is one episode rather than five.
 - Threat Intel runs bounded defensive ThreatSyft lookups behind the explicit
@@ -153,7 +153,7 @@ uv run oris
 ```
 
 Then `/podcasts linux unplugged`. It exercises discovery, the transcript path,
-paging, and the digest against a single episode, so a broken install fails in
+paging, and the summary against a single episode, so a broken install fails in
 seconds. Pick a show that publishes its own transcript for this: naming one that
 does not will transcribe it, which works but takes minutes. Follow it with a
 bare `/podcasts` for the full catch-up, which never transcribes.

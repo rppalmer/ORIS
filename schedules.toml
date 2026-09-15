@@ -9,14 +9,21 @@ prompt = "Research the most important AI-agent developments from yesterday."
 date_window = "previous_day"
 search_category = "news"
 
-# Deliberately small for its first runs. max_episodes is an ORIS budget, not a
-# Net-Razor one, and a run that transcribes its whole budget can last a long
-# time -- a job still running when its next firing is due has that firing
-# skipped in silence. Raise it once the path has proven itself.
+# The budget and the interval work together. A run takes up to max_episodes and
+# stops; firing hourly drains whatever is left. Selection goes round-robin
+# across feeds, so a budget below the number of publishing feeds never reaches
+# the ones at the back and their episodes expire at the `days` boundary -- which
+# is what a budget of 2 did on 14 and 15 September, spending both slots on the
+# two daily shows while two other feeds went untouched.
+#
+# 8 episodes is roughly 40 minutes when every one needs Whisper, inside the
+# hourly interval. Keep it there: a job still running when its next firing is
+# due has that firing skipped in silence. Four firings ends by 07:00, when
+# weekday-ai-news starts.
 [[jobs]]
 id = "overnight-podcast-catch-up"
 enabled = true
-cron = "0 3 * * *"
+cron = "0 3-6 * * *"
 task = "podcast_catch_up"
 days = 3
-max_episodes = 2
+max_episodes = 8

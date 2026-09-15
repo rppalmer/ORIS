@@ -571,6 +571,26 @@ that has never successfully run would be scheduling a guess.
   read-only plus a manual trigger, which is what the missed-run diagnosis
   actually needed. Do this after the podcast items above: scheduling a job that
   has never successfully run would be scheduling a guess.
+- [ ] **Read a summary aloud.** Ryan wants to listen to podcast catch-ups and
+  reports rather than read them. Open before anything is built: whether this is
+  one audio file per run or one per episode; whether it is generated every time
+  or on request; and which engine. macOS `say` is already on the machine and
+  free, an MLX speech model would sound better and costs GPU time that Whisper
+  is already competing for. The reports are Markdown, so something has to decide
+  what a link or a bullet sounds like. Worth noting the pipeline already has the
+  hard half -- the text is written and stored.
+- [ ] **A daily Community Research summary over a list of terms.** Ryan supplies
+  the terms; each gets summarised every day. `schedules.toml` takes
+  `web_research` and `podcast_catch_up` today, so this needs
+  `community_research` as a third task type, plus somewhere for the term list to
+  live. Two things to decide: whether each term gets its own summary or they are
+  written up together -- the podcast work says separately, because one subject
+  crowds out the rest of a shared call -- and what happens on a day when a term
+  has no activity, which has to read as silence rather than as invented
+  relevance. Community Research already degrades that way for an obscure topic,
+  so the behaviour exists. Note the run cost: it is the six-minute specialist,
+  per term.
+
 - [ ] Decide whether a long turn needs a cancel key. Per-step status now names
   the running graph node, which was the larger half of the complaint; whether
   the remaining wait is worth interrupting is a question for real use.

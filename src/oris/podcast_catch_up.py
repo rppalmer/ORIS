@@ -27,6 +27,7 @@ from oris.search import NonEmptyText
 from oris.threat_reports import ThreatReportStore
 
 EPISODE_SUMMARY_SYSTEM_PROMPT = load_system_prompt("podcast_episode_summary_system.txt")
+EPISODE_MERGE_SYSTEM_PROMPT = load_system_prompt("podcast_episode_merge_system.txt")
 CATCH_UP_SYSTEM_PROMPT = load_system_prompt("podcast_catch_up_system.txt")
 
 DEFAULT_MAX_EPISODES = 5
@@ -227,6 +228,12 @@ def create_podcast_catch_up_preparation_graph(
         )
 
     summary_model = model.with_structured_output(
+        TranscriptSummary,
+        method="json_schema",
+    )
+    # Same schema as a part summary, different job: this one is shown the
+    # parts together and asked to merge what they repeat.
+    merge_model = model.with_structured_output(
         TranscriptSummary,
         method="json_schema",
     )
@@ -504,6 +511,43 @@ def create_podcast_catch_up_preparation_graph(
         )
         return response.summary
 
+    async def merge_parts(
+        episode: dict[str, Any],
+        part_summaries: list[str],
+    ) -> str:
+        """Write one episode summary from its part summaries read together.
+
+        Each part was summarized without seeing the others, so a subject the
+        episode keeps returning to is reported once per part. Joining them kept
+        every restatement, because nothing read them side by side: one 25-minute
+        argument came back saying the same thing in all four of its paragraphs.
+
+        One part means nothing to merge, so the call is skipped rather than
+        spent asking a model to rewrite a single summary into itself.
+        """
+        if len(part_summaries) < 2:
+            return part_summaries[0] if part_summaries else ""
+        response = await merge_model.ainvoke(
+            [
+                ("system", EPISODE_MERGE_SYSTEM_PROMPT),
+                (
+                    "human",
+                    json.dumps(
+                        {
+                            "title": episode["title"],
+                            "show": episode["author"]["display_name"],
+                            "published_at": episode["published_at"],
+                            "part_summaries": part_summaries,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                ),
+            ],
+            max_completion_tokens=800,
+        )
+        return response.summary
+
     async def summarize_episodes(
         state: PodcastCatchUpState,
     ) -> dict[str, object]:
@@ -598,7 +642,7 @@ def create_podcast_catch_up_preparation_graph(
                     "show": episode["author"]["display_name"],
                     "published_at": episode["published_at"],
                     "url": episode["canonical_url"],
-                    "summary": "\n\n".join(part_summaries),
+                    "summary": await merge_parts(episode, part_summaries),
                     "transcript_backend": backend,
                     "transcript_created_now": episode["source_id"] in made_here,
                     "transcript_truncated": truncated,

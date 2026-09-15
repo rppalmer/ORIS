@@ -184,19 +184,26 @@ def make_tools(*, episodes: list[dict], transcript_pages: list[dict]) -> dict:
 
 
 def make_model(*, summaries: int = 1) -> Mock:
-    """A model double returning fixed structured summaries and one digest."""
+    """A model double: one per transcript part, one merge, one digest.
+
+    The merge only runs for an episode read in more than one part, so most
+    tests never reach it. It is supplied anyway because the graph asks for the
+    structured model at build time, not at call time.
+    """
     model = Mock(spec=BaseChatModel)
     summary_model = AsyncMock()
     summary_model.ainvoke.side_effect = [
         TranscriptSummary(summary=f"Summary {number}")
         for number in range(1, summaries + 2)
     ]
+    merge_model = AsyncMock()
+    merge_model.ainvoke.return_value = TranscriptSummary(summary="Merged summary.")
     digest_model = AsyncMock()
     digest_model.ainvoke.return_value = PodcastCatchUpAnswer(
         answer="Combined digest.",
         cited_urls=("https://example.com/episode-1",),
     )
-    model.with_structured_output.side_effect = [summary_model, digest_model]
+    model.with_structured_output.side_effect = [summary_model, merge_model, digest_model]
     return model
 
 
@@ -644,7 +651,13 @@ def test_an_uncited_digest_survives_as_a_caveat() -> None:
     summary_model.ainvoke.side_effect = [TranscriptSummary(summary="Summary 1")]
     digest_model = AsyncMock()
     digest_model.ainvoke.return_value = uncited
-    model.with_structured_output.side_effect = [summary_model, digest_model]
+    merge_model = AsyncMock()
+    merge_model.ainvoke.return_value = TranscriptSummary(summary="Merged.")
+    model.with_structured_output.side_effect = [
+        summary_model,
+        merge_model,
+        digest_model,
+    ]
 
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"], tools["transcript"], read_store(), model
@@ -673,7 +686,13 @@ def test_a_digest_citing_something_never_supplied_still_fails() -> None:
     digest_model.ainvoke.return_value = PodcastCatchUpAnswer(
         answer="A digest.", cited_urls=("https://example.com/never-supplied",)
     )
-    model.with_structured_output.side_effect = [summary_model, digest_model]
+    merge_model = AsyncMock()
+    merge_model.ainvoke.return_value = TranscriptSummary(summary="Merged.")
+    model.with_structured_output.side_effect = [
+        summary_model,
+        merge_model,
+        digest_model,
+    ]
 
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"], tools["transcript"], read_store(), model
@@ -1076,7 +1095,13 @@ def test_each_show_is_summarised_on_its_own(tmp_path: Path) -> None:
             cited_urls=("https://example.com/episode-3",),
         ),
     ]
-    model.with_structured_output.side_effect = [summary_model, digest_model]
+    merge_model = AsyncMock()
+    merge_model.ainvoke.return_value = TranscriptSummary(summary="Merged.")
+    model.with_structured_output.side_effect = [
+        summary_model,
+        merge_model,
+        digest_model,
+    ]
 
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"], tools["transcript"], read_store(), model
@@ -1375,3 +1400,51 @@ def test_discovery_failing_ends_the_run_and_says_why() -> None:
 
     with pytest.raises(NetRazorError, match="not_configured"):
         asyncio.run(graph.ainvoke({}))
+
+
+def test_a_multi_part_episode_is_merged_rather_than_concatenated() -> None:
+    """One summary per episode, written from its parts read together.
+
+    Part summaries are written independently, so each restates whatever the
+    episode keeps returning to — a 25-minute argument summarised in four parts
+    said "Duren feels disrespected" three times. Joining them preserves every
+    restatement, because nothing ever reads them side by side. The merge pass
+    is the only step that can see a repeat and drop it.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "Part one. ", next_offset=1),
+            transcript_page("call-1", "Part one. ", next_offset=1),
+            transcript_page("call-1", "Part two.", next_offset=None),
+        ],
+    )
+    model = Mock(spec=BaseChatModel)
+    part_model = AsyncMock()
+    part_model.ainvoke.side_effect = [
+        TranscriptSummary(summary="He feels disrespected."),
+        TranscriptSummary(summary="He feels disrespected, and the offer is fair."),
+    ]
+    merge_model = AsyncMock()
+    merge_model.ainvoke.return_value = TranscriptSummary(
+        summary="He feels disrespected; the offer is fair."
+    )
+    digest_model = AsyncMock()
+    digest_model.ainvoke.return_value = PodcastCatchUpAnswer(
+        answer="Digest.", cited_urls=("https://example.com/episode-1",)
+    )
+    model.with_structured_output.side_effect = [part_model, merge_model, digest_model]
+
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], read_store(), model
+    )
+    result = asyncio.run(graph.ainvoke({}))
+
+    # The merge sees every part at once. That is the whole point of the step.
+    assert merge_model.ainvoke.await_count == 1
+    supplied = json.loads(merge_model.ainvoke.await_args.args[0][1][1])
+    assert supplied["part_summaries"] == [
+        "He feels disrespected.",
+        "He feels disrespected, and the offer is fair.",
+    ]
+    assert result["episodes"][0]["summary"] == "He feels disrespected; the offer is fair."

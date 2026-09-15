@@ -515,6 +515,10 @@ def create_podcast_catch_up_preparation_graph(
         """
         if len(part_summaries) < 2:
             return part_summaries[0] if part_summaries else ""
+        # The merge may be as long as everything it was handed, which is the
+        # longest it could honestly be. Anything shorter has to come from
+        # dropping a repeat rather than from compressing what was said once.
+        allowance = sum(len(summary.split()) for summary in part_summaries)
         response = await merge_model.ainvoke(
             [
                 ("system", EPISODE_MERGE_SYSTEM_PROMPT),
@@ -526,13 +530,17 @@ def create_podcast_catch_up_preparation_graph(
                             "show": episode["author"]["display_name"],
                             "published_at": episode["published_at"],
                             "part_summaries": part_summaries,
+                            "max_words": allowance,
                         },
                         ensure_ascii=False,
                         indent=2,
                     ),
                 ),
             ],
-            max_completion_tokens=800,
+            # Roughly two tokens a word, so the rule the prompt states can
+            # actually be obeyed. A word cap above the token ceiling is worse
+            # than none: the model is cut off mid-sentence for following it.
+            max_completion_tokens=min(4000, max(800, allowance * 2)),
         )
         return response.summary
 

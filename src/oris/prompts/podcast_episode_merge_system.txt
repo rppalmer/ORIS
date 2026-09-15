@@ -7,6 +7,9 @@ Keep every distinct fact, name, product, tool, number, and conclusion that any p
 Length is a result of removing repetition, not a target. Do not drop a detail to make the summary shorter.
 When the parts disagree, say so rather than choosing one.
 Keep who said what where the parts recorded it.
-Put the merged summary in the summary field, and no more than 400 words.
+max_words is how many words you may use. It is the combined length of the parts you were given, so it is the longest this summary could honestly be. Staying well under it is only correct when the parts genuinely repeated each other; a long episode that covered many subjects should use most of it.
+Do not compress. Removing a repeat is the only reason this summary should be shorter than what you were given.
+Write in paragraphs, each covering one subject, and break where the episode moves on. A summary returned as one unbroken block is hard to read however accurate it is.
+Put the merged summary in the summary field.
 Do not include a URL.
 Do not state where the transcript came from; the report says that already.

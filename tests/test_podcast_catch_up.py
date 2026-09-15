@@ -1400,3 +1400,44 @@ def test_each_episode_says_where_its_transcript_came_from_exactly_once() -> None
     # Three episodes, three provenance lines, no prose restating them.
     assert rendered.count("- Transcript:") == 3
     assert "Body one." in rendered
+
+
+def test_a_long_episode_may_be_as_long_as_the_parts_it_was_given() -> None:
+    """The merge removes repetition; it is not a compression step.
+
+    A fixed word cap punished exactly the episodes that needed the room. Across
+    one real run, a two-part episode lost 18% of its words and a ten-part
+    interview lost 61%, arriving as a single 384-word paragraph — every fact
+    still there and almost unreadable. The allowance is the combined length of
+    the parts, which is the longest the merge could honestly be, so shortening
+    can only come from removing a repeat.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1)],
+        transcript_pages=[
+            transcript_page("call-1", "One. ", next_offset=1),
+            transcript_page("call-1", "One. ", next_offset=1),
+            transcript_page("call-1", "Two.", next_offset=None),
+        ],
+    )
+    model = Mock(spec=BaseChatModel)
+    part_model = AsyncMock()
+    part_model.ainvoke.side_effect = [
+        TranscriptSummary(summary="alpha beta gamma delta"),  # 4 words
+        TranscriptSummary(summary="epsilon zeta"),  # 2 words
+    ]
+    merge_model = AsyncMock()
+    merge_model.ainvoke.return_value = TranscriptSummary(summary="Merged.")
+    model.with_structured_output.side_effect = [part_model, merge_model]
+
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], read_store(), model
+    )
+    asyncio.run(graph.ainvoke({}))
+
+    supplied = json.loads(merge_model.ainvoke.await_args.args[0][1][1])
+    assert supplied["max_words"] == 6
+    # The token budget has to leave room for the words the rule permits, or the
+    # model is cut off mid-sentence for obeying it.
+    budget = merge_model.ainvoke.await_args.kwargs["max_completion_tokens"]
+    assert budget >= supplied["max_words"] * 2

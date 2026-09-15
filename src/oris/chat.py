@@ -21,7 +21,6 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
 from oris.config import DEFAULT_MAX_HISTORY_TOKENS
-from oris.podcast_output import episode_lines
 from oris.prompts import load_system_prompt, with_current_date
 
 ROUTING_SYSTEM_PROMPT = load_system_prompt("routing_system.txt")
@@ -455,15 +454,11 @@ def create_oris_graph(
         if show:
             request["show"] = show
         result = await podcast_catch_up_graph.ainvoke(request)
-        # Every episode the run covered, not only the ones the digest cited.
-        # This used to be bare numbered links built from the citations, which
-        # named nothing and vanished entirely when the digest cited nothing —
-        # taking with it the list a caveat about missing citations points at.
-        episodes = episode_lines(result["episodes"])
+        # The answer is already every episode the run covered, each with its
+        # own summary, so there is no separate list to append. There used to be
+        # one because the answer was a digest that named only what it cited.
         caveat_list = "\n".join(f"- {caveat}" for caveat in result["caveats"])
         content = result["answer"]
-        if episodes:
-            content = f"{content}\n\nEpisodes:\n{episodes}"
         if caveat_list:
             content = f"{content}\n\nCaveats:\n{caveat_list}"
         return {"messages": [AIMessage(content=content)]}

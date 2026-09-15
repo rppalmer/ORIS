@@ -44,12 +44,27 @@ def transcript_provenance(episode: PodcastEpisodeSummary) -> str:
     return "transcribed by ORIS earlier"
 
 
-def episode_lines(episodes: list[PodcastEpisodeSummary]) -> str:
-    """List every episode the run covered, with its show and its provenance."""
-    return "\n".join(
-        f"{number}. [{episode['title']}]({episode['url']}) — {episode['show']}, "
-        f"{transcript_provenance(episode)}"
-        for number, episode in enumerate(episodes, start=1)
+def episode_sections(episodes: list[PodcastEpisodeSummary]) -> str:
+    """Render every episode the run covered, each with its own summary.
+
+    There is no digest above these. One was tried and removed: a per-show
+    digest written from the same episode summaries printed below it restated
+    them, and for a show with one episode it restated a single item directly
+    above that item. What a digest could add that an episode cannot is a
+    reading across episodes, which is a different job from summarizing.
+
+    Provenance appears here and nowhere else. The summary prompts are told not
+    to state it, because a structured line cannot drift from itself the way two
+    sentences written in two places can.
+    """
+    return "\n\n".join(
+        f"### [{episode['title']}]({episode['url']})\n\n"
+        f"- Show: {episode['show']}\n"
+        f"- Published: `{episode['published_at']}`\n"
+        f"- Transcript: {transcript_provenance(episode)}, "
+        f"`{'truncated' if episode['transcript_truncated'] else 'complete'}`\n\n"
+        f"{episode['summary']}"
+        for episode in episodes
     )
 
 

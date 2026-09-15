@@ -17,7 +17,6 @@ from oris.podcast_catch_up import (
     PreparedPodcastCatchUpOutput,
     record_podcast_reads,
 )
-from oris.podcast_output import transcript_provenance
 from oris.read_state import ProcessedItemStore
 from oris.scheduled_run_history import DEFAULT_ROOT
 from oris.schedules import (
@@ -371,20 +370,10 @@ def _format_podcast_catch_up_report(
     tell which episodes were machine-transcribed will weigh a mangled product
     name exactly as heavily as one the publisher wrote down.
     """
-    episode_sections = []
-    for episode in result["episodes"]:
-        transcript_status = (
-            "truncated" if episode["transcript_truncated"] else "complete"
-        )
-        episode_sections.append(
-            f"### [{episode['title']}]({episode['url']})\n\n"
-            f"- Show: {episode['show']}\n"
-            f"- Published: `{episode['published_at']}`\n"
-            f"- Transcript: {transcript_provenance(episode)}, "
-            f"`{transcript_status}`\n\n"
-            f"{episode['summary']}"
-        )
-    episodes = "\n\n".join(episode_sections) or "No episodes were summarized."
+    # The graph already rendered these, and chat prints the same string.
+    # Rendering them again here would be the same document built twice from one
+    # source, which is how the provenance wording came to exist in two places.
+    episodes = result["answer"]
 
     titles_by_url = {episode["url"]: episode["title"] for episode in result["episodes"]}
     sources = (
@@ -401,7 +390,6 @@ def _format_podcast_catch_up_report(
         f"- Run ID: `{run_id}`\n"
         f"- Lookback: `{job.days}` days\n"
         f"- Maximum episodes: `{job.max_episodes}`\n\n"
-        f"## Digest\n\n{result['answer']}\n\n"
         f"## Episodes\n\n{episodes}\n\n"
         f"## Sources\n\n{sources}\n\n"
         f"## Caveats\n\n{caveats}\n"

@@ -89,7 +89,13 @@ def podcast_result(*, empty: bool = False) -> dict:
             "completed_reads": [],
         }
     return {
-        "answer": "A concise scheduled digest.",
+        "answer": (
+            "### [Episode 1](https://example.com/episode-1)\n\n"
+            "- Show: Example Show\n"
+            "- Published: `2026-08-08T12:00:00+00:00`\n"
+            "- Transcript: transcribed by ORIS during this run, `truncated`\n\n"
+            "The episode explains one useful idea."
+        ),
         "cited_urls": ["https://example.com/episode-1"],
         "episodes": [
             {
@@ -278,7 +284,6 @@ def test_scheduled_podcast_persists_before_recording(tmp_path) -> None:
     assert load_only_podcast_record(artifact_root) == record
 
     report = next(artifact_root.rglob("*.md")).read_text(encoding="utf-8")
-    assert "A concise scheduled digest." in report
     assert "[Episode 1](https://example.com/episode-1)" in report
     assert "The episode explains one useful idea." in report
     # Not the backend name: the reader is being told how much to trust the

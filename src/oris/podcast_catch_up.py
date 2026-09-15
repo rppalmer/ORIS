@@ -13,14 +13,18 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from oris.net_razor import (
     PODCAST_CATCH_UP_TOOL_NAMES,
     NetRazorError,
     call_net_razor_tool,
 )
-from oris.podcast_output import PodcastEpisodeSummary, show_lines
+from oris.podcast_output import (
+    PodcastEpisodeSummary,
+    episode_sections,
+    show_lines,
+)
 from oris.prompts import load_system_prompt
 from oris.read_state import ProcessedItem, ProcessedItemStore
 from oris.search import NonEmptyText
@@ -28,7 +32,6 @@ from oris.threat_reports import ThreatReportStore
 
 EPISODE_SUMMARY_SYSTEM_PROMPT = load_system_prompt("podcast_episode_summary_system.txt")
 EPISODE_MERGE_SYSTEM_PROMPT = load_system_prompt("podcast_episode_merge_system.txt")
-CATCH_UP_SYSTEM_PROMPT = load_system_prompt("podcast_catch_up_system.txt")
 
 DEFAULT_MAX_EPISODES = 5
 MAX_EPISODES = 10
@@ -69,17 +72,6 @@ class TranscriptSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     summary: NonEmptyText
-
-
-class PodcastCatchUpAnswer(BaseModel):
-    """Structured final digest returned by the local model."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    answer: NonEmptyText = Field(description="Concise digest text without URLs.")
-    cited_urls: tuple[NonEmptyText, ...] = Field(
-        description="Canonical episode URLs supporting the digest."
-    )
 
 
 class PodcastCatchUpInput(TypedDict):
@@ -235,10 +227,6 @@ def create_podcast_catch_up_preparation_graph(
     # parts together and asked to merge what they repeat.
     merge_model = model.with_structured_output(
         TranscriptSummary,
-        method="json_schema",
-    )
-    digest_model = model.with_structured_output(
-        PodcastCatchUpAnswer,
         method="json_schema",
     )
 
@@ -705,7 +693,21 @@ def create_podcast_catch_up_preparation_graph(
             thread_id=state.get("thread_id", ""),
         )
 
-    async def create_digest(state: PodcastCatchUpState) -> dict[str, object]:
+    def assemble_answer(state: PodcastCatchUpState) -> dict[str, object]:
+        """Render the episodes, and cite them from the evidence.
+
+        No model call. A per-show digest used to sit here, written from the
+        same episode summaries the report prints below it; it restated them,
+        and for a show with one episode it restated a single item directly
+        above that item.
+
+        Citations come out of the episodes rather than out of a model. The
+        digest wrote its own URL list, which meant it could cite an episode it
+        was never given, and a validator existed to catch that. A list taken
+        from the evidence cannot be wrong, so both the failure and the
+        validator are gone -- the same move Community Research made on
+        2026-09-05.
+        """
         if not state["discovered_episodes"]:
             show = state.get("show", "").strip()
             answer = (
@@ -719,75 +721,12 @@ def create_podcast_catch_up_preparation_graph(
                 "answer": "No usable podcast transcripts were available.",
                 "cited_urls": [],
             }
-
-        # One digest per show, each written from that show's episodes alone.
-        #
-        # A single digest across every feed lets the biggest subject win. The
-        # feeds are not one subject: basketball, politics and Linux have no
-        # agreements or connections to draw out, and asking for them produced a
-        # digest about whichever show published most that week while the rest
-        # went unmentioned. Sectioning it is not formatting — a show cannot be
-        # crowded out of a call that only contains it.
-        by_show: dict[str, list[PodcastEpisodeSummary]] = {}
-        for episode in state["episodes"]:
-            by_show.setdefault(episode["show"], []).append(episode)
-
-        sections: list[str] = []
-        cited: list[str] = []
-        for show, episodes in by_show.items():
-            response = await digest_model.ainvoke(
-                [
-                    ("system", CATCH_UP_SYSTEM_PROMPT),
-                    (
-                        "human",
-                        json.dumps(
-                            {"show": show, "episodes": episodes},
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                    ),
-                ],
-                max_completion_tokens=400,
-            )
-            sections.append(f"## {show}\n\n{response.answer}")
-            cited.extend(response.cited_urls)
-
-        # Order preserved and duplicates dropped: an episode cited in its own
-        # section is the only place it should appear.
         return {
-            "answer": "\n\n".join(sections),
-            "cited_urls": list(dict.fromkeys(cited)),
+            "answer": episode_sections(state["episodes"]),
+            "cited_urls": list(
+                dict.fromkeys(episode["url"] for episode in state["episodes"])
+            ),
         }
-
-    def validate_citations(state: PodcastCatchUpState) -> dict:
-        """Reject an invented citation; report a missing one and keep going.
-
-        The two failures are not equal. Citing a URL that was never supplied is
-        fabrication and stays fatal. Citing nothing is a formatting miss, and
-        the report already lists every episode with its canonical URL in its
-        own section, so the digest remains traceable without it. Failing there
-        would discard a finished digest — a whole night's, for a scheduled run
-        — to protect something the reader already has.
-
-        Web Research is deliberately stricter: its sources exist nowhere else
-        in the output, so an uncited claim there cannot be checked at all.
-        """
-        available_urls = {episode["url"] for episode in state["episodes"]}
-        cited_urls = set(state["cited_urls"])
-        unsupported_urls = sorted(cited_urls - available_urls)
-        if unsupported_urls:
-            raise ValueError(
-                f"The podcast digest cited unavailable URLs: {unsupported_urls}"
-            )
-        if available_urls and not cited_urls:
-            return {
-                "caveats": [
-                    *state["caveats"],
-                    "The digest cites no episode; see the episode list below "
-                    "for what it was built from.",
-                ]
-            }
-        return {}
 
     builder = StateGraph(
         PodcastCatchUpState,
@@ -803,8 +742,7 @@ def create_podcast_catch_up_preparation_graph(
     builder.add_node(
         "summarize_episodes", summarize_episodes, timeout=SUMMARY_TIMEOUT_SECONDS
     )
-    builder.add_node("create_digest", create_digest)
-    builder.add_node("validate_citations", validate_citations)
+    builder.add_node("assemble_answer", assemble_answer)
     # Listing is a different question from catching up and shares none of the
     # work, so it branches at the entry rather than being a flag checked in
     # every node downstream.
@@ -820,9 +758,8 @@ def create_podcast_catch_up_preparation_graph(
     builder.add_edge("list_configured_shows", END)
     builder.add_edge("discover_episodes", "obtain_transcripts")
     builder.add_edge("obtain_transcripts", "summarize_episodes")
-    builder.add_edge("summarize_episodes", "create_digest")
-    builder.add_edge("create_digest", "validate_citations")
-    builder.add_edge("validate_citations", END)
+    builder.add_edge("summarize_episodes", "assemble_answer")
+    builder.add_edge("assemble_answer", END)
     return builder.compile()
 
 

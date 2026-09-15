@@ -19,11 +19,11 @@ from langchain_core.tools import BaseTool, ToolException
 
 from oris.net_razor import NetRazorError
 from oris.podcast_catch_up import (
-    PodcastCatchUpAnswer,
     TranscriptSummary,
     create_podcast_catch_up_graph,
     create_podcast_catch_up_preparation_graph,
 )
+from oris.podcast_output import episode_sections
 from oris.read_state import ProcessedItem, ProcessedItemStore
 from oris.threat_reports import ThreatReportStore
 
@@ -198,12 +198,7 @@ def make_model(*, summaries: int = 1) -> Mock:
     ]
     merge_model = AsyncMock()
     merge_model.ainvoke.return_value = TranscriptSummary(summary="Merged summary.")
-    digest_model = AsyncMock()
-    digest_model.ainvoke.return_value = PodcastCatchUpAnswer(
-        answer="Combined digest.",
-        cited_urls=("https://example.com/episode-1",),
-    )
-    model.with_structured_output.side_effect = [summary_model, merge_model, digest_model]
+    model.with_structured_output.side_effect = [summary_model, merge_model]
     return model
 
 
@@ -585,8 +580,14 @@ def test_a_feed_that_could_not_be_read_is_reported() -> None:
     assert any("gone.xml" in caveat for caveat in result["caveats"])
 
 
-def test_the_scheduled_report_says_where_each_transcript_came_from() -> None:
-    """A reader who cannot tell weighs a mangled name as heavily as a written one."""
+def test_the_scheduled_report_carries_caveats_but_not_receipts() -> None:
+    """A caveat is for the reader; a transcript call ID is plumbing.
+
+    Provenance is not asserted here. The report prints what the graph already
+    rendered, so the closest boundary for that is `episode_sections`, which has
+    its own test. Asserting it again here would only detect the same failure a
+    layer further out.
+    """
     from uuid import UUID
 
     from oris.scheduled_runs import _format_podcast_catch_up_report
@@ -601,7 +602,10 @@ def test_the_scheduled_report_says_where_each_transcript_came_from() -> None:
         max_episodes=5,
     )
     result = {
-        "answer": "Two shows covered the same release.",
+        "answer": (
+            "### [Episode 1](https://example.com/episode-1)\n\n"
+            "- Show: Example Show\n\nSummary 1"
+        ),
         "cited_urls": ["https://example.com/episode-1"],
         "episodes": [
             {
@@ -622,84 +626,9 @@ def test_the_scheduled_report_says_where_each_transcript_came_from() -> None:
 
     report = _format_podcast_catch_up_report(job, UUID(int=1), result)
 
-    assert "- Transcript: transcribed by ORIS during this run, `complete`" in report
+    assert "Summary 1" in report
     assert "machine-transcribed" in report
     assert "receipt-1" not in report
-
-
-def test_an_uncited_digest_survives_as_a_caveat() -> None:
-    """A finished digest is not thrown away for citing nothing.
-
-    Unlike Web Research, where an uncited claim is unverifiable because the
-    sources exist nowhere else, the podcast report lists every episode and its
-    canonical URL in its own section. So an uncited digest is still traceable,
-    and failing the run would cost a whole night's digest to protect something
-    the report already provides. Observed against the real feeds: the model
-    wrote a good cross-cutting digest and cited nothing, and the run died.
-    """
-    tools = make_tools(
-        episodes=[make_episode(1)],
-        transcript_pages=[
-            transcript_page("call-1", "Words."),
-            transcript_page("call-1", "Words."),
-        ],
-    )
-    model = make_model()
-    uncited = PodcastCatchUpAnswer(answer="A digest that cites nothing.", cited_urls=())
-    model.with_structured_output.side_effect = None
-    summary_model = AsyncMock()
-    summary_model.ainvoke.side_effect = [TranscriptSummary(summary="Summary 1")]
-    digest_model = AsyncMock()
-    digest_model.ainvoke.return_value = uncited
-    merge_model = AsyncMock()
-    merge_model.ainvoke.return_value = TranscriptSummary(summary="Merged.")
-    model.with_structured_output.side_effect = [
-        summary_model,
-        merge_model,
-        digest_model,
-    ]
-
-    graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], read_store(), model
-    )
-
-    result = asyncio.run(graph.ainvoke({}))
-
-    assert "A digest that cites nothing." in result["answer"]
-    assert result["cited_urls"] == []
-    assert any("cites no episode" in caveat for caveat in result["caveats"])
-
-
-def test_a_digest_citing_something_never_supplied_still_fails() -> None:
-    """Inventing a URL is fabrication and stays fatal."""
-    tools = make_tools(
-        episodes=[make_episode(1)],
-        transcript_pages=[
-            transcript_page("call-1", "Words."),
-            transcript_page("call-1", "Words."),
-        ],
-    )
-    model = make_model()
-    summary_model = AsyncMock()
-    summary_model.ainvoke.side_effect = [TranscriptSummary(summary="Summary 1")]
-    digest_model = AsyncMock()
-    digest_model.ainvoke.return_value = PodcastCatchUpAnswer(
-        answer="A digest.", cited_urls=("https://example.com/never-supplied",)
-    )
-    merge_model = AsyncMock()
-    merge_model.ainvoke.return_value = TranscriptSummary(summary="Merged.")
-    model.with_structured_output.side_effect = [
-        summary_model,
-        merge_model,
-        digest_model,
-    ]
-
-    graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], read_store(), model
-    )
-
-    with pytest.raises(ValueError, match="cited unavailable URLs"):
-        asyncio.run(graph.ainvoke({}))
 
 
 def make_episode_for(feed: str, show: str, number: int) -> dict:
@@ -1059,73 +988,6 @@ def test_the_whole_transcript_is_stored_not_only_what_was_summarised(
     assert stored["evidence"]["episodes"][0]["transcript"] == "Part one. Part two."
 
 
-def test_each_show_is_summarised_on_its_own(tmp_path: Path) -> None:
-    """A busy show cannot crowd a quiet one out of the digest.
-
-    One digest across every feed let the biggest subject win: the feeds are not
-    one subject, and asking for agreements and connections across basketball,
-    politics and Linux produced a digest about whichever show published most
-    that week while the rest went unmentioned. Sectioning is not formatting —
-    a show cannot be crowded out of a call that only contains it.
-    """
-    tools = make_tools(
-        episodes=[
-            make_episode_for("https://feeds.example.com/hoops.xml", "Hoops Daily", 1),
-            make_episode_for("https://feeds.example.com/hoops.xml", "Hoops Daily", 2),
-            make_episode_for("https://feeds.example.com/politics.xml", "The Brief", 3),
-        ],
-        transcript_pages=[
-            transcript_page(f"call-{n}", "Words.") for n in (1, 1, 2, 2, 3, 3)
-        ],
-    )
-
-    model = Mock(spec=BaseChatModel)
-    summary_model = AsyncMock()
-    summary_model.ainvoke.side_effect = [
-        TranscriptSummary(summary=f"Summary {n}") for n in range(1, 5)
-    ]
-    digest_model = AsyncMock()
-    digest_model.ainvoke.side_effect = [
-        PodcastCatchUpAnswer(
-            answer="Two games covered.",
-            cited_urls=("https://example.com/episode-1",),
-        ),
-        PodcastCatchUpAnswer(
-            answer="One bill covered.",
-            cited_urls=("https://example.com/episode-3",),
-        ),
-    ]
-    merge_model = AsyncMock()
-    merge_model.ainvoke.return_value = TranscriptSummary(summary="Merged.")
-    model.with_structured_output.side_effect = [
-        summary_model,
-        merge_model,
-        digest_model,
-    ]
-
-    graph = create_podcast_catch_up_preparation_graph(
-        tools["discovery"], tools["transcript"], read_store(), model
-    )
-    result = asyncio.run(graph.ainvoke({"max_episodes": 3}))
-
-    # One call per show, each shown only its own episodes.
-    assert digest_model.ainvoke.await_count == 2
-    supplied = [
-        json.loads(call.args[0][1][1]) for call in digest_model.ainvoke.await_args_list
-    ]
-    assert [payload["show"] for payload in supplied] == ["Hoops Daily", "The Brief"]
-    assert {episode["show"] for episode in supplied[0]["episodes"]} == {"Hoops Daily"}
-    assert {episode["show"] for episode in supplied[1]["episodes"]} == {"The Brief"}
-
-    assert "## Hoops Daily" in result["answer"]
-    assert "## The Brief" in result["answer"]
-    assert "One bill covered." in result["answer"]
-    assert result["cited_urls"] == [
-        "https://example.com/episode-1",
-        "https://example.com/episode-3",
-    ]
-
-
 def test_a_catch_up_skips_episodes_already_read() -> None:
     """The filter is ORIS's now, because Net-Razor returns the whole window.
 
@@ -1429,11 +1291,7 @@ def test_a_multi_part_episode_is_merged_rather_than_concatenated() -> None:
     merge_model.ainvoke.return_value = TranscriptSummary(
         summary="He feels disrespected; the offer is fair."
     )
-    digest_model = AsyncMock()
-    digest_model.ainvoke.return_value = PodcastCatchUpAnswer(
-        answer="Digest.", cited_urls=("https://example.com/episode-1",)
-    )
-    model.with_structured_output.side_effect = [part_model, merge_model, digest_model]
+    model.with_structured_output.side_effect = [part_model, merge_model]
 
     graph = create_podcast_catch_up_preparation_graph(
         tools["discovery"], tools["transcript"], read_store(), model
@@ -1448,3 +1306,97 @@ def test_a_multi_part_episode_is_merged_rather_than_concatenated() -> None:
         "He feels disrespected, and the offer is fair.",
     ]
     assert result["episodes"][0]["summary"] == "He feels disrespected; the offer is fair."
+
+
+def test_citations_are_taken_from_the_episodes_not_written_by_a_model() -> None:
+    """Every episode summarised is cited, and no model is asked for a URL.
+
+    A digest model that wrote its own citation list could cite an episode it
+    was never given, which is why a validator existed to catch it. Taking each
+    episode's canonical URL straight from the evidence removes the failure
+    rather than policing it — the same move Community Research made on
+    2026-09-05.
+    """
+    tools = make_tools(
+        episodes=[make_episode(1), make_episode(2)],
+        transcript_pages=[
+            transcript_page("call-1", "First episode."),
+            transcript_page("call-1", "First episode."),
+            transcript_page("call-2", "Second episode."),
+            transcript_page("call-2", "Second episode."),
+        ],
+    )
+    model = Mock(spec=BaseChatModel)
+    part_model = AsyncMock()
+    part_model.ainvoke.side_effect = [
+        TranscriptSummary(summary="First."),
+        TranscriptSummary(summary="Second."),
+    ]
+    merge_model = AsyncMock()
+    model.with_structured_output.side_effect = [part_model, merge_model]
+
+    graph = create_podcast_catch_up_preparation_graph(
+        tools["discovery"], tools["transcript"], read_store(), model
+    )
+    result = asyncio.run(graph.ainvoke({"max_episodes": 2}))
+
+    # Two structured models: one per transcript part, one merge. No digest.
+    assert model.with_structured_output.call_count == 2
+    assert result["cited_urls"] == [
+        "https://example.com/episode-1",
+        "https://example.com/episode-2",
+    ]
+
+
+def test_each_episode_says_where_its_transcript_came_from_exactly_once() -> None:
+    """The reader has to tell machine words from the publisher's.
+
+    Whisper gets names, acronyms, and version numbers wrong, so how much of a
+    summary to trust depends on which of the three cases produced it. It is
+    stated in the structured line and nowhere else: the digest used to say it
+    again in prose, and two sentences written in two places drift apart.
+    """
+    rendered = episode_sections(
+        [
+            {
+                "episode_id": "e1",
+                "title": "Published",
+                "show": "Example Show",
+                "published_at": "2026-08-01T12:00:00+00:00",
+                "url": "https://example.com/episode-1",
+                "summary": "Body one.",
+                "transcript_backend": "publisher",
+                "transcript_created_now": False,
+                "transcript_truncated": False,
+            },
+            {
+                "episode_id": "e2",
+                "title": "Fresh",
+                "show": "Other Show",
+                "published_at": "2026-08-02T12:00:00+00:00",
+                "url": "https://example.com/episode-2",
+                "summary": "Body two.",
+                "transcript_backend": "whisper",
+                "transcript_created_now": True,
+                "transcript_truncated": True,
+            },
+            {
+                "episode_id": "e3",
+                "title": "Stored",
+                "show": "Other Show",
+                "published_at": "2026-08-03T12:00:00+00:00",
+                "url": "https://example.com/episode-3",
+                "summary": "Body three.",
+                "transcript_backend": "whisper",
+                "transcript_created_now": False,
+                "transcript_truncated": False,
+            },
+        ]
+    )
+
+    assert "- Transcript: publisher's transcript, `complete`" in rendered
+    assert "- Transcript: transcribed by ORIS during this run, `truncated`" in rendered
+    assert "- Transcript: transcribed by ORIS earlier, `complete`" in rendered
+    # Three episodes, three provenance lines, no prose restating them.
+    assert rendered.count("- Transcript:") == 3
+    assert "Body one." in rendered

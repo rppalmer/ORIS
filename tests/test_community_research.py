@@ -93,7 +93,8 @@ def test_community_research_describes_every_item_in_its_own_call() -> None:
     assert result == {
         "answer": (
             "X\nQueried, and returned nothing.\n\n"
-            "Hacker News\nThe community discussed LangGraph.\n\n"
+            "Hacker News\n- The community discussed LangGraph. "
+            "([source](https://news.ycombinator.com/item?id=123))\n\n"
             "arXiv\nQueried, and returned nothing."
         ),
         "cited_urls": ["https://news.ycombinator.com/item?id=123"],
@@ -299,3 +300,55 @@ def test_community_research_has_only_the_approved_path() -> None:
         ("synthesize_answer", "validate_citations"),
         ("validate_citations", "__end__"),
     }
+
+
+def test_each_item_is_its_own_bullet_carrying_its_own_reference() -> None:
+    """A reference is only useful beside the claim it supports.
+
+    Every item's findings used to be joined into one paragraph while the links
+    were collected into a separate list, so twenty claims arrived with twenty
+    URLs and no way to pair them. The items come from different authors and are
+    not one story, so each gets its own line and its own link.
+    """
+    research_result = make_tool_result()
+    research_result["sources"]["hn"]["items_found"] = 2
+    research_result["results"]["hn"].append(
+        {
+            "source": "hn",
+            "source_id": "456",
+            "canonical_url": "https://news.ycombinator.com/item?id=456",
+            "text": "More about LangGraph.",
+        }
+    )
+    tool, model, structured_model = make_dependencies(
+        tool_result=ToolMessage(
+            content="Net-Razor returned structured research data.",
+            artifact={"structured_content": research_result},
+            tool_call_id="test-tool-call",
+            name="net_razor_research",
+        )
+    )
+
+    async def describe_by_item(messages: list, **_kwargs: object) -> ItemFindings:
+        """Answer from the item supplied, so concurrency cannot reorder these."""
+        supplied = messages[1][1]
+        if "id=123" in supplied:
+            return ItemFindings(
+                findings="The first item reported a release.", bears_on_topic=True
+            )
+        return ItemFindings(
+            findings="The second item reported a bug.", bears_on_topic=True
+        )
+
+    structured_model.ainvoke.side_effect = describe_by_item
+    graph = create_community_research_graph(tool, model)
+
+    result = asyncio.run(graph.ainvoke({"topic": "LangGraph"}))
+
+    assert (
+        "Hacker News\n"
+        "- The first item reported a release. "
+        "([source](https://news.ycombinator.com/item?id=123))\n"
+        "- The second item reported a bug. "
+        "([source](https://news.ycombinator.com/item?id=456))"
+    ) in result["answer"]

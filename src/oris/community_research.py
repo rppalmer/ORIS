@@ -308,10 +308,20 @@ def create_community_research_graph(
         cited_urls: list[str] = []
         for source in state["sources"]:
             entries = by_source[source]
-            # Joined into a paragraph rather than a bullet per item. The items
-            # are described one at a time because that is the only way this
-            # model keeps their specifics, but that is a fact about how the
-            # answer is produced, and a reader should not have to see it.
+            # One line per item, each carrying its own link.
+            #
+            # This was a paragraph until 2026-09-19, on the reasoning that
+            # describing items one at a time is how the answer gets produced
+            # and not something a reader should have to see. That holds when
+            # the items are facets of one story. These are separate posts by
+            # different authors, so the split is the shape of the evidence
+            # rather than an artefact of the pipeline.
+            #
+            # The deciding argument is the citation. Joining twenty findings
+            # into a paragraph while collecting twenty URLs into a list beside
+            # it leaves no way to tell which link supports which claim, so a
+            # reader cannot check one without opening all of them.
+            listed = False
             if not entries:
                 summary = "Queried, and returned nothing."
             elif not any(findings.bears_on_topic for _, findings in entries):
@@ -331,20 +341,35 @@ def create_community_research_graph(
                 # LangGraph carried paragraphs on Sanskrit job postings because
                 # the search returned them. The model was not failing to
                 # filter; its filtering was being discarded here.
-                relevant = [f for _, f in entries if f.bears_on_topic]
-                summary = " ".join(f.findings.strip() for f in relevant)
-                skipped = len(entries) - len(relevant)
+                listed = True
+                lines = []
+                for item, findings in entries:
+                    if not findings.bears_on_topic:
+                        continue
+                    url = item.get("canonical_url")
+                    reference = (
+                        f" ([source]({url}))" if isinstance(url, str) and url else ""
+                    )
+                    lines.append(f"- {findings.findings.strip()}{reference}")
+                summary = "\n".join(lines)
+                skipped = len(entries) - len(lines)
                 if skipped:
                     # Said, so a source that returned two useful items does not
                     # read the same as one that returned two items in total.
+                    # Its own paragraph, because a list needs a blank line
+                    # after it before ordinary prose resumes.
                     said = "item was" if skipped == 1 else "items were"
                     summary = (
-                        f"{summary} {skipped} further {said} returned "
+                        f"{summary}\n\n{skipped} further {said} returned "
                         "and did not discuss the topic."
                     )
             errors = _reported_errors(reported.get(source))
             if errors:
-                summary = f"{summary} Net-Razor reported: {'; '.join(errors)}."
+                # A sentence continues a sentence; a list has to be closed off
+                # first or the error is read as another item.
+                separator = "\n\n" if listed else " "
+                joined = "; ".join(errors)
+                summary = f"{summary}{separator}Net-Razor reported: {joined}."
             blocks.append(f"{SOURCE_LABELS.get(source, source)}\n{summary}")
             # The citation is the item this call was given, taken from the
             # evidence rather than retyped by the model. Asking for it back cost

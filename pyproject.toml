@@ -9,6 +9,10 @@ dependencies = [
     "arize-phoenix-otel>=0.16.1",
     # Imported directly by the package's certificate-trust initialization.
     "certifi>=2024.2.2",
+    # Imported directly to give the chat model a connection pool that keeps no
+    # idle connections. Already present under langchain-openai; named here
+    # because the package imports it rather than only inheriting it.
+    "httpx>=0.28,<1.0",
     "langchain-core>=1.5.0",
     "langchain-mcp-adapters>=0.3.2,<0.4",
     "langchain-openai>=1.4.0",

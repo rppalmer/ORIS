@@ -925,6 +925,23 @@ treated as accepted precedent.
   Not urgent, and not worth doing on the same day as anything else, because a
   duplicated scheduler would be diagnosed as whatever else changed that day.
 
+- [ ] **Give the scheduler one event loop for its lifetime.** It runs a
+  `BackgroundScheduler` and wraps each job in `asyncio.run`, so every firing
+  gets a loop that is closed when the job ends, inside a process that holds
+  async state across all of them. That is how a pooled connection from one job
+  came to kill the next one on 2026-09-19. The pool no longer keeps idle
+  connections, so the known failure is gone, but the shape that allowed it
+  remains: anything else that binds to a loop can do the same thing again, and
+  it will look like a fault somewhere else.
+
+  The official fix is APScheduler's `AsyncIOScheduler` with the jobs as
+  coroutines, which removes the per-firing loop entirely. It touches how the
+  scheduler starts, waits and shuts down, including the signal handling, so it
+  wants a quiet day of its own.
+
+  Only the scheduler is affected. The command line runs one job per process and
+  is correct as it stands.
+
 - [ ] Consider LangGraph deployment cron only if persistent Agent Server
   infrastructure later becomes justified.
 

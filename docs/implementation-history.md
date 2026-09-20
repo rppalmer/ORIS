@@ -8,6 +8,47 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-09-19 — The overnight podcast job was killed by its own last run
+
+The job failed on alternate nights with `APIConnectionError: Connection error`.
+Nothing was wrong with the network or the model server. oMLX had been up for six
+days with no restarts and no errors, and its log showed nothing at all at 03:00
+on the nights that failed -- not a refused request, but no request.
+
+That absence was the clue. The job died before it opened a connection.
+
+**One model, many event loops.** The scheduler builds the chat model once and
+shares it with every job for the life of the process. Every job firing runs in
+its own event loop, created by `asyncio.run` and closed when the job ends. An
+idle connection left in the model's pool belongs to the loop that opened it. The
+next job's first model call tries to retire that connection, reaches into the
+closed loop, and raises `Event loop is closed`. The OpenAI client reports that
+as a connection error, which is what reached the log and sent the search in the
+wrong direction for two days.
+
+**Why it alternated.** Failing cleared the stale connection on the way down, so
+the next run started clean, succeeded, and left a fresh connection for the run
+after it to trip over. Reproduced outside ORIS with a shared client and four
+sequential event loops: pass, fail, pass, fail. That is exactly what the mini
+did on 16, 17, 18 and 19 September.
+
+`max_retries=0` is what made it fatal. A single retry would have opened a new
+connection and succeeded, which is why the failure never showed up in chat.
+
+**The fix is that no connection outlives the request that opened it.** The model
+gets a pool that keeps nothing idle. The server is on the same machine, so a
+connection per request costs less than a token of the reply. The test drives a
+real keep-alive socket through two event loops, because the pool sits below the
+transport and a patched client never reaches it.
+
+The failures on 8 to 13 September look the same in the log and are not related.
+Those were a missing Net-Razor tool in the allowlist, fixed on 13 September.
+
+The underlying shape is still wrong: a long-lived process should not create an
+event loop per job while holding async state across them. Giving the scheduler
+one loop for its lifetime is the structural fix, and is on the plan rather than
+bundled into an urgent one.
+
 ## 2026-09-15 — Podcast reports stop repeating themselves
 
 A real catch-up came back at 29 KB and read as though it said everything twice,

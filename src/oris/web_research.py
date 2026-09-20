@@ -10,6 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
+from oris.net_syphon import MAX_RESEARCH_PAGES
 from oris.prompts import load_system_prompt, with_current_date
 from oris.search import (
     DomainName,
@@ -129,6 +130,13 @@ def create_web_research_graph(
     async def search_web(state: WebResearchState) -> dict[str, WebSearchResponse]:
         return {"search_response": await search.search(state["search_request"])}
 
+    async def read_sources(state: WebResearchState) -> dict[str, object]:
+        """Read the candidates that were chosen, and nothing else."""
+        found = state["search_response"]
+        chosen = found.results[:MAX_RESEARCH_PAGES]
+        fetched = await search.fetch(found, chosen)
+        return {"search_response": fetched, "sources": fetched.results}
+
     def plan_search(state: WebResearchState) -> dict[str, WebSearchRequest]:
         plan = create_search_plan(model, state["query"], current_date=date.today())
         if state.get("start_date") is not None:
@@ -207,12 +215,14 @@ def create_web_research_graph(
     builder.add_node("validate_request", validate_request)
     builder.add_node("plan_search", plan_search)
     builder.add_node("search_web", search_web)
+    builder.add_node("read_sources", read_sources)
     builder.add_node("synthesize_answer", synthesize_answer)
     builder.add_node("validate_answer", validate_answer)
     builder.add_edge(START, "validate_request")
     builder.add_edge("validate_request", "plan_search")
     builder.add_edge("plan_search", "search_web")
-    builder.add_edge("search_web", "synthesize_answer")
+    builder.add_edge("search_web", "read_sources")
+    builder.add_edge("read_sources", "synthesize_answer")
     builder.add_edge("synthesize_answer", "validate_answer")
     builder.add_edge("validate_answer", END)
     return builder.compile()

@@ -133,7 +133,19 @@ class WebSearch(Protocol):
     """
 
     async def search(self, request: WebSearchRequest) -> WebSearchResponse:
-        """Return normalized web evidence for one validated request."""
+        """Return the candidates for one validated request, reading none.
+
+        Separate from `fetch` because reading a page is the expensive half and
+        the titles and snippets are what decide whether it is worth doing.
+        """
+        ...
+
+    async def fetch(
+        self,
+        found: WebSearchResponse,
+        chosen: tuple[WebSearchResult, ...],
+    ) -> WebSearchResponse:
+        """Return the chosen candidates with their page content filled in."""
         ...
 
 

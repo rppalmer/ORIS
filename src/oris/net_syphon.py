@@ -137,30 +137,64 @@ async def _call(tool: BaseTool, arguments: dict) -> dict:
 
 
 class NetSyphonWebSearch:
-    """One search and one bounded retrieval batch, with no model-driven tool loop."""
+    """Search and retrieval as two steps, with no model-driven tool loop.
+
+    Net-Syphon exposes them as two tools and they are kept that way here. A
+    single method that searched and then read the top results gave the caller
+    no place to decide which results were worth reading, so the snippets came
+    back and were thrown away.
+    """
 
     def __init__(self, python_executable: Path | None) -> None:
         self.python_executable = python_executable
         self._tools: tuple[BaseTool, ...] | None = None
 
-    async def search(self, request: WebSearchRequest) -> WebSearchResponse:
+    async def _loaded(self) -> tuple[BaseTool, ...]:
+        """Discover the allowlisted tools once per provider instance."""
         if self.python_executable is None:
             raise SearchProviderError(
                 "NET_SYPHON_PYTHON_EXECUTABLE is required for Web Research"
             )
         if self._tools is None:
             self._tools = await load_web_research_tools(self.python_executable)
-        search_tool, pages_tool = self._tools
+        return self._tools
+
+    async def search(self, request: WebSearchRequest) -> WebSearchResponse:
+        """Return every candidate the engine offered, reading none of them."""
+        search_tool, _ = await self._loaded()
         found = await _call(
             search_tool, request.model_dump(mode="json", exclude_defaults=True)
         )
-        selected = found["results"][:MAX_RESEARCH_PAGES]
-        if not selected:
+        candidates = tuple(
+            WebSearchResult(
+                title=item["title"],
+                url=item["url"],
+                snippet=item.get("snippet") or "",
+                published_at=item.get("published_at"),
+            )
+            for item in found["results"]
+        )
+        if not candidates:
             raise SearchProviderError("No search results were available for retrieval")
+        return WebSearchResponse(
+            query=request.query,
+            results=candidates,
+            provider="net_syphon",
+            provider_request_id=found["call_id"],
+            partial=found["partial"],
+        )
+
+    async def fetch(
+        self,
+        found: WebSearchResponse,
+        chosen: tuple[WebSearchResult, ...],
+    ) -> WebSearchResponse:
+        """Read the chosen candidates, and only those."""
+        _, pages_tool = await self._loaded()
         pages = await _call(
             pages_tool,
             {
-                "urls": [item["url"] for item in selected],
+                "urls": [str(candidate.url) for candidate in chosen],
                 "max_characters": MAX_CONTEXT_CHARACTERS_PER_PAGE,
             },
         )
@@ -169,13 +203,16 @@ class NetSyphonWebSearch:
             page = outcome["page"]
             if page is None:
                 continue
-            item = selected[outcome["index"] - 1]
+            candidate = chosen[outcome["index"] - 1]
+            # Constructed rather than copied: `model_copy` skips validation, so
+            # the provider's ISO timestamp would stay a string.
             sources.append(
                 WebSearchResult(
-                    title=item["title"],
-                    url=item["url"],
-                    snippet=item.get("snippet") or "",
-                    published_at=item.get("published_at"),
+                    title=candidate.title,
+                    url=candidate.url,
+                    snippet=candidate.snippet,
+                    published_at=candidate.published_at,
+                    relevance_score=candidate.relevance_score,
                     # Net-Syphon was asked to cut at this length and reports
                     # whether it had to, so its flag is the answer. The slice
                     # and the comparison stay as a backstop for the one case
@@ -193,10 +230,9 @@ class NetSyphonWebSearch:
             raise SearchProviderError(
                 "No pages could be retrieved; inspect Net-Syphon's audit logs"
             )
-        return WebSearchResponse(
-            query=request.query,
-            results=tuple(sources),
-            provider="net_syphon",
-            provider_request_id=found["call_id"],
-            partial=found["partial"] or pages["partial"],
+        return found.model_copy(
+            update={
+                "results": tuple(sources),
+                "partial": found.partial or pages["partial"],
+            }
         )

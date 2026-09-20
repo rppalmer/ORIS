@@ -177,7 +177,9 @@ class ThreatReportStore:
         window that would otherwise delete it -- which is the point, and worth
         knowing when choosing where the export directory lives.
         """
-        source = self._newest_path() if not report_id.strip() else self._path_for(report_id)
+        source = (
+            self._newest_path() if not report_id.strip() else self._path_for(report_id)
+        )
         if source is None:
             return None
         directory.mkdir(parents=True, exist_ok=True)

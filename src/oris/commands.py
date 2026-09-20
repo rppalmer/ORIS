@@ -393,9 +393,7 @@ def export_threat_report(
     report_id = argument.strip()
     destination = store.export(report_id, directory)
     if destination is None:
-        missing = (
-            f"No stored report {report_id!r}." if report_id else "No reports yet."
-        )
+        missing = f"No stored report {report_id!r}." if report_id else "No reports yet."
         return Text(
             f"{missing} Reports are kept for {store.retention_days} days.",
             style="yellow",

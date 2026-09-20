@@ -30,6 +30,23 @@ class FakeWebSearch:
 
     def __init__(self) -> None:
         self.requests: list[WebSearchRequest] = []
+        self.fetched: list[tuple[WebSearchResult, ...]] = []
+
+    async def fetch(
+        self,
+        found: WebSearchResponse,
+        chosen: tuple[WebSearchResult, ...],
+    ) -> WebSearchResponse:
+        """Fill in page content for the candidates that were chosen."""
+        self.fetched.append(chosen)
+        return found.model_copy(
+            update={
+                "results": tuple(
+                    candidate.model_copy(update={"content": f"Body of {candidate.url}"})
+                    for candidate in chosen
+                )
+            }
+        )
 
     async def search(self, request: WebSearchRequest) -> WebSearchResponse:
         self.requests.append(request)
@@ -96,6 +113,9 @@ def test_web_research_validates_searches_and_synthesizes_once() -> None:
                 url="https://docs.langchain.com/oss/python/langgraph/overview",
                 snippet="LangGraph supports stateful agent workflows.",
                 relevance_score=0.95,
+                content=(
+                    "Body of https://docs.langchain.com/oss/python/langgraph/overview"
+                ),
             ),
         ),
     }
@@ -229,7 +249,8 @@ def test_web_research_has_only_the_approved_path() -> None:
         ("__start__", "validate_request"),
         ("validate_request", "plan_search"),
         ("plan_search", "search_web"),
-        ("search_web", "synthesize_answer"),
+        ("search_web", "read_sources"),
+        ("read_sources", "synthesize_answer"),
         ("synthesize_answer", "validate_answer"),
         ("validate_answer", "__end__"),
     }
@@ -394,3 +415,55 @@ def test_the_graph_returns_the_request_it_searched_with() -> None:
     assert result["search_request"].query == "LangGraph architecture"
     assert result["search_request"].search_category == "news"
     assert result["search_request"].time_range == "week"
+
+
+def _tool_message(content: dict) -> ToolMessage:
+    """Shape one MCP reply the way the official adapter delivers it."""
+    return ToolMessage(
+        content="", tool_call_id="fixture", artifact={"structured_content": content}
+    )
+
+
+def test_searching_returns_candidates_without_reading_any_of_them(monkeypatch) -> None:
+    """Search and retrieval are separate so something can choose between them.
+
+    Net-Syphon has always exposed them as two tools. ORIS called both inside
+    one method and read whatever the engine ranked first, so the snippets it
+    was handed never reached a decision.
+    """
+    search_tool = Mock(
+        name="search",
+        ainvoke=AsyncMock(
+            return_value=_tool_message(
+                {
+                    "call_id": "search-id",
+                    "partial": False,
+                    "results": [
+                        {
+                            "title": f"Source {index}",
+                            "url": f"https://example.org/{index}",
+                            "snippet": f"Preview of {index}",
+                            "published_at": "2026-09-07",
+                        }
+                        for index in range(8)
+                    ],
+                }
+            )
+        ),
+    )
+    page_tool = Mock(name="pages", ainvoke=AsyncMock())
+    monkeypatch.setattr(
+        "oris.net_syphon.load_web_research_tools",
+        AsyncMock(return_value=(search_tool, page_tool)),
+    )
+    provider = NetSyphonWebSearch(Path("/fixture/python"))
+
+    found = asyncio.run(provider.search(WebSearchRequest(query="langgraph")))
+
+    page_tool.ainvoke.assert_not_awaited()
+    assert len(found.results) == 8
+    assert [result.snippet for result in found.results[:2]] == [
+        "Preview of 0",
+        "Preview of 1",
+    ]
+    assert all(result.content is None for result in found.results)

@@ -71,9 +71,21 @@ Five pages at 20,000 is 18,551 input tokens and 58 seconds of synthesis. Five at
 50,000 is 44,867 tokens, and oMLX's prefill guard refuses it: the weights hold
 about 21.9 GB, the prompt's KV and attention working set needs another 1.9 GB,
 and the guard's ceiling is 23.6 GB. It succeeded once and was rejected outright
-on the next attempt, which makes it not an operating point but a coin toss. The
-usable limit is roughly 40,000 input tokens, so the batch ORIS sends leaves
-about half the headroom spare.
+on the next attempt, which makes it not an operating point but a coin toss.
+
+That 23.6 GB ceiling is history. Raising the wired limit and halving the hot
+cache on 2026-09-13 moved it to 27.4 GB, and a prompt of 59,231 tokens was
+accepted afterwards where 44,867 had been refused -- and 59,231 is a floor,
+because the probe never found a refusal to bound it from above. So the roughly
+40,000 tokens this note used to claim as the usable limit is understated by at
+least half. Memory is no longer what decides this number.
+
+What decides it now is time. Net-Syphon reads a batch one page after another
+under a single 180-second deadline, so every page added is latency added, and
+past some count the last pages are lost to the deadline rather than chosen.
+Reading fewer, better-chosen pages is worth more than reading more of them:
+selection cut a measured run from five pages and 69,731 characters to two and
+24,703, and from 64 to 35 seconds.
 
 The 262,144 token context window is not the constraint and never was. It has
 room for six times what the memory guard will accept.

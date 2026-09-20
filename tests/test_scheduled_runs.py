@@ -13,7 +13,7 @@ from oris.read_state import ProcessedItemStore
 from oris.scheduled_runs import (
     PodcastCatchUpScheduledRunRecord,
     ScheduledRunRecord,
-    run_scheduled_job,
+    ScheduledRunRecordBase,
     run_scheduled_job_async,
 )
 from oris.schedules import (
@@ -22,6 +22,12 @@ from oris.schedules import (
 )
 from oris.search import WebSearchResult
 from oris.web_research import CitedAnswer
+
+
+def run_to_completion(*args: object, **kwargs: object) -> ScheduledRunRecordBase:
+    """Drive one job to the end from a test with no running loop."""
+    return asyncio.run(run_scheduled_job_async(*args, **kwargs))
+
 
 TEST_CURRENT_DATE = date(2026, 8, 8)
 
@@ -163,7 +169,7 @@ def test_successful_run_writes_history_report_and_knowledge(tmp_path) -> None:
     repository = KnowledgeRepository(tmp_path / "knowledge.sqlite")
     artifact_root = tmp_path / "scheduled"
 
-    record = run_scheduled_job(
+    record = run_to_completion(
         make_job(),
         graph,
         repository,
@@ -207,7 +213,7 @@ def test_failed_run_writes_history_without_report_or_knowledge(tmp_path) -> None
     artifact_root = tmp_path / "scheduled"
 
     with pytest.raises(RuntimeError, match="Search unavailable"):
-        run_scheduled_job(
+        run_to_completion(
             make_job(),
             FailingWebResearchGraph(),
             repository,
@@ -231,7 +237,7 @@ def test_disabled_job_is_not_attempted(tmp_path) -> None:
     artifact_root = tmp_path / "scheduled"
 
     with pytest.raises(ValueError, match="disabled"):
-        run_scheduled_job(
+        run_to_completion(
             make_job(enabled=False),
             SuccessfulWebResearchGraph(),
             KnowledgeRepository(tmp_path / "knowledge.sqlite"),
@@ -267,7 +273,7 @@ def test_scheduled_podcast_persists_before_recording(tmp_path) -> None:
     read_state = WitnessingStore(tmp_path / "read_state.sqlite")
     builder, preparation_graph = make_podcast_builder(podcast_result())
 
-    record = run_scheduled_job(
+    record = run_to_completion(
         make_podcast_job(),
         Mock(),
         repository,
@@ -301,7 +307,7 @@ def test_scheduled_podcast_writes_an_empty_success_report(tmp_path) -> None:
     read_state = make_read_state(tmp_path)
     builder, _ = make_podcast_builder(podcast_result(empty=True))
 
-    record = run_scheduled_job(
+    record = run_to_completion(
         make_podcast_job(),
         Mock(),
         repository,
@@ -328,7 +334,7 @@ def test_scheduled_podcast_failure_before_report_records_nothing(tmp_path) -> No
     )
 
     with pytest.raises(RuntimeError, match="digest failed"):
-        run_scheduled_job(
+        run_to_completion(
             make_podcast_job(),
             Mock(),
             repository,
@@ -364,7 +370,7 @@ def test_a_failed_read_state_write_retains_the_report(tmp_path) -> None:
     builder, _ = make_podcast_builder(podcast_result())
 
     with pytest.raises(RuntimeError, match="read state unavailable"):
-        run_scheduled_job(
+        run_to_completion(
             make_podcast_job(),
             Mock(),
             repository,

@@ -251,35 +251,6 @@ async def run_scheduled_job_async(
     )
 
 
-def run_scheduled_job(
-    job: ConfiguredScheduledJob,
-    web_research_graph: CompiledStateGraph,
-    knowledge_repository: KnowledgeRepository,
-    read_state: ProcessedItemStore,
-    *,
-    current_date: date,
-    artifact_root: Path = DEFAULT_ROOT,
-    build_podcast_catch_up: PodcastCatchUpBuilder | None = None,
-) -> ScheduledRunRecordBase:
-    """Run one job to completion from a caller with no event loop.
-
-    What the scheduler and the command line both want. Nothing here can be
-    stopped part-way, which is correct for both: a cron firing has nobody to
-    ask, and a terminal running one command has nothing else to do.
-    """
-    return asyncio.run(
-        run_scheduled_job_async(
-            job,
-            web_research_graph,
-            knowledge_repository,
-            read_state,
-            current_date=current_date,
-            artifact_root=artifact_root,
-            build_podcast_catch_up=build_podcast_catch_up,
-        )
-    )
-
-
 class UnknownScheduledJob(LookupError):
     """The named job is not in the schedule, or is switched off in it."""
 

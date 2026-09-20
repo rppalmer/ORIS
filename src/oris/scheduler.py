@@ -1,19 +1,18 @@
 """Project-owned local scheduler for configured ORIS jobs."""
 
 import argparse
+import asyncio
 import logging
 import signal
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
-from threading import Event
-from types import FrameType
 from zoneinfo import ZoneInfo
 
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from oris.scheduled_runs import run_scheduled_job
+from oris.scheduled_runs import run_scheduled_job_async
 from oris.schedules import (
     DEFAULT_SCHEDULE_FILE,
     ScheduleConfig,
@@ -26,11 +25,18 @@ logger = logging.getLogger(__name__)
 
 def create_scheduler(
     config: ScheduleConfig,
-    run_job: Callable[[ScheduledJob], None],
-) -> BackgroundScheduler:
-    """Create an in-memory scheduler containing only enabled configured jobs."""
+    run_job: Callable[[ScheduledJob], Awaitable[None]],
+) -> AsyncIOScheduler:
+    """Create an in-memory scheduler containing only enabled configured jobs.
+
+    Jobs are coroutines and run on the loop this scheduler is started from, so
+    the process keeps one event loop for its whole life. That is what lets it
+    hold a model client across jobs: a connection pooled by one job belongs to
+    the loop that opened it, and a loop that closes when a job ends leaves the
+    next job reaching into a dead one. See the history entry for 2026-09-19.
+    """
     timezone = ZoneInfo(config.timezone)
-    scheduler = BackgroundScheduler(timezone=timezone)
+    scheduler = AsyncIOScheduler(timezone=timezone)
 
     for job in config.jobs:
         if not job.enabled:
@@ -48,16 +54,34 @@ def create_scheduler(
     return scheduler
 
 
-def run_until_stopped(
-    scheduler: BackgroundScheduler,
-    stop_event: Event,
+async def run_until_stopped(
+    scheduler: AsyncIOScheduler,
+    stop_event: asyncio.Event,
 ) -> None:
-    """Run in the background and wait for a graceful shutdown request."""
+    """Run on the caller's loop and wait for a graceful shutdown request.
+
+    A job still running when the stop arrives is cancelled rather than waited
+    for. That is the asyncio executor's contract, and it is what a restart
+    wants: the old behaviour blocked for as long as the job took, which for an
+    overnight catch-up meant launchd killing the process anyway.
+    """
     scheduler.start()
     try:
-        stop_event.wait()
+        await stop_event.wait()
     finally:
         scheduler.shutdown(wait=True)
+        # The scheduler puts its own shutdown back on this loop, so give it
+        # the turn it needs before the loop goes away.
+        await asyncio.sleep(0)
+
+
+async def serve(scheduler: AsyncIOScheduler) -> None:
+    """Stop on a signal, using handlers this loop owns."""
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for number in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(number, stop_event.set)
+    await run_until_stopped(scheduler, stop_event)
 
 
 def main() -> None:
@@ -81,8 +105,8 @@ def main() -> None:
         web_research_graph,
     )
 
-    def execute_job(job: ScheduledJob) -> None:
-        record = run_scheduled_job(
+    async def execute_job(job: ScheduledJob) -> None:
+        record = await run_scheduled_job_async(
             job,
             web_research_graph,
             knowledge_repository,
@@ -93,13 +117,6 @@ def main() -> None:
         logger.info("Scheduled run succeeded: %s", record.report_path)
 
     scheduler = create_scheduler(config, execute_job)
-    stop_event = Event()
-
-    def request_stop(_signum: int, _frame: FrameType | None) -> None:
-        stop_event.set()
-
-    signal.signal(signal.SIGINT, request_stop)
-    signal.signal(signal.SIGTERM, request_stop)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -110,5 +127,5 @@ def main() -> None:
         len(scheduler.get_jobs()),
         config.timezone,
     )
-    run_until_stopped(scheduler, stop_event)
+    asyncio.run(serve(scheduler))
     logger.info("Scheduler stopped")

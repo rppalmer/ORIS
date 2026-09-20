@@ -1,12 +1,13 @@
 """Tests for the local APScheduler runtime."""
 
+import asyncio
 from datetime import datetime
-from threading import Event
+from time import monotonic
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
 import pytest
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from oris.scheduler import create_scheduler, run_until_stopped
 from oris.schedules import (
@@ -93,13 +94,56 @@ def test_create_scheduler_rejects_invalid_cron() -> None:
         create_scheduler(config, Mock())
 
 
-def test_run_until_stopped_waits_for_active_jobs_on_shutdown() -> None:
-    """A stop request uses APScheduler's graceful shutdown contract."""
-    scheduler = Mock(spec=BackgroundScheduler)
-    stop_event = Event()
-    stop_event.set()
+def test_run_until_stopped_shuts_down_when_it_is_asked_to() -> None:
+    """A stop request starts and stops through APScheduler's own contract."""
+    scheduler = Mock(spec=AsyncIOScheduler)
 
-    run_until_stopped(scheduler, stop_event)
+    async def drive() -> None:
+        stop_event = asyncio.Event()
+        stop_event.set()
+        await run_until_stopped(scheduler, stop_event)
+
+    asyncio.run(drive())
 
     scheduler.start.assert_called_once_with()
     scheduler.shutdown.assert_called_once_with(wait=True)
+
+
+def test_every_job_runs_on_the_scheduler_s_own_event_loop() -> None:
+    """The process keeps one event loop, and every job runs on it.
+
+    Each firing used to get a loop of its own that was closed when the job
+    ended, while the process went on sharing a model client across all of them.
+    Anything a job left behind then belonged to a dead loop, and the next job
+    died reaching into it. One loop for the process is what makes shared state
+    safe to hold.
+    """
+    timezone = ZoneInfo("America/Detroit")
+    config = ScheduleConfig(
+        timezone="America/Detroit",
+        jobs=(make_job("news", enabled=True, cron="0 7 * * mon-fri"),),
+    )
+    observed: list[object] = []
+
+    async def record_running_loop(_job: WebResearchScheduledJob) -> None:
+        observed.append(asyncio.get_running_loop())
+
+    scheduler = create_scheduler(config, record_running_loop)
+
+    async def drive() -> tuple[object, list[object]]:
+        stop_event = asyncio.Event()
+        serving = asyncio.create_task(run_until_stopped(scheduler, stop_event))
+        while not scheduler.running:
+            await asyncio.sleep(0)
+        scheduler.get_job("news").modify(next_run_time=datetime.now(timezone))
+        deadline = monotonic() + 5
+        while not observed and monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        stop_event.set()
+        await serving
+        return asyncio.get_running_loop(), observed
+
+    serving_loop, ran_on = asyncio.run(drive())
+
+    assert ran_on, "the job never ran"
+    assert ran_on[0] is serving_loop

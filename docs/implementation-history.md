@@ -44,10 +44,20 @@ transport and a patched client never reaches it.
 The failures on 8 to 13 September look the same in the log and are not related.
 Those were a missing Net-Razor tool in the allowlist, fixed on 13 September.
 
-The underlying shape is still wrong: a long-lived process should not create an
-event loop per job while holding async state across them. Giving the scheduler
-one loop for its lifetime is the structural fix, and is on the plan rather than
-bundled into an urgent one.
+**Then the shape itself, the same day.** A long-lived process should not create
+an event loop per job while holding async state across them, so the scheduler
+stopped doing it. `AsyncIOScheduler` runs the jobs as coroutines on the one loop
+the process owns, which is what makes a shared client legitimate rather than
+merely defused. Signals now go through that loop instead of the threading
+handler the old blocking wait needed.
+
+A job still running when a stop arrives is cancelled now, not waited for. That
+is the asyncio executor's contract and it suits a restart: waiting meant
+blocking for as long as the job took, and launchd killed the process anyway.
+
+`run_scheduled_job` went with it. It existed so a caller with no event loop
+could run a job to completion, and nothing needed that once the scheduler had a
+loop of its own -- the command line reaches the async path directly.
 
 ## 2026-09-15 — Podcast reports stop repeating themselves
 

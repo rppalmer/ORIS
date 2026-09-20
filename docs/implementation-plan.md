@@ -925,22 +925,25 @@ treated as accepted precedent.
   Not urgent, and not worth doing on the same day as anything else, because a
   duplicated scheduler would be diagnosed as whatever else changed that day.
 
-- [ ] **Give the scheduler one event loop for its lifetime.** It runs a
-  `BackgroundScheduler` and wraps each job in `asyncio.run`, so every firing
-  gets a loop that is closed when the job ends, inside a process that holds
-  async state across all of them. That is how a pooled connection from one job
-  came to kill the next one on 2026-09-19. The pool no longer keeps idle
-  connections, so the known failure is gone, but the shape that allowed it
-  remains: anything else that binds to a loop can do the same thing again, and
-  it will look like a fault somewhere else.
+- [x] **Give the scheduler one event loop for its lifetime.** Done 2026-09-19.
+  It ran a `BackgroundScheduler` and wrapped each job in `asyncio.run`, so
+  every firing got a loop that closed when the job ended, inside a process
+  holding async state across all of them. That is how a pooled connection from
+  one job came to kill the next one. Disabling idle connections had already
+  removed the known failure; this removes the shape that allowed it, so the
+  next thing to bind itself to a loop cannot repeat it.
 
-  The official fix is APScheduler's `AsyncIOScheduler` with the jobs as
-  coroutines, which removes the per-firing loop entirely. It touches how the
-  scheduler starts, waits and shuts down, including the signal handling, so it
-  wants a quiet day of its own.
+  `AsyncIOScheduler` runs coroutine jobs on the loop it was started from.
+  Signals are handled through that loop rather than the threading handler the
+  old blocking wait needed.
 
-  Only the scheduler is affected. The command line runs one job per process and
-  is correct as it stands.
+  One behaviour changed: a job still running when a stop arrives is cancelled
+  rather than waited for, which is the asyncio executor's contract. That suits
+  a restart, which previously blocked for as long as the job took and then had
+  the process killed under it anyway.
+
+  The command line was not touched. It runs one job per process, where a loop
+  per run is right.
 
 - [ ] Consider LangGraph deployment cron only if persistent Agent Server
   infrastructure later becomes justified.

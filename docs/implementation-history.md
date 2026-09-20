@@ -8,6 +8,50 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-09-19 — Web Research chooses what to read instead of reading the top five
+
+A run searched, took whatever the engine ranked first, and read all of it. The
+titles and snippets that came back with those results were fetched and thrown
+away without reaching any decision.
+
+That is the unexplained half of the 2026-09-07 evaluation, where an answer about
+a Python release cited a third-party tracker instead of python.org. Nobody chose
+the tracker. It ranked, so it was read, so it became evidence.
+
+**Searching and reading are now two steps.** Net-Syphon always exposed them as
+two tools; ORIS called both inside one method, which left nowhere to decide.
+`search` returns candidates with their titles, snippets and dates and reads
+none of them. `fetch` reads the ones it is given. Between them sits a step that
+picks, in the same shape as the existing search planner.
+
+**The selection is positions, never URLs.** The calling code already holds the
+candidate list, and Community Research measured what asking this model to
+retype a long identifier costs: Qwen3.5 keeps the handle and drops digits out
+of the middle of a 19-digit id, invalidating the answer about one run in three.
+
+**Looking is cheap and reading is not.** Ten candidates as title, snippet and
+date is a few hundred tokens. The five pages that used to follow were 16,286.
+Measured on the same question before and after: five pages and 69,731
+characters in 64 seconds became two pages and 24,703 characters in 35. The
+first page chosen was Anthropic's own; three stories about a different company
+that had ranked in the top five were left unread.
+
+**Ten candidates, not thirty.** Net-Syphon's request contract accepts thirty
+since T15, but its response contract still caps `results` at ten, so a search
+finding more fails validation inside the server and returns a flat
+`internal_error`. Asking for thirty broke every general web search until it was
+caught; news searches hid it, because that backend happened to return ten. Ten
+is still twice what a run can read.
+
+**Nothing usable back from the model falls through to the engine's order**,
+which is what every previous run did, so the worst case is unchanged. Fewer
+candidates than the run can read skips the call: there is no decision to make.
+
+A note about page budgets was corrected on the way past. It claimed roughly
+40,000 input tokens as the usable limit, measured against a prefill ceiling
+that moved five days later. Memory is not the constraint; a batch read
+sequentially under one 180-second deadline is.
+
 ## 2026-09-19 — The overnight podcast job was killed by its own last run
 
 The job failed on alternate nights with `APIConnectionError: Connection error`.

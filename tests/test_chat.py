@@ -16,7 +16,7 @@ from oris.chat import (
     split_community_sources,
 )
 from oris.knowledge import KnowledgeDocument
-from oris.search import WebSearchResult
+from oris.search import WebSearchRequest, WebSearchResult
 from oris.web_research import CitedAnswer
 
 
@@ -48,6 +48,7 @@ def test_oris_delegates_explicit_research_to_web_research() -> None:
     web_research_graph.ainvoke = AsyncMock()
     web_research_graph.ainvoke.return_value = {
         "answer": CitedAnswer(answer="LangGraph supports stateful workflows [1]."),
+        "search_request": WebSearchRequest(query="LangGraph"),
         "sources": (
             WebSearchResult(
                 title="LangGraph overview",
@@ -256,6 +257,7 @@ def test_oris_passes_a_resolved_follow_up_to_research() -> None:
     web_research_graph.ainvoke = AsyncMock()
     web_research_graph.ainvoke.return_value = {
         "answer": CitedAnswer(answer="White Lake is sunny [1]."),
+        "search_request": WebSearchRequest(query="White Lake weather 2026-09-19"),
         "sources": (
             WebSearchResult(
                 title="White Lake weather",
@@ -921,3 +923,50 @@ def test_oris_passes_selected_community_sources_to_the_specialist() -> None:
     community_research_graph.ainvoke.assert_awaited_once_with(
         {"topic": "LangGraph", "sources": ["hn", "arxiv"]}
     )
+
+
+def test_a_research_answer_says_what_was_actually_searched() -> None:
+    """The plan is chosen from the question, so it has to be visible.
+
+    A planner turns the request into a query, a category, a date window and
+    any domains, and none of that reached the reader. Two things went wrong
+    without it: there was no way to learn what phrasing does, and a run that
+    searched for the wrong thing looked exactly like a run that searched for
+    the right thing and found nothing.
+    """
+    web_research_graph = Mock()
+    web_research_graph.ainvoke = AsyncMock()
+    web_research_graph.ainvoke.return_value = {
+        "answer": CitedAnswer(answer="Thompson signed an extension [1]."),
+        "search_request": WebSearchRequest(
+            query="Ausar Thompson contract extension",
+            search_category="news",
+            start_date=date(2026, 9, 18),
+            end_date=date(2026, 9, 19),
+            include_domains=("x.com",),
+        ),
+        "sources": (
+            WebSearchResult(
+                title="Pistons extend Thompson",
+                url="https://x.com/CBSDetroit/status/1",
+                snippet="Five years, $155 million.",
+            ),
+        ),
+    }
+    model = Mock()
+    graph = create_oris_graph(web_research_graph, Mock(), Mock(), model)
+
+    result = asyncio.run(
+        graph.ainvoke(
+            {
+                "messages": [HumanMessage(content="Thompson extension news")],
+                "mode": "web_research",
+            }
+        )
+    )
+
+    content = result["messages"][-1].content
+    assert 'Searched "Ausar Thompson contract extension"' in content
+    assert "news" in content
+    assert "2026-09-18 to 2026-09-19" in content
+    assert "x.com" in content

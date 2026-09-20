@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from oris.config import DEFAULT_MAX_HISTORY_TOKENS
 from oris.prompts import load_system_prompt, with_current_date
+from oris.search import WebSearchRequest
 
 ROUTING_SYSTEM_PROMPT = load_system_prompt("routing_system.txt")
 DIRECT_CHAT_SYSTEM_PROMPT = load_system_prompt("direct_chat_system.txt")
@@ -256,6 +257,41 @@ def _format_source_status(source_status: dict[str, str]) -> str:
     return f"{heading}\n\n| Source | Result |\n| --- | --- |\n{rows}"
 
 
+_TIME_RANGE_WORDS = {
+    "day": "past 24 hours",
+    "week": "past week",
+    "month": "past month",
+    "year": "past year",
+}
+
+
+def _format_search(request: WebSearchRequest) -> str:
+    """Say what was actually searched for.
+
+    Nobody types these controls. A planner reads the request and chooses the
+    query, the category, the date window and any domains, so showing what it
+    chose is the only way to learn what a phrasing does. It also separates two
+    failures that otherwise look identical: a search that asked the wrong
+    question, and one that asked the right question and found nothing.
+
+    The engine is deliberately not named. Net-Syphon chooses between its search
+    backends from these same filters, and that rule belongs to it; repeating it
+    here would be a second copy free to go stale.
+    """
+    parts = [f'Searched "{request.query}"']
+    if request.search_category == "news":
+        parts.append("news")
+    if request.start_date is not None and request.end_date is not None:
+        parts.append(
+            f"{request.start_date.isoformat()} to {request.end_date.isoformat()}"
+        )
+    elif request.time_range is not None:
+        parts.append(_TIME_RANGE_WORDS[request.time_range])
+    if request.include_domains:
+        parts.append(", ".join(request.include_domains))
+    return " · ".join(parts)
+
+
 def history_for_model(
     messages: list[BaseMessage],
     max_history_tokens: int,
@@ -386,7 +422,11 @@ def create_oris_graph(
             f"[{number}] [{source.title}]({source.url})"
             for number, source in enumerate(result["sources"], start=1)
         )
-        content = f"{result['answer'].answer}\n\nSources:\n{source_links}"
+        content = (
+            f"{result['answer'].answer}\n\n"
+            f"{_format_search(result['search_request'])}\n\n"
+            f"Sources:\n{source_links}"
+        )
         return {"messages": [AIMessage(content=content)]}
 
     async def run_community_research(

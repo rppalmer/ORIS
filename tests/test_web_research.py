@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from oris.net_syphon import (
     MAX_CONTEXT_CHARACTERS_PER_PAGE,
     MAX_RESEARCH_PAGES,
+    MAX_SEARCH_CANDIDATES,
     NetSyphonWebSearch,
 )
 from oris.search import (
@@ -22,15 +23,17 @@ from oris.search import (
     WebSearchResult,
 )
 from oris.search_planning import SearchPlan
+from oris.source_selection import SourceSelection
 from oris.web_research import CitedAnswer, create_web_research_graph
 
 
 class FakeWebSearch:
     """In-memory search implementation used through the production interface."""
 
-    def __init__(self) -> None:
+    def __init__(self, count: int = 1) -> None:
         self.requests: list[WebSearchRequest] = []
         self.fetched: list[tuple[WebSearchResult, ...]] = []
+        self.count = count
 
     async def fetch(
         self,
@@ -59,6 +62,14 @@ class FakeWebSearch:
                     snippet="LangGraph supports stateful agent workflows.",
                     relevance_score=0.95,
                 ),
+                *(
+                    WebSearchResult(
+                        title=f"Source {number}",
+                        url=f"https://example.org/{number}",
+                        snippet=f"Preview of {number}",
+                    )
+                    for number in range(2, self.count + 1)
+                ),
             ),
             provider="fake-search",
             provider_request_id="fake-request-1",
@@ -68,6 +79,7 @@ class FakeWebSearch:
 def create_fake_model(
     answer: CitedAnswer,
     plan: SearchPlan | None = None,
+    selection: SourceSelection | None = None,
 ) -> tuple[Mock, Mock, Mock]:
     """Return a model double with controlled planning and answer responses."""
     answer_model = Mock()
@@ -76,6 +88,8 @@ def create_fake_model(
     planning_model.invoke.return_value = plan or SearchPlan(
         search_query="LangGraph architecture"
     )
+    selection_model = Mock()
+    selection_model.invoke.return_value = selection or SourceSelection(chosen=(1,))
     model = Mock(spec=ChatOpenAI)
 
     def select_structured_model(schema: type, *, method: str) -> Mock:
@@ -84,6 +98,8 @@ def create_fake_model(
             return answer_model
         if schema is SearchPlan:
             return planning_model
+        if schema is SourceSelection:
+            return selection_model
         raise AssertionError(f"Unexpected structured-output schema: {schema}")
 
     model.with_structured_output.side_effect = select_structured_model
@@ -103,10 +119,18 @@ def test_web_research_validates_searches_and_synthesizes_once() -> None:
         graph.ainvoke({"query": "  What is LangGraph's architecture?  "})
     )
 
-    assert search.requests == [WebSearchRequest(query="LangGraph architecture")]
+    assert search.requests == [
+        WebSearchRequest(
+            query="LangGraph architecture",
+            max_results=MAX_SEARCH_CANDIDATES,
+        )
+    ]
     assert result == {
         "answer": expected_answer,
-        "search_request": WebSearchRequest(query="LangGraph architecture"),
+        "search_request": WebSearchRequest(
+            query="LangGraph architecture",
+            max_results=MAX_SEARCH_CANDIDATES,
+        ),
         "sources": (
             WebSearchResult(
                 title="LangGraph overview",
@@ -185,6 +209,7 @@ def test_web_research_forwards_explicit_search_controls() -> None:
     assert search.requests == [
         WebSearchRequest(
             query="AI-agent developments",
+            max_results=MAX_SEARCH_CANDIDATES,
             include_domains=("example.com",),
             search_category="news",
             start_date=date(2026, 8, 7),
@@ -213,6 +238,7 @@ def test_web_research_uses_the_planned_search_category() -> None:
     assert search.requests == [
         WebSearchRequest(
             query="AI-agent news published",
+            max_results=MAX_SEARCH_CANDIDATES,
             search_category="news",
             start_date=date(2026, 8, 8),
             end_date=date(2026, 8, 9),
@@ -353,6 +379,7 @@ def test_web_research_uses_bounded_page_content(monkeypatch, all_failed):
     search_tool.ainvoke.assert_awaited_once()
     assert search_tool.ainvoke.call_args.args[0]["args"] == {
         "query": "LangGraph architecture",
+        "max_results": MAX_SEARCH_CANDIDATES,
         "search_category": "news",
         "include_domains": ["example.org"],
         "time_range": "week",
@@ -467,3 +494,43 @@ def test_searching_returns_candidates_without_reading_any_of_them(monkeypatch) -
         "Preview of 1",
     ]
     assert all(result.content is None for result in found.results)
+
+
+def test_only_the_chosen_candidates_are_read() -> None:
+    """Reading is the expensive half, so it happens after something decides.
+
+    The run used to read whatever the engine ranked first, which is how an
+    answer came to cite a third-party tracker over the project's own page:
+    nobody picked the tracker, it simply ranked.
+    """
+    search = FakeWebSearch(count=10)
+    model, _, _ = create_fake_model(
+        CitedAnswer(answer="Supported [1]."),
+        selection=SourceSelection(chosen=(7, 2)),
+    )
+    graph = create_web_research_graph(search, model)
+
+    result = asyncio.run(graph.ainvoke({"query": "LangGraph architecture"}))
+
+    assert [str(candidate.url) for candidate in search.fetched[0]] == [
+        "https://example.org/7",
+        "https://example.org/2",
+    ]
+    assert len(result["sources"]) == 2
+
+
+def test_the_search_asks_for_more_candidates_than_it_will_read() -> None:
+    """Choosing is only worth doing when there is something to choose between.
+
+    Asking for as many results as the run can read leaves the selection step
+    with no decision to make, and the engine's ranking decides again by
+    default.
+    """
+    search = FakeWebSearch()
+    model, _, _ = create_fake_model(CitedAnswer(answer="Supported [1]."))
+    graph = create_web_research_graph(search, model)
+
+    asyncio.run(graph.ainvoke({"query": "LangGraph architecture"}))
+
+    assert MAX_SEARCH_CANDIDATES > MAX_RESEARCH_PAGES
+    assert search.requests[0].max_results == MAX_SEARCH_CANDIDATES

@@ -44,6 +44,9 @@ class WebSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     query: NonEmptyText
+    # The provider's own default, so a caller that does not care sends nothing
+    # and gets whatever the provider would have chosen anyway.
+    max_results: int = Field(default=5, ge=1, le=30)
     include_domains: tuple[DomainName, ...] = Field(default=(), max_length=10)
     search_category: SearchCategory = "general"
     time_range: SearchTimeRange | None = None

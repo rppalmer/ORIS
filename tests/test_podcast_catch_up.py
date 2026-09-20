@@ -1305,7 +1305,9 @@ def test_a_multi_part_episode_is_merged_rather_than_concatenated() -> None:
         "He feels disrespected.",
         "He feels disrespected, and the offer is fair.",
     ]
-    assert result["episodes"][0]["summary"] == "He feels disrespected; the offer is fair."
+    assert (
+        result["episodes"][0]["summary"] == "He feels disrespected; the offer is fair."
+    )
 
 
 def test_citations_are_taken_from_the_episodes_not_written_by_a_model() -> None:

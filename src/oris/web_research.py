@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
-from oris.net_syphon import MAX_RESEARCH_PAGES
+from oris.net_syphon import MAX_RESEARCH_PAGES, MAX_SEARCH_CANDIDATES
 from oris.prompts import load_system_prompt, with_current_date
 from oris.search import (
     DomainName,
@@ -23,6 +23,7 @@ from oris.search import (
     WebSearchResult,
 )
 from oris.search_planning import create_search_plan
+from oris.source_selection import select_sources
 
 WEB_RESEARCH_SYSTEM_PROMPT = load_system_prompt("web_research_system.txt")
 
@@ -133,7 +134,12 @@ def create_web_research_graph(
     async def read_sources(state: WebResearchState) -> dict[str, object]:
         """Read the candidates that were chosen, and nothing else."""
         found = state["search_response"]
-        chosen = found.results[:MAX_RESEARCH_PAGES]
+        chosen = select_sources(
+            model,
+            state["query"],
+            found.results,
+            limit=MAX_RESEARCH_PAGES,
+        )
         fetched = await search.fetch(found, chosen)
         return {"search_response": fetched, "sources": fetched.results}
 
@@ -155,6 +161,7 @@ def create_web_research_graph(
         return {
             "search_request": WebSearchRequest(
                 query=plan.search_query,
+                max_results=MAX_SEARCH_CANDIDATES,
                 include_domains=state.get("include_domains") or plan.include_domains,
                 search_category=state.get("search_category", plan.search_category),
                 time_range=time_range,

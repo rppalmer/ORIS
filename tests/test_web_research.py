@@ -89,6 +89,7 @@ def test_web_research_validates_searches_and_synthesizes_once() -> None:
     assert search.requests == [WebSearchRequest(query="LangGraph architecture")]
     assert result == {
         "answer": expected_answer,
+        "search_request": WebSearchRequest(query="LangGraph architecture"),
         "sources": (
             WebSearchResult(
                 title="LangGraph overview",
@@ -320,8 +321,7 @@ def test_web_research_uses_bounded_page_content(monkeypatch, all_failed):
             "2026-09-07T12:00:00",
         ]
         assert all(
-            len(source.content) == MAX_CONTEXT_CHARACTERS_PER_PAGE
-            and source.truncated
+            len(source.content) == MAX_CONTEXT_CHARACTERS_PER_PAGE and source.truncated
             for source in result["sources"]
         )
         evidence = answer_model.invoke.call_args.args[0][1][1]
@@ -368,3 +368,29 @@ def test_net_syphon_error_becomes_a_search_provider_error() -> None:
 
     assert "not_configured" in str(raised.value)
     assert "This capability is not configured." in str(raised.value)
+
+
+def test_the_graph_returns_the_request_it_searched_with() -> None:
+    """The caller renders what was searched, so it has to leave the graph.
+
+    The plan is built inside `plan_search` and lands in the internal state,
+    but the graph declares an output schema, and anything missing from that
+    is dropped on the way out. A caller reading it from a mocked graph sees a
+    field the real one never returns.
+    """
+    search = FakeWebSearch()
+    model, _, _ = create_fake_model(
+        CitedAnswer(answer="LangGraph supports stateful workflows [1]."),
+        plan=SearchPlan(
+            search_query="LangGraph architecture",
+            search_category="news",
+            time_range="week",
+        ),
+    )
+    graph = create_web_research_graph(search, model)
+
+    result = asyncio.run(graph.ainvoke({"query": "How does LangGraph work?"}))
+
+    assert result["search_request"].query == "LangGraph architecture"
+    assert result["search_request"].search_category == "news"
+    assert result["search_request"].time_range == "week"

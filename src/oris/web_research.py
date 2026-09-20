@@ -52,6 +52,10 @@ class WebResearchOutput(TypedDict):
 
     answer: CitedAnswer
     sources: tuple[WebSearchResult, ...]
+    # The plan is chosen from the question rather than typed, so the caller
+    # shows it with the answer. Anything left out of this schema is dropped on
+    # the way out of the graph, however plainly the state carries it.
+    search_request: WebSearchRequest
 
 
 class WebResearchState(TypedDict):

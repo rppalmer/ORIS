@@ -32,8 +32,8 @@ prompt accepts a date printed in a page it actually read. Five stays because a
 survey question is better served by five sources than by three, which is an
 ordinary breadth judgement rather than a workaround.
 """
-MAX_SEARCH_CANDIDATES = 30
-"""How many results one search asks for, which is Net-Syphon's maximum.
+MAX_SEARCH_CANDIDATES = 10
+"""How many results one search asks for.
 
 Deliberately far above `MAX_RESEARCH_PAGES`, because these two numbers do
 different jobs. This one is how much the run gets to look at; that one is how
@@ -42,8 +42,12 @@ thousand tokens for all thirty, against sixteen thousand for the five pages
 that follow. Reading is the expensive half, and the cheap half is what makes
 it possible to read the right five.
 
-Ten until 2026-09-19, when it was raised on the Net-Syphon side to give this
-step something to choose between.
+Ten, not the thirty Net-Syphon's request contract now allows. Its response
+contract still caps `results` at ten, so a search that finds more fails
+validation inside the server and comes back as `internal_error`. Measured on
+2026-09-19: ten succeeds, eleven does not. Raise this once that cap moves.
+
+Ten is still twice what the run can read, so the choice is a real one.
 """
 
 MAX_CONTEXT_CHARACTERS_PER_PAGE = 20000

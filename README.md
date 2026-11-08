@@ -413,8 +413,13 @@ involved, so ORIS adds no score or verdict. Sources that failed are shown with
 the reason. ThreatSyft must be configured, as it is for `/threat`; if it is not,
 the page says so and chat still works.
 
-Each lookup sends the indicator to outside providers and can spend API credits,
-so one only runs when you press **Look up**. Reloading never repeats it. Results
+Switch to **CVE or threat actor** to look up something like `CVE-2024-3400` or
+`APT29`. These come from ThreatSyft's local catalogs plus NVD, so they spend no
+API credits. Catalogs with no record are grouped into one folded line at the
+bottom, because some of them carry a caveat worth reading.
+
+Each indicator lookup sends the indicator to outside providers and can spend API
+credits, so a lookup only runs when you press **Look up**. Reloading never repeats it. Results
 are not saved, and text from providers is shown as plain text with nothing
 clickable.
 

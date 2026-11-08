@@ -8,6 +8,35 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-11-08 — The tools page also looks up CVEs and threat actors
+
+The Tools page now has a second mode, **CVE or threat actor**, which calls
+ThreatSyft's `lookup` tool. Results use the same cards as indicator lookups.
+
+**You choose the mode, rather than ORIS guessing.** A bare name has no shape to
+recognise, and working out the type here would be a second copy of a rule
+ThreatSyft owns. Only `enrich` and `lookup` can be reached from the page, because
+the site has no login and has no reason to offer the rest.
+
+**ATT&CK technique lookup is deliberately not offered**, since that is quicker to
+find with a web search. No code blocks a technique ID, because adding validation
+that ThreatSyft does not need would only be more to maintain. A threat actor's
+results do include ATT&CK's record for that group, as one of its two catalogs.
+
+**"Not found" is not treated as a failure.** An actor lookup asks seven catalogs
+and most have nothing, so showing each as a red card buried the two that
+answered. They are folded into one line instead of being dropped, because the
+ransomware catalog's reply carries a caveat: absence only means the name is not
+in the window it collected. When no catalog has a record, that fold opens by
+itself, because the reasons are then the whole answer.
+
+Single records now fold only past twenty fields. A CVE's known-exploited record
+has thirteen, and folding it hid the reason for the lookup.
+
+Checked with two more tests over HTTP, and against real ThreatSyft through the
+page's own JavaScript with `APT29`, `CVE-2024-3400` and a CVE that does not
+exist.
+
 ## 2026-11-08 — The web site gains a tools page for indicator lookups
 
 The site now has a **Tools** page. You enter an IP address, domain, URL, file

@@ -71,7 +71,8 @@ The web site is the third, and the interface ORIS is moving towards. It is not a
 copy of the terminal interface. It is being built one feature at a time and
 serves the trusted local network with no login. So far it has plain chat with the
 model, without specialists, slash commands or `/recall` archiving, and a tools
-page that looks up indicators through ThreatSyft without involving the model. The
+page that looks up indicators, CVEs and threat actors through ThreatSyft without
+involving the model. The
 terminal interface stays until a decision is made to remove it.
 
 Local Phoenix tracing, the project-owned APScheduler runtime, and scheduled run

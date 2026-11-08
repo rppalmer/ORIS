@@ -6,7 +6,8 @@ a later feature, so anyone who can reach the port can use the chat.
 The site is being built one feature at a time. Chat is plain chat with the
 model, through the same graph the other interfaces use, so the system prompt,
 history limits, tracing and saved conversations all come from there. Tools looks
-up an indicator with ThreatSyft and shows what came back, with no model involved.
+up an indicator, CVE or threat actor with ThreatSyft and shows what came back,
+with no model involved.
 """
 
 import asyncio
@@ -34,6 +35,8 @@ PORT = 8420
 CHAT_PAGE = Path(__file__).with_name("web_chat.html")
 TOOLS_PAGE = Path(__file__).with_name("web_tools.html")
 STYLES = Path(__file__).with_name("web.css")
+LOOKUP_TOOLS = frozenset({"enrich", "lookup"})
+"""The ThreatSyft tools the Tools page offers, and the only ones it can reach."""
 
 # Answers can carry text from the open web, and the page inserts this output as
 # HTML, so raw HTML stays off. Images stay off as well: a browser fetches one the
@@ -52,14 +55,14 @@ def _message(role: str, text: str) -> dict[str, str]:
 def create_app(
     graph: CompiledStateGraph,
     checkpoint_database_path: Path,
-    load_enrich_tool: Callable[[], Awaitable[BaseTool]],
+    load_threatsyft: Callable[[], Awaitable[dict[str, BaseTool]]],
 ) -> Starlette:
     """Build the site around one compiled graph and its conversation store.
 
     ThreatSyft is loaded on the first lookup rather than here, so the site still
     starts and chats on a machine where ThreatSyft is missing or broken.
     """
-    enrich_tool: BaseTool | None = None
+    threatsyft: dict[str, BaseTool] | None = None
 
     def new_conversation(_request: Request) -> RedirectResponse:
         # The server picks the ID because browsers only offer random UUIDs on
@@ -100,13 +103,15 @@ def create_app(
     def styles(_request: Request) -> FileResponse:
         return FileResponse(STYLES, media_type="text/css")
 
-    async def enrich(request: Request) -> JSONResponse:
-        nonlocal enrich_tool
-        indicator = (await request.json())["indicator"]
+    async def look_up(request: Request) -> JSONResponse:
+        nonlocal threatsyft
+        name = request.path_params["tool"]
+        if name not in LOOKUP_TOOLS:
+            return JSONResponse({"error": f"No tool named {name}."}, status_code=404)
         try:
-            if enrich_tool is None:
-                enrich_tool = await load_enrich_tool()
-            return JSONResponse(await call_tool(enrich_tool, {"indicator": indicator}))
+            if threatsyft is None:
+                threatsyft = await load_threatsyft()
+            return JSONResponse(await call_tool(threatsyft[name], await request.json()))
         except Exception as error:  # noqa: BLE001 - a failed lookup is not a crash
             return JSONResponse(
                 {"error": f"ThreatSyft could not run the lookup: {error}"},
@@ -118,7 +123,7 @@ def create_app(
             Route("/", new_conversation),
             Route("/web.css", styles),
             Route("/tools", tools_page),
-            Route("/api/tools/enrich", enrich, methods=["POST"]),
+            Route("/api/tools/{tool}", look_up, methods=["POST"]),
             Route("/chat/{conversation_id:uuid}", chat_page),
             Route("/api/chat/{conversation_id:uuid}", conversation),
             Route(
@@ -138,11 +143,11 @@ async def _serve() -> None:
 
     # Imported here because importing it loads the settings and builds the
     # model, which should not happen merely by importing this module.
-    from oris.web_research_app import build_oris_graph, load_enrich_tool
+    from oris.web_research_app import build_oris_graph, load_threatsyft_by_name
 
     async with AsyncSqliteSaver.from_conn_string(str(database_path)) as checkpointer:
         graph = await build_oris_graph(checkpointer)
-        app = create_app(graph, database_path, load_enrich_tool)
+        app = create_app(graph, database_path, load_threatsyft_by_name)
         await uvicorn.Server(uvicorn.Config(app, host=HOST, port=PORT)).serve()
 
 

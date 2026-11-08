@@ -29,7 +29,7 @@ def _model(answer: str | Exception) -> Mock:
     return model
 
 
-async def _threatsyft_not_used() -> BaseTool:
+async def _threatsyft_not_used() -> dict[str, BaseTool]:
     raise AssertionError("this test should not reach ThreatSyft")
 
 
@@ -37,14 +37,16 @@ def _visit(
     tmp_path: Path,
     model: Mock,
     visit: Callable[[httpx.AsyncClient], Awaitable[Any]],
-    load_enrich_tool: Callable[[], Awaitable[BaseTool]] = _threatsyft_not_used,
+    load_threatsyft: Callable[
+        [], Awaitable[dict[str, BaseTool]]
+    ] = _threatsyft_not_used,
 ) -> Any:
     async def run() -> Any:
         database_path = tmp_path / "checkpoints.sqlite"
         async with AsyncSqliteSaver.from_conn_string(str(database_path)) as saver:
             graph = create_oris_graph(Mock(), Mock(), Mock(), model, checkpointer=saver)
             transport = httpx.ASGITransport(
-                app=create_app(graph, database_path, load_enrich_tool)
+                app=create_app(graph, database_path, load_threatsyft)
             )
             async with httpx.AsyncClient(
                 transport=transport, base_url="http://oris"
@@ -170,9 +172,30 @@ ENRICHED = {
     "error": None,
 }
 
+LOOKED_UP = {
+    "ok": True,
+    "tool": "lookup",
+    "query": {"reference": "APT29"},
+    "data": {
+        "reference": "APT29",
+        "reference_type": "name",
+        "source_summary": {"ok": 1, "failed": 1},
+        "sources": {
+            "misp_actor": {"ok": True, "data": {"name": "APT29"}},
+            "ransomware": {
+                "ok": False,
+                "code": "not_found",
+                "message": "APT29 does not appear in the local leak-site claims.",
+            },
+        },
+        "warnings": [],
+    },
+    "error": None,
+}
 
-def _threatsyft(calls: list[str]) -> Callable[[], Awaitable[BaseTool]]:
-    """A real LangChain tool answering the way the MCP adapter's tools do."""
+
+def _threatsyft(calls: list[str]) -> Callable[[], Awaitable[dict[str, BaseTool]]]:
+    """Real LangChain tools answering the way the MCP adapter's tools do."""
 
     @tool("enrich", response_format="content_and_artifact")
     async def enrich(indicator: str) -> tuple[str, dict[str, Any]]:
@@ -180,8 +203,14 @@ def _threatsyft(calls: list[str]) -> Callable[[], Awaitable[BaseTool]]:
         calls.append(indicator)
         return "", {"structured_content": ENRICHED}
 
-    async def load() -> BaseTool:
-        return enrich
+    @tool("lookup", response_format="content_and_artifact")
+    async def lookup(reference: str) -> tuple[str, dict[str, Any]]:
+        """Stand in for ThreatSyft's lookup tool."""
+        calls.append(reference)
+        return "", {"structured_content": LOOKED_UP}
+
+    async def load() -> dict[str, BaseTool]:
+        return {"enrich": enrich, "lookup": lookup}
 
     return load
 
@@ -201,6 +230,37 @@ def test_a_lookup_shows_exactly_what_threatsyft_returned(tmp_path: Path) -> None
     assert calls == ["8.8.8.8"]
 
 
+def test_a_cve_or_threat_actor_goes_to_threatsyfts_lookup_tool(tmp_path: Path) -> None:
+    """References use lookup, and its result arrives unaltered."""
+    calls: list[str] = []
+
+    async def visit(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.post("/api/tools/lookup", json={"reference": "APT29"})
+
+    response = _visit(tmp_path, _model("unused"), visit, _threatsyft(calls))
+
+    assert response.status_code == 200
+    assert response.json() == LOOKED_UP
+    assert calls == ["APT29"]
+
+
+def test_the_page_can_only_reach_the_tools_it_offers(tmp_path: Path) -> None:
+    """Any other ThreatSyft tool is refused before anything is connected."""
+    loads: list[int] = []
+
+    async def counted_load() -> dict[str, BaseTool]:
+        loads.append(1)
+        return {}
+
+    async def visit(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.post("/api/tools/extract_iocs", json={"text": "1.1.1.1"})
+
+    response = _visit(tmp_path, _model("unused"), visit, counted_load)
+
+    assert response.status_code == 404
+    assert loads == []
+
+
 def test_threatsyft_connects_on_the_first_lookup_and_only_once(
     tmp_path: Path,
 ) -> None:
@@ -208,7 +268,7 @@ def test_threatsyft_connects_on_the_first_lookup_and_only_once(
     loads: list[int] = []
     load_tool = _threatsyft([])
 
-    async def counted_load() -> BaseTool:
+    async def counted_load() -> dict[str, BaseTool]:
         loads.append(1)
         return await load_tool()
 
@@ -227,7 +287,7 @@ def test_threatsyft_being_unavailable_says_why_and_chat_still_works(
 ) -> None:
     """A missing lookup service costs the lookup, not the rest of the site."""
 
-    async def unavailable() -> BaseTool:
+    async def unavailable() -> dict[str, BaseTool]:
         raise ValueError("THREATSYFT_ROOT is required")
 
     async def visit(client: httpx.AsyncClient) -> tuple[httpx.Response, int]:

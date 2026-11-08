@@ -134,10 +134,9 @@ async def build_threat_intel_graph() -> CompiledStateGraph:
     return create_threat_intel_graph(*tools, model, report_store=threat_report_store)
 
 
-async def load_enrich_tool() -> BaseTool:
-    """The one ThreatSyft tool the web site's Tools page calls."""
-    _extract_tool, enrich_tool, _lookup_tool, _search_tool = await _threatsyft_tools()
-    return enrich_tool
+async def load_threatsyft_by_name() -> dict[str, BaseTool]:
+    """The approved ThreatSyft tools, for the web site to pick from by name."""
+    return {tool.name: tool for tool in await _threatsyft_tools()}
 
 
 async def build_oris_graph(

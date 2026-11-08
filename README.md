@@ -6,7 +6,7 @@ questions and scheduled research with predictable workflows, cited evidence,
 durable local history, and local traces that make its activity easy to inspect.
 
 The current application is a local assistant and web researcher, usable from a
-plain command line or a tabbed terminal interface. It can
+plain command line, a tabbed terminal interface, or a simple web site. It can
 chat directly, research the open web, collect community and preprint
 information from X, Hacker News and arXiv, summarize recent episodes from
 configured podcast feeds, and search earlier conversations and scheduled
@@ -173,9 +173,9 @@ record, not as part of routine setup.
 
 ### Remote use
 
-There is no server and nothing to connect to. Both front ends are terminal
-programs talking to a local SQLite database, so working on another machine means
-an SSH session:
+The [web site](#web-site) is the one interface you connect to over the network.
+The two terminal front ends talk to a local SQLite database, so using them from
+another machine means an SSH session:
 
 ```shell
 ssh <host> -t 'tmux new -A -s oris'
@@ -381,6 +381,31 @@ reports on the same case file side by side.
 
 Task-specific system prompts are version-controlled in `src/oris/prompts/` and
 are loaded when the application starts.
+
+## Web site
+
+ORIS can serve a small web site to your local network:
+
+```shell
+uv run oris-web
+```
+
+Then open `http://<oris-machine>:8420` from that machine or any other device on
+the network. **There is no login**, so anyone who can reach that port can use it.
+Only run it on a network you trust.
+
+So far the site is plain chat with the model. It does not use the specialists
+or slash commands, and its answers are not added to the `/recall` archive. Each
+conversation has its own address, so refreshing keeps your place, and **New
+chat** starts another. Conversations are saved with the ones from `oris` and
+`oris-tui`, and appear in the terminal interface's session list.
+
+Images in an answer appear as links and are not loaded. Answers can carry text
+from the open web, and a browser fetches an image as soon as it appears, so a
+planted image address could send conversation text to someone else's server.
+
+The answer appears all at once when it is finished. If you close the tab during
+a turn, you may not see that answer until you reload the conversation.
 
 ## Terminal interface
 

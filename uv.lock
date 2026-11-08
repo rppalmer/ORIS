@@ -799,10 +799,13 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
+    { name = "markdown-it-py" },
     { name = "openinference-instrumentation-langchain" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "rich" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -827,11 +830,14 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=1.4.0" },
     { name = "langgraph", specifier = ">=1.2,<2.0" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0,<4.0" },
+    { name = "markdown-it-py", specifier = ">=4.0,<5.0" },
     { name = "openinference-instrumentation-langchain", specifier = ">=0.1.67" },
     { name = "pydantic", specifier = ">=2.10,<3.0" },
     { name = "pydantic-settings", specifier = ">=2.10,<3.0" },
     { name = "rich", specifier = ">=15.0.0" },
+    { name = "starlette", specifier = ">=1.0,<2.0" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.80" },
+    { name = "uvicorn", specifier = ">=0.52,<1.0" },
 ]
 provides-extras = ["tui"]
 

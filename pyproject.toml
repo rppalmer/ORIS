@@ -18,15 +18,23 @@ dependencies = [
     "langchain-openai>=1.4.0",
     "langgraph>=1.2,<2.0",
     "langgraph-checkpoint-sqlite>=3.0,<4.0",
+    # Imported directly to turn answers into safe HTML for the web site. Already
+    # present under rich; named here because the package imports it.
+    "markdown-it-py>=4.0,<5.0",
     "openinference-instrumentation-langchain>=0.1.67",
     "pydantic>=2.10,<3.0",
     "pydantic-settings>=2.10,<3.0",
     "rich>=15.0.0",
+    # The web site's routes and server. Already present under the MCP client;
+    # named here because the package imports them.
+    "starlette>=1.0,<2.0",
+    "uvicorn>=0.52,<1.0",
 ]
 
 [project.scripts]
 oris = "oris.cli:main"
 oris-tui = "oris.tui:main"
+oris-web = "oris.web:main"
 oris-run-scheduled = "oris.scheduled_runs:main"
 oris-scheduler = "oris.scheduler:main"
 oris-phoenix = "oris.phoenix:main"

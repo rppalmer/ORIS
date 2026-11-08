@@ -58,15 +58,22 @@ about "schedules" reaches a document that says "scheduled". Direct chat
 leads with the answer and expands only when depth is requested — a prompt-only
 behaviour, with no output truncation or graph change.
 
-There are two front ends over that one graph. The command line is the floor: it
+There are three front ends over that one graph. The command line is the floor: it
 has no optional dependency, works over a plain SSH session, and is what a piped
 or scripted run gets. The tabbed terminal interface adds session switching,
 deletion, and an activity view built from the traces Phoenix already collected;
-`textual` stays an optional extra. Neither owns behaviour the other lacks — the
-command vocabulary, the reading of a typed line, the command reference, the
-turn runner, and the rule for what gets archived are each defined once and used
-by both. Which becomes the primary interface is still open and waiting on real
-use.
+`textual` stays an optional extra. Neither of those two owns behaviour the other
+lacks — the command vocabulary, the reading of a typed line, the command
+reference, the turn runner, and the rule for what gets archived are each defined
+once and used by both.
+
+The web site is the third, and the interface ORIS is moving towards. It is not a
+copy of the terminal interface. It is being built one feature at a time and
+serves the trusted local network with no login. So far it is plain chat with the
+model: no specialists, slash commands or `/recall` archiving. The next planned
+feature is a tools page that looks up an IP address, domain and similar
+indicators and displays the results without involving the model. The terminal
+interface stays until a decision is made to remove it.
 
 Local Phoenix tracing, the project-owned APScheduler runtime, and scheduled run
 history are working. The scheduler can run Web Research or Podcast

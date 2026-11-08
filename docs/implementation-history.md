@@ -8,6 +8,62 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-11-08 — A web site, starting with plain chat
+
+ORIS can now serve a web site to the local network with `uv run oris-web`. It
+has one feature so far: plain chat with the model. Each conversation has its own
+address, and the answer appears formatted, with tables, code blocks and links.
+
+The direction changed. The terminal interface had become the main way ORIS was
+used, but a web site can be reached from any device and has advantages a
+terminal does not. The site is deliberately not the terminal interface in a
+browser. It starts small and gains one feature at a time. Nothing was removed,
+and the terminal interface still works.
+
+**The official LangGraph server was checked first and does not fit.** Agent
+Server's development mode is documented as being for development only. Hosting
+it properly needs Postgres, Redis, a license key and contact with LangChain's
+license server, which is a poor match for a local-first project. Agent Chat UI
+also sends no request mode, so ORIS would treat every message as plain chat and
+no specialist could ever run. A React page using `useStream` was rejected too: it
+needs a Node build and a server speaking LangGraph's protocol, and its main gain
+is word-by-word streaming, which this first version does not do.
+
+**So it is a small Starlette app and one HTML page, with no build step.**
+Starlette, Uvicorn and markdown-it-py were already installed through other
+packages. They are now named directly because ORIS imports them. Nothing new is
+installed.
+
+**The site calls the graph directly rather than through the shared turn
+runner.** The turn runner asks LangGraph for progress from inside specialists
+using `subgraphs=True`. With that option on, a failed node is re-raised to the
+caller even though the graph's own error handler has dealt with it. Plain chat
+shows no progress steps, so it has no need for that option, and a failed turn
+comes back as an ordinary result that names the fault. The command line and the
+terminal interface still use the turn runner and are still exposed to this.
+
+**Answers are made safe on the server.** Raw HTML in an answer is shown as text.
+Images become links, because answers can carry text from the open web and a
+browser fetches an image as soon as it appears. A planted address could send
+conversation text to someone else's server. A terminal only ever printed that
+address, so this risk is new with the browser.
+
+**The server chooses each conversation's ID.** Browsers only provide random
+UUIDs on HTTPS or localhost, and other devices reach this site over plain HTTP.
+
+**Some things were left out on purpose.** There is no login, because the network
+is trusted and authentication can come later. A closed tab or two tabs on one
+conversation are not guarded against, because they carry the same risks as SSH
+sessions. Web chats are not added to the `/recall` archive, because how that
+works may change.
+
+Checked with six tests over HTTP against the real graph and a real database,
+with only the model scripted. Then checked against the deployed model through
+the site's network address: the page's own JavaScript loaded a new conversation,
+sent a message and showed a real answer in about seven seconds, including a
+table and a code block, with no image loaded. Reloading restored the
+conversation, and a later turn remembered an earlier one.
+
 ## 2026-09-19 — Web Research chooses what to read instead of reading the top five
 
 A run searched, took whatever the engine ranked first, and read all of it. The

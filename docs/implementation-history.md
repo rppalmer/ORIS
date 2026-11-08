@@ -8,6 +8,16 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-11-08 — Search can choose its time window and result count
+
+The Search page shipped with a fixed 7 days and Net-Razor's default of 10 results
+per source. It now has a menu for each: 1 day to 1 year, and 10, 25 or 50 results.
+It still starts at 7 days and 10 results, for the reasons in the entry below.
+
+ORIS does not check the values the page sends. Net-Razor owns those limits and
+refuses anything outside them, with its own reason. The Runs page is different:
+it checks its page size because ORIS itself owns that list.
+
 ## 2026-11-08 — The web site can search Hacker News, X, arXiv and GitHub
 
 The site gained a Search page. One box, and a choice of All, Hacker News, X, arXiv

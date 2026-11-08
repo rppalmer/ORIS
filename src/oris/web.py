@@ -56,12 +56,6 @@ LOOKUP_TOOLS = frozenset({"enrich", "lookup"})
 _RECORDED_RUNS = ScheduledRunHistory(DEFAULT_ROOT)
 PAGE_SIZES = (20, 50, 100)
 """How many runs one page of the Runs list can show."""
-SEARCH_DAYS = 7
-"""How far back a search looks.
-
-A week because arXiv is always searched over at least that long, as it only
-announces on weekdays, and a single day across GitHub usually finds nothing.
-"""
 
 # Answers can carry text from the open web, and the page inserts this output as
 # HTML, so raw HTML stays off. Images stay off as well: a browser fetches one the
@@ -249,14 +243,15 @@ def create_app(
             if research is None:
                 research = await load_search()
             body = await request.json()
-            # Net-Razor checks the sources and reports each one's failure itself.
+            # Net-Razor checks these choices and reports each source's failure.
             return JSONResponse(
                 await call_net_razor_tool(
                     research,
                     {
                         "topic": body["query"],
                         "sources": body["sources"],
-                        "days": SEARCH_DAYS,
+                        "days": body["days"],
+                        "max_results_per_source": body["limit"],
                     },
                 )
             )

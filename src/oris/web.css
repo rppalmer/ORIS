@@ -146,3 +146,16 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .lookup #status { max-width: 46rem; margin: 0.75rem auto 0; color: var(--muted); }
 .lookup #status.error { color: var(--error); }
+
+/* Menus, on the Runs and Search pages. */
+.controls { display: flex; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.controls label { color: var(--muted); font-size: 0.9rem; }
+select {
+  margin-left: 0.3rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--page);
+  color: var(--text);
+  font: inherit;
+}

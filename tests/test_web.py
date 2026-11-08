@@ -722,10 +722,17 @@ def _search(calls: list[dict[str, Any]]) -> Callable[[], Awaitable[BaseTool]]:
 
     @tool("net_razor_research", response_format="content_and_artifact")
     async def research(
-        topic: str, sources: list[str], days: int
+        topic: str, sources: list[str], days: int, max_results_per_source: int
     ) -> tuple[str, dict[str, Any]]:
         """Stand in for Net-Razor's research tool."""
-        calls.append({"topic": topic, "sources": sources, "days": days})
+        calls.append(
+            {
+                "topic": topic,
+                "sources": sources,
+                "days": days,
+                "max_results_per_source": max_results_per_source,
+            }
+        )
         return "", {"structured_content": SEARCH_ANSWER}
 
     async def load() -> BaseTool:
@@ -738,19 +745,30 @@ def _search(calls: list[dict[str, Any]]) -> Callable[[], Awaitable[BaseTool]]:
 def test_a_search_asks_for_the_chosen_sources_and_shows_the_whole_answer(
     tmp_path: Path,
 ) -> None:
-    """Results and per-source failures both reach the page, unaltered."""
+    """The page's choices reach Net-Razor, and its whole answer comes back."""
     calls: list[dict[str, Any]] = []
 
     async def visit(client: httpx.AsyncClient) -> httpx.Response:
         return await client.post(
-            "/api/search", json={"query": "langgraph", "sources": ["hn", "x"]}
+            "/api/search",
+            json={
+                "query": "langgraph",
+                "sources": ["hn", "x"],
+                "days": 30,
+                "limit": 25,
+            },
         )
 
     response = _visit(tmp_path, _model("unused"), visit, load_search=_search(calls))
 
     assert response.status_code == 200
     assert response.json() == SEARCH_ANSWER
-    assert calls[-1] == {"topic": "langgraph", "sources": ["hn", "x"], "days": 7}
+    assert calls[-1] == {
+        "topic": "langgraph",
+        "sources": ["hn", "x"],
+        "days": 30,
+        "max_results_per_source": 25,
+    }
 
 
 def test_net_razor_connects_on_the_first_search_and_only_once(tmp_path: Path) -> None:
@@ -759,7 +777,10 @@ def test_net_razor_connects_on_the_first_search_and_only_once(tmp_path: Path) ->
 
     async def visit(client: httpx.AsyncClient) -> None:
         for _ in range(2):
-            await client.post("/api/search", json={"query": "a", "sources": ["hn"]})
+            await client.post(
+                "/api/search",
+                json={"query": "a", "sources": ["hn"], "days": 7, "limit": 10},
+            )
 
     _visit(tmp_path, _model("unused"), visit, load_search=_search(calls))
 

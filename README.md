@@ -424,14 +424,16 @@ are not saved, and text from providers is shown as plain text with nothing
 clickable.
 
 **Search** looks through Hacker News, X, arXiv and GitHub through Net-Razor, one
-at a time or all at once, over the last 7 days. It shows up to 10 results from
-each source, with links to the originals. The model is not involved, and results
-are not ranked or merged, so **All** lists each source under its own heading. A
-source that fails shows its reason and the others still appear. A search only runs
+at a time or all at once, with links to the originals. Menus choose how far back
+to look, from 1 day to 1 year, and how many results to show from each source, up
+to 50. It starts at 7 days and 10 results. arXiv is always searched over at least
+a week, because it only announces on weekdays, and each heading shows the date
+that source searched from. The model is not involved, and results are not ranked
+or merged, so **All** lists each source under its own heading. A source that fails shows its reason and the others still appear. A search only runs
 when you press **Search**, because X searches use your own account. Net-Razor must
 be configured, as it is for `/community`; if it is not, the page says so and chat
-still works. GitHub search needs a version of Net-Razor that includes GitHub, and
-without one the GitHub and All choices report an error.
+still works. GitHub search needs a current version of Net-Razor, and without one
+the GitHub and All choices report an error.
 
 **Status** shows which ThreatSyft providers have their API keys, and when each
 local catalog was downloaded along with the command that refreshes it. It only

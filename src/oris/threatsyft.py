@@ -24,6 +24,14 @@ THREAT_INTEL_TOOL_NAMES = (
     "search",
 )
 
+# What the web site calls: two lookups, and the two local status reports.
+WEB_TOOL_NAMES = (
+    "enrich",
+    "lookup",
+    "enrichment_status",
+    "knowledge_status",
+)
+
 
 def create_threatsyft_client(
     python_executable: Path,
@@ -68,16 +76,15 @@ def create_threatsyft_client(
 async def load_threat_intel_tools(
     python_executable: Path,
     project_root: Path,
+    names: tuple[str, ...] = THREAT_INTEL_TOOL_NAMES,
 ) -> tuple[BaseTool, ...]:
-    """Load only the MCP tools approved for Threat Intel, in a fixed order."""
+    """Load only the named MCP tools, in the order they are named."""
     client = create_threatsyft_client(python_executable, project_root)
     available_tools = await client.get_tools()
     tools_by_name = {tool.name: tool for tool in available_tools}
-    missing_tools = [
-        name for name in THREAT_INTEL_TOOL_NAMES if name not in tools_by_name
-    ]
+    missing_tools = [name for name in names if name not in tools_by_name]
     if missing_tools:
         raise RuntimeError(
             f"ThreatSyft is missing required MCP tools: {', '.join(missing_tools)}"
         )
-    return tuple(tools_by_name[name] for name in THREAT_INTEL_TOOL_NAMES)
+    return tuple(tools_by_name[name] for name in names)

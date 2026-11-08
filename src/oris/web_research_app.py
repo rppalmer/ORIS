@@ -27,7 +27,11 @@ from oris.podcast_catch_up import (
 from oris.read_state import ProcessedItemStore
 from oris.threat_intel import create_threat_intel_graph
 from oris.threat_reports import ThreatReportStore
-from oris.threatsyft import load_threat_intel_tools
+from oris.threatsyft import (
+    THREAT_INTEL_TOOL_NAMES,
+    WEB_TOOL_NAMES,
+    load_threat_intel_tools,
+)
 from oris.web_research import create_web_research_graph
 
 settings = load_settings()
@@ -116,8 +120,8 @@ async def build_podcast_catch_up_graph() -> CompiledStateGraph:
     )
 
 
-async def _threatsyft_tools() -> tuple[BaseTool, ...]:
-    """Load the approved ThreatSyft tools, or say why they cannot be loaded."""
+async def _threatsyft_tools(names: tuple[str, ...]) -> tuple[BaseTool, ...]:
+    """Load the named ThreatSyft tools, or say why they cannot be loaded."""
     python_executable = settings.threatsyft_python_executable
     project_root = settings.threatsyft_root
     if python_executable is None or project_root is None:
@@ -125,18 +129,18 @@ async def _threatsyft_tools() -> tuple[BaseTool, ...]:
             "THREATSYFT_PYTHON_EXECUTABLE and THREATSYFT_ROOT are required "
             "for Threat Intel"
         )
-    return await load_threat_intel_tools(python_executable, project_root)
+    return await load_threat_intel_tools(python_executable, project_root, names)
 
 
 async def build_threat_intel_graph() -> CompiledStateGraph:
     """Load the approved ThreatSyft tools and compile Threat Intel."""
-    tools = await _threatsyft_tools()
+    tools = await _threatsyft_tools(THREAT_INTEL_TOOL_NAMES)
     return create_threat_intel_graph(*tools, model, report_store=threat_report_store)
 
 
 async def load_threatsyft_by_name() -> dict[str, BaseTool]:
-    """The approved ThreatSyft tools, for the web site to pick from by name."""
-    return {tool.name: tool for tool in await _threatsyft_tools()}
+    """The ThreatSyft tools the web site uses, to pick from by name."""
+    return {tool.name: tool for tool in await _threatsyft_tools(WEB_TOOL_NAMES)}
 
 
 async def build_oris_graph(

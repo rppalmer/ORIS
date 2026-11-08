@@ -98,9 +98,10 @@
 <body>
 <header>
   <div class="brand">ORIS</div>
-  <nav><span aria-current="page">Chat</span><a href="/tools" target="_self">Tools</a></nav>
+  <nav></nav>
   <a class="new-chat" href="/" target="_self">New chat</a>
 </header>
+<script src="/web.js"></script>
 <main>
   <div id="log" aria-live="polite">
     <p id="empty" hidden>Ask anything.</p>
@@ -202,9 +203,6 @@
   });
 
   load();
-
-  // So the Tools page can link back to this conversation.
-  sessionStorage.setItem("oris-chat", location.pathname);
 </script>
 </body>
 </html>

@@ -67,3 +67,13 @@ button {
   cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: default; }
+
+.data-table { border-collapse: collapse; font-size: 0.88rem; }
+.data-table th, .data-table td {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: normal;
+}
+.data-table th { background: var(--surface); font-weight: 600; }

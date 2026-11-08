@@ -72,7 +72,7 @@ copy of the terminal interface. It is being built one feature at a time and
 serves the trusted local network with no login. So far it has plain chat with the
 model, without specialists, slash commands or `/recall` archiving, and a tools
 page that looks up indicators, CVEs and threat actors through ThreatSyft without
-involving the model. The
+involving the model, and a status page showing whether ThreatSyft is ready. The
 terminal interface stays until a decision is made to remove it.
 
 Local Phoenix tracing, the project-owned APScheduler runtime, and scheduled run

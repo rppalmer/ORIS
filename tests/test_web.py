@@ -194,6 +194,45 @@ LOOKED_UP = {
 }
 
 
+ENRICHMENT_STATUS = {
+    "ok": True,
+    "tool": "enrichment_status",
+    "query": {},
+    "data": {
+        "providers": {
+            "shodan": {
+                "api_keys": {"SHODAN_API_KEY": False},
+                "configured": False,
+                "key_optional": False,
+                "usable": False,
+                "indicator_types": ["ip"],
+            }
+        },
+        "keyless_sources": {"dns": "DNS records."},
+        "secret_values_returned": False,
+    },
+    "error": None,
+}
+
+KNOWLEDGE_STATUS = {
+    "ok": True,
+    "tool": "knowledge_status",
+    "query": {},
+    "data": {
+        "ready": True,
+        "snapshots": {
+            "kev": {
+                "status": "available",
+                "file_modified_at": "2026-08-12T01:32:17+00:00",
+                "setup_command": "threatsyft-update kev",
+                "counts": {"vulnerabilities": 1665},
+            }
+        },
+    },
+    "error": None,
+}
+
+
 def _threatsyft(calls: list[str]) -> Callable[[], Awaitable[dict[str, BaseTool]]]:
     """Real LangChain tools answering the way the MCP adapter's tools do."""
 
@@ -209,8 +248,23 @@ def _threatsyft(calls: list[str]) -> Callable[[], Awaitable[dict[str, BaseTool]]
         calls.append(reference)
         return "", {"structured_content": LOOKED_UP}
 
+    @tool("enrichment_status", response_format="content_and_artifact")
+    async def enrichment_status() -> tuple[str, dict[str, Any]]:
+        """Stand in for ThreatSyft's enrichment_status tool."""
+        return "", {"structured_content": ENRICHMENT_STATUS}
+
+    @tool("knowledge_status", response_format="content_and_artifact")
+    async def knowledge_status() -> tuple[str, dict[str, Any]]:
+        """Stand in for ThreatSyft's knowledge_status tool."""
+        return "", {"structured_content": KNOWLEDGE_STATUS}
+
     async def load() -> dict[str, BaseTool]:
-        return {"enrich": enrich, "lookup": lookup}
+        return {
+            "enrich": enrich,
+            "lookup": lookup,
+            "enrichment_status": enrichment_status,
+            "knowledge_status": knowledge_status,
+        }
 
     return load
 
@@ -302,15 +356,63 @@ def test_threatsyft_being_unavailable_says_why_and_chat_still_works(
     assert chat_status == 200
 
 
-def test_the_tools_page_and_shared_styles_are_served(tmp_path: Path) -> None:
-    """Both pages depend on these files existing where the site says they are."""
+def test_the_status_page_reports_providers_and_catalogs(tmp_path: Path) -> None:
+    """Both of ThreatSyft's status answers arrive unaltered, side by side."""
 
-    async def visit(client: httpx.AsyncClient) -> tuple[httpx.Response, httpx.Response]:
-        return await client.get("/tools"), await client.get("/web.css")
+    async def visit(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.get("/api/status")
 
-    page, styles = _visit(tmp_path, _model("unused"), visit)
+    response = _visit(tmp_path, _model("unused"), visit, _threatsyft([]))
 
-    assert page.status_code == 200
-    assert "text/html" in page.headers["content-type"]
-    assert styles.status_code == 200
-    assert "text/css" in styles.headers["content-type"]
+    assert response.status_code == 200
+    assert response.json() == {
+        "enrichment": ENRICHMENT_STATUS,
+        "knowledge": KNOWLEDGE_STATUS,
+    }
+
+
+def test_the_status_page_says_why_when_threatsyft_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    """The one page about whether ThreatSyft works must survive it not working."""
+
+    async def unavailable() -> dict[str, BaseTool]:
+        raise ValueError("THREATSYFT_ROOT is required")
+
+    async def visit(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.get("/api/status")
+
+    response = _visit(tmp_path, _model("unused"), visit, unavailable)
+
+    assert response.status_code == 502
+    assert "THREATSYFT_ROOT is required" in response.json()["error"]
+
+
+def test_the_status_tools_cannot_be_called_as_lookups(tmp_path: Path) -> None:
+    """Being loaded for the status page does not put them in the lookup route."""
+
+    async def visit(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.post("/api/tools/knowledge_status", json={})
+
+    response = _visit(tmp_path, _model("unused"), visit, _threatsyft([]))
+
+    assert response.status_code == 404
+
+
+def test_the_pages_and_shared_files_are_served(tmp_path: Path) -> None:
+    """Every page depends on these files existing where the site says they are."""
+    wanted = {
+        "/tools": "text/html",
+        "/status": "text/html",
+        "/web.css": "text/css",
+        "/web.js": "javascript",
+    }
+
+    async def visit(client: httpx.AsyncClient) -> dict[str, httpx.Response]:
+        return {path: await client.get(path) for path in wanted}
+
+    responses = _visit(tmp_path, _model("unused"), visit)
+
+    for path, content_type in wanted.items():
+        assert responses[path].status_code == 200, path
+        assert content_type in responses[path].headers["content-type"], path

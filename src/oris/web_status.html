@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ORIS Status</title>
+<link rel="stylesheet" href="/web.css">
+<style>
+  main { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  h1 { margin: 0; font-size: 1.35rem; }
+  #summary { margin: 0.15rem 0 1.5rem; color: var(--muted); }
+  #summary.error { color: var(--error); }
+  h2 { margin: 1.5rem 0 0.5rem; font-size: 1rem; }
+  .scroll { overflow-x: auto; }
+  .data-table { width: 100%; }
+  .bad { color: var(--error); }
+  .note { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.9rem; }
+  code { font-family: var(--mono); font-size: 0.85em; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">ORIS</div>
+  <nav></nav>
+</header>
+<script src="/web.js"></script>
+<main>
+  <h1>Status</h1>
+  <p id="summary" role="status">Checking ThreatSyft…</p>
+  <div id="report" hidden>
+    <h2>Providers</h2>
+    <div class="scroll"><table class="data-table" id="providers"></table></div>
+    <p class="note" id="keyless"></p>
+    <h2>Local catalogs</h2>
+    <div class="scroll"><table class="data-table" id="catalogs"></table></div>
+  </div>
+</main>
+<script>
+  const summary = document.querySelector("#summary");
+  const report = document.querySelector("#report");
+
+  function fillTable(table, headings, rows) {
+    const heading = table.createTHead().insertRow();
+    for (const text of headings) {
+      const cell = document.createElement("th");
+      cell.textContent = text;
+      heading.append(cell);
+    }
+    const body = table.createTBody();
+    for (const { cells, bad } of rows) {
+      const row = body.insertRow();
+      if (bad) row.className = "bad";
+      for (const text of cells) row.insertCell().textContent = text;
+    }
+  }
+
+  function providerRows(enrichment, knowledge) {
+    const rows = Object.entries(enrichment.providers).map(([name, provider]) => {
+      const missing = Object.entries(provider.api_keys)
+        .filter(([, present]) => !present)
+        .map(([key]) => key);
+      return {
+        cells: [
+          name,
+          provider.usable ? "ready" : "not ready",
+          provider.indicator_types.join(", "),
+          missing.join(", ") || "—",
+        ],
+        bad: !provider.usable,
+      };
+    });
+    // NVD answers CVE lookups and is reported separately by ThreatSyft.
+    for (const [use, tool] of Object.entries(knowledge.live_tools ?? {})) {
+      rows.push({
+        cells: [
+          tool.provider,
+          tool.api_key_configured ? "ready" : "no key set",
+          use.replaceAll("_", " "),
+          tool.api_key_configured ? "—" : tool.api_key_name,
+        ],
+        bad: false,
+      });
+    }
+    return rows;
+  }
+
+  function age(moment) {
+    const days = Math.floor((Date.now() - new Date(moment)) / 86400000);
+    if (days < 1) return "today";
+    return days === 1 ? "1 day ago" : `${days} days ago`;
+  }
+
+  function catalogRows(knowledge) {
+    return Object.entries(knowledge.snapshots).map(([name, snapshot]) => {
+      const available = snapshot.status === "available";
+      const records = Object.entries(snapshot.counts ?? {})
+        .map(([kind, count]) => `${count.toLocaleString()} ${kind}`)
+        .join(", ");
+      return {
+        cells: [
+          name,
+          available ? "available" : (snapshot.error || snapshot.status),
+          snapshot.file_modified_at ? age(snapshot.file_modified_at) : "—",
+          records || "—",
+          snapshot.setup_command,
+        ],
+        bad: !available,
+      };
+    });
+  }
+
+  function show(enrichment, knowledge) {
+    const providers = Object.values(enrichment.providers);
+    const ready = providers.filter((provider) => provider.usable).length;
+    const catalogs = Object.values(knowledge.snapshots);
+    const available = catalogs.filter((catalog) => catalog.status === "available").length;
+    summary.textContent = `${ready} of ${providers.length} providers ready · ` +
+      `${available} of ${catalogs.length} local catalogs available`;
+    fillTable(
+      document.querySelector("#providers"),
+      ["Provider", "State", "Used for", "Missing key"],
+      providerRows(enrichment, knowledge),
+    );
+    document.querySelector("#keyless").textContent =
+      `No key needed: ${Object.keys(enrichment.keyless_sources).join(", ")}`;
+    fillTable(
+      document.querySelector("#catalogs"),
+      ["Catalog", "State", "Downloaded", "Records", "Refresh with"],
+      catalogRows(knowledge),
+    );
+    report.hidden = false;
+  }
+
+  function fail(text) {
+    summary.textContent = text;
+    summary.className = "error";
+  }
+
+  async function load() {
+    try {
+      const response = await fetch("/api/status");
+      const body = await response.json().catch(() => ({}));
+      const failed = [body.enrichment, body.knowledge].find((answer) => answer && !answer.ok);
+      if (failed) fail(failed.error.message);
+      else if (response.ok) show(body.enrichment.data, body.knowledge.data);
+      else fail(body.error || `The status check failed (${response.status}).`);
+    } catch {
+      fail("Could not reach ORIS.");
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>

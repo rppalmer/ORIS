@@ -80,9 +80,6 @@
   details summary { cursor: pointer; color: var(--accent); }
   details > div { margin-top: 0.3rem; }
   .table { overflow-x: auto; }
-  table { border-collapse: collapse; font-size: 0.88rem; }
-  th, td { padding: 0.2rem 0.6rem; border: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: normal; }
-  th { background: var(--surface); font-weight: 600; }
 
   #absent details { color: var(--muted); }
   #absent h3 { margin: 0.6rem 0 0; font-size: 0.92rem; color: var(--text); }
@@ -92,8 +89,9 @@
 <body>
 <header>
   <div class="brand">ORIS</div>
-  <nav><a id="chat" href="/">Chat</a><span aria-current="page">Tools</span></nav>
+  <nav></nav>
 </header>
+<script src="/web.js"></script>
 <main>
   <div class="modes" role="radiogroup" aria-label="What to look up">
     <label><input type="radio" name="mode" value="indicator" checked><span>Indicator</span></label>
@@ -169,7 +167,7 @@
 
   function drawTable(rows) {
     const columns = columnsOf(rows);
-    const table = element("table");
+    const table = element("table", undefined, "data-table");
     const heading = table.createTHead().insertRow();
     for (const column of columns) heading.append(element("th", column.replaceAll("_", " ")));
     const body = table.createTBody();
@@ -322,10 +320,6 @@
     });
   }
   applyMode();
-
-  // Back to the conversation this tab was in, which has no other way to be found.
-  const conversation = sessionStorage.getItem("oris-chat");
-  if (conversation) document.querySelector("#chat").href = conversation;
 </script>
 </body>
 </html>

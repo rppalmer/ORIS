@@ -8,6 +8,34 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-11-08 — The web site shows whether ThreatSyft is ready
+
+A new **Status** page lists each ThreatSyft provider with whether its API key is
+set, and each local catalog with when it was downloaded and how to refresh it.
+Before this, a missing key only showed up as a failed card in the middle of a
+lookup.
+
+**It runs on loading, unlike lookups.** ThreatSyft's two status tools read local
+configuration only, so loading the page contacts no provider and costs nothing.
+The status tools are kept off the lookup route, which offers only `enrich` and
+`lookup`.
+
+**Unlike the tools page, this page reads specific fields.** A status report is
+only useful as a short summary of a few known facts, so a general layout would
+have buried them. That makes it dependent on a handful of ThreatSyft's field
+names, which is acceptable for a page this small.
+
+**It shows a catalog's age and does not call it stale.** The status tools report
+when a file was downloaded but not how old is too old, and that limit differs by
+catalog. ThreatSyft already gives stale warnings at the top of a lookup, using its
+own limits. Judging it here would be a second copy of that rule.
+
+The site's navigation moved into one small shared script, since the same links
+on every page would otherwise be written out by hand on each.
+
+Checked with three more tests over HTTP, and against real ThreatSyft through the
+page's own JavaScript, including the navigation on all three pages.
+
 ## 2026-11-08 — The tools page also looks up CVEs and threat actors
 
 The Tools page now has a second mode, **CVE or threat actor**, which calls

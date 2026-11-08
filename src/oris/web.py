@@ -7,7 +7,7 @@ The site is being built one feature at a time. Chat is plain chat with the
 model, through the same graph the other interfaces use, so the system prompt,
 history limits, tracing and saved conversations all come from there. Tools looks
 up an indicator, CVE or threat actor with ThreatSyft and shows what came back,
-with no model involved.
+with no model involved. Status says whether ThreatSyft is ready to do that.
 """
 
 import asyncio
@@ -34,7 +34,9 @@ HOST = "0.0.0.0"
 PORT = 8420
 CHAT_PAGE = Path(__file__).with_name("web_chat.html")
 TOOLS_PAGE = Path(__file__).with_name("web_tools.html")
+STATUS_PAGE = Path(__file__).with_name("web_status.html")
 STYLES = Path(__file__).with_name("web.css")
+NAVIGATION = Path(__file__).with_name("web.js")
 LOOKUP_TOOLS = frozenset({"enrich", "lookup"})
 """The ThreatSyft tools the Tools page offers, and the only ones it can reach."""
 
@@ -50,6 +52,22 @@ def _message(role: str, text: str) -> dict[str, str]:
     if role == "you":
         return {"role": role, "text": text}
     return {"role": role, "html": _markdown.render(text)}
+
+
+def _file(path: Path, media_type: str) -> Callable[[Request], FileResponse]:
+    """A route that serves one of the site's own files."""
+
+    def serve(_request: Request) -> FileResponse:
+        return FileResponse(path, media_type=media_type)
+
+    return serve
+
+
+def _threatsyft_failed(error: Exception) -> JSONResponse:
+    return JSONResponse(
+        {"error": f"ThreatSyft could not answer: {error}"},
+        status_code=502,
+    )
 
 
 def create_app(
@@ -68,9 +86,6 @@ def create_app(
         # The server picks the ID because browsers only offer random UUIDs on
         # HTTPS or localhost, and other devices reach this over plain HTTP.
         return RedirectResponse(f"/chat/{uuid4()}", status_code=303)
-
-    def chat_page(_request: Request) -> FileResponse:
-        return FileResponse(CHAT_PAGE, media_type="text/html")
 
     def conversation(request: Request) -> JSONResponse:
         transcript = session_transcript(
@@ -97,34 +112,43 @@ def create_app(
             {"html": _markdown.render(str(result["messages"][-1].text))}
         )
 
-    def tools_page(_request: Request) -> FileResponse:
-        return FileResponse(TOOLS_PAGE, media_type="text/html")
-
-    def styles(_request: Request) -> FileResponse:
-        return FileResponse(STYLES, media_type="text/css")
+    async def connected() -> dict[str, BaseTool]:
+        nonlocal threatsyft
+        if threatsyft is None:
+            threatsyft = await load_threatsyft()
+        return threatsyft
 
     async def look_up(request: Request) -> JSONResponse:
-        nonlocal threatsyft
         name = request.path_params["tool"]
         if name not in LOOKUP_TOOLS:
             return JSONResponse({"error": f"No tool named {name}."}, status_code=404)
         try:
-            if threatsyft is None:
-                threatsyft = await load_threatsyft()
-            return JSONResponse(await call_tool(threatsyft[name], await request.json()))
+            tool = (await connected())[name]
+            return JSONResponse(await call_tool(tool, await request.json()))
         except Exception as error:  # noqa: BLE001 - a failed lookup is not a crash
-            return JSONResponse(
-                {"error": f"ThreatSyft could not run the lookup: {error}"},
-                status_code=502,
+            return _threatsyft_failed(error)
+
+    async def status(_request: Request) -> JSONResponse:
+        try:
+            tools = await connected()
+            enrichment, knowledge = await asyncio.gather(
+                call_tool(tools["enrichment_status"], {}),
+                call_tool(tools["knowledge_status"], {}),
             )
+        except Exception as error:  # noqa: BLE001 - this page reports exactly this
+            return _threatsyft_failed(error)
+        return JSONResponse({"enrichment": enrichment, "knowledge": knowledge})
 
     return Starlette(
         routes=[
             Route("/", new_conversation),
-            Route("/web.css", styles),
-            Route("/tools", tools_page),
+            Route("/web.css", _file(STYLES, "text/css")),
+            Route("/web.js", _file(NAVIGATION, "text/javascript")),
+            Route("/tools", _file(TOOLS_PAGE, "text/html")),
+            Route("/status", _file(STATUS_PAGE, "text/html")),
+            Route("/api/status", status),
             Route("/api/tools/{tool}", look_up, methods=["POST"]),
-            Route("/chat/{conversation_id:uuid}", chat_page),
+            Route("/chat/{conversation_id:uuid}", _file(CHAT_PAGE, "text/html")),
             Route("/api/chat/{conversation_id:uuid}", conversation),
             Route(
                 "/api/chat/{conversation_id:uuid}",

@@ -423,6 +423,11 @@ credits, so a lookup only runs when you press **Look up**. Reloading never repea
 are not saved, and text from providers is shown as plain text with nothing
 clickable.
 
+**Status** shows which ThreatSyft providers have their API keys, and when each
+local catalog was downloaded along with the command that refreshes it. It only
+reads local configuration, so it contacts no provider and spends no credits. Key
+values never appear, only whether each key is set.
+
 ## Terminal interface
 
 A tabbed terminal interface runs the same graph as `oris`, parses the same

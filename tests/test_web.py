@@ -6,7 +6,7 @@ and an answer back out, so everything between those two points stays real.
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -524,7 +524,6 @@ def test_a_shortened_list_says_how_much_it_left_out(tmp_path: Path) -> None:
 
     assert len(body["runs"]) == 20
     assert body["total"] == 22
-    assert body["truncated"] is True
 
 
 def test_an_unreadable_schedule_does_not_hide_the_run_history(tmp_path: Path) -> None:
@@ -585,3 +584,89 @@ def test_a_run_must_be_named_exactly(tmp_path: Path) -> None:
     write_record(tmp_path / "scheduled", "news", "2026-08-30T07:00:00Z", "abcdef-123")
 
     assert _get(tmp_path, "/api/runs/abcdef", site).status_code == 404
+
+
+def _many_runs(tmp_path: Path, count: int, job: str = "news", start: int = 0) -> None:
+    """Record `count` runs an hour apart, so `run-0` is always the oldest."""
+    first = datetime(2026, 8, 1, tzinfo=UTC)
+    for number in range(start, start + count):
+        started = first + timedelta(hours=number)
+        write_record(
+            tmp_path / "scheduled",
+            job,
+            started.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            f"run-{number}",
+        )
+
+
+def test_older_runs_can_be_reached_a_page_at_a_time(tmp_path: Path) -> None:
+    """Each page continues from the last, and the final page is whatever is left."""
+    site = _runs_site(tmp_path)
+    _many_runs(tmp_path, 45)
+
+    second = _get(tmp_path, "/api/runs?size=20&page=2", site).json()
+    last = _get(tmp_path, "/api/runs?size=20&page=3", site).json()
+
+    assert [run["run_id"] for run in second["runs"]][:2] == ["run-24", "run-23"]
+    assert len(second["runs"]) == 20
+    assert [run["run_id"] for run in last["runs"]] == [
+        "run-4",
+        "run-3",
+        "run-2",
+        "run-1",
+        "run-0",
+    ]
+    assert second["total"] == 45
+    assert second["page"] == 2
+
+
+def test_a_page_can_hold_20_50_or_100_runs(tmp_path: Path) -> None:
+    """Those three sizes work, and anything else falls back to the smallest."""
+    site = _runs_site(tmp_path)
+    _many_runs(tmp_path, 60)
+
+    sizes = {
+        wanted: len(_get(tmp_path, f"/api/runs?size={wanted}", site).json()["runs"])
+        for wanted in ("20", "50", "100", "7", "lots")
+    }
+
+    assert sizes == {"20": 20, "50": 50, "100": 60, "7": 20, "lots": 20}
+    assert _get(tmp_path, "/api/runs", site).json()["page_sizes"] == [20, 50, 100]
+
+
+def test_a_nonsense_page_number_shows_the_first_page(tmp_path: Path) -> None:
+    """The address can be edited by hand, and that must not break the page."""
+    site = _runs_site(tmp_path)
+    _many_runs(tmp_path, 3)
+
+    for page in ("0", "-1", "soon"):
+        body = _get(tmp_path, f"/api/runs?page={page}", site).json()
+        assert [run["run_id"] for run in body["runs"]][0] == "run-2", page
+        assert body["page"] == 1, page
+
+
+def test_runs_can_be_narrowed_to_one_job(tmp_path: Path) -> None:
+    """The count describes the filtered list, and every job stays selectable."""
+    site = _runs_site(tmp_path)
+    _many_runs(tmp_path, 3, job="news")
+    _many_runs(tmp_path, 2, job="podcasts", start=3)
+
+    body = _get(tmp_path, "/api/runs?job=podcasts", site).json()
+
+    assert [run["job_id"] for run in body["runs"]] == ["podcasts", "podcasts"]
+    assert body["total"] == 2
+    assert body["job"] == "podcasts"
+    assert body["job_ids"] == ["news", "podcasts"]
+
+
+def test_paging_applies_within_the_chosen_job(tmp_path: Path) -> None:
+    """Page two of one job is that job's next runs, not the whole history's."""
+    site = _runs_site(tmp_path)
+    _many_runs(tmp_path, 25, job="news")
+    _many_runs(tmp_path, 25, job="podcasts", start=25)
+
+    body = _get(tmp_path, "/api/runs?job=news&size=20&page=2", site).json()
+
+    assert body["total"] == 25
+    assert [run["run_id"] for run in body["runs"]][0] == "run-4"
+    assert {run["job_id"] for run in body["runs"]} == {"news"}

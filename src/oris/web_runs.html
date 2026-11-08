@@ -16,7 +16,24 @@
   .muted { color: var(--muted); }
   .note { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.9rem; }
   .bad { color: var(--error); }
-  .data-table a, .back { color: var(--accent); }
+  .data-table a, .back, .pager a { color: var(--accent); }
+  .runs-heading { display: flex; justify-content: space-between; align-items: end; gap: 1rem; flex-wrap: wrap; margin-top: 1.5rem; }
+  .runs-heading h2 { margin: 0 0 0.5rem; }
+  .controls { display: flex; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .controls label { color: var(--muted); font-size: 0.9rem; }
+  select {
+    margin-left: 0.3rem;
+    padding: 0.15rem 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 0.4rem;
+    background: var(--page);
+    color: var(--text);
+    font: inherit;
+  }
+  .pager { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-top: 0.6rem; font-size: 0.9rem; }
+  .pager a { text-decoration: none; }
+  .pager .off { visibility: hidden; }
+  #count { color: var(--muted); }
   .back { display: inline-block; margin-bottom: 0.75rem; font-size: 0.9rem; text-decoration: none; }
   .status-succeeded { color: var(--accent); }
   .status-failed, .status-unreadable { color: var(--error); }
@@ -49,9 +66,19 @@
     <h2>Jobs</h2>
     <p id="schedule-error" class="bad" hidden></p>
     <div class="scroll"><table class="data-table" id="jobs"></table></div>
-    <h2>Recent runs</h2>
+    <div class="runs-heading">
+      <h2>Recent runs</h2>
+      <div class="controls">
+        <label>Job<select id="job-filter"></select></label>
+        <label>Show<select id="page-size"></select></label>
+      </div>
+    </div>
     <div class="scroll"><table class="data-table" id="runs"></table></div>
-    <p class="note" id="count"></p>
+    <div class="pager">
+      <a id="previous" target="_self">← Previous</a>
+      <span id="count" role="status"></span>
+      <a id="next" target="_self">Next →</a>
+    </div>
   </div>
   <div id="detail" hidden>
     <a class="back" href="/runs" target="_self">← All runs</a>
@@ -113,7 +140,8 @@
     for (const run of runs) {
       const row = body.insertRow();
       const link = element("a", when(run.started_at));
-      link.href = `/runs/${encodeURIComponent(run.run_id)}`;
+      // Carries the list's address so "All runs" can return to this same page.
+      link.href = `/runs/${encodeURIComponent(run.run_id)}${location.search}`;
       link.target = "_self";
       row.insertCell().append(link);
       row.insertCell().textContent = run.job_id;
@@ -124,22 +152,82 @@
     }
   }
 
+  // The list's filter and page live in the address, so reloading or coming back
+  // from a report lands in the same place.
+  function addressWith(changes) {
+    const params = new URLSearchParams(location.search);
+    for (const [name, value] of Object.entries(changes)) {
+      if (value) params.set(name, value);
+      else params.delete(name);
+    }
+    const text = params.toString();
+    return text ? `/runs?${text}` : "/runs";
+  }
+
+  function fillSelect(select, options, chosen, onChoose) {
+    for (const [value, label] of options) {
+      const option = element("option", label);
+      option.value = value;
+      option.selected = value === chosen;
+      select.append(option);
+    }
+    select.addEventListener("change", () => onChoose(select.value));
+  }
+
+  function showControls(body) {
+    // Includes a job named in the address that has no runs, so the menu always
+    // agrees with what the list is showing.
+    const jobs = [...new Set([...body.job_ids, ...(body.job ? [body.job] : [])])];
+    fillSelect(
+      document.querySelector("#job-filter"),
+      [["", "All jobs"], ...jobs.map((job) => [job, job])],
+      body.job ?? "",
+      (job) => location.assign(addressWith({ job, page: null })),
+    );
+    fillSelect(
+      document.querySelector("#page-size"),
+      body.page_sizes.map((size) => [String(size), String(size)]),
+      String(body.size),
+      (size) => location.assign(addressWith({ size, page: null })),
+    );
+  }
+
+  function pageLink(link, page, available) {
+    link.classList.toggle("off", !available);
+    if (available) link.href = addressWith({ page: page === 1 ? null : page });
+  }
+
+  function countText(body, lastPage) {
+    if (body.total === 0) {
+      return body.job ? `No runs recorded for ${body.job}.` : "No scheduled runs recorded yet.";
+    }
+    if (body.runs.length === 0) return "Nothing on this page.";
+    const first = (body.page - 1) * body.size + 1;
+    const last = first + body.runs.length - 1;
+    return `Showing ${first}–${last} of ${body.total} · page ${body.page} of ${lastPage}`;
+  }
+
+  function showPager(body) {
+    const lastPage = Math.max(1, Math.ceil(body.total / body.size));
+    document.querySelector("#count").textContent = countText(body, lastPage);
+    pageLink(document.querySelector("#previous"), body.page - 1, body.page > 1);
+    pageLink(document.querySelector("#next"), body.page + 1, body.page < lastPage);
+  }
+
   function showList(body) {
     const failure = document.querySelector("#schedule-error");
     failure.textContent = body.schedule_error ?? "";
     failure.hidden = !body.schedule_error;
     if (body.jobs.length) showJobs(body.jobs);
     if (body.runs.length) showRuns(body.runs);
-    document.querySelector("#count").textContent = body.total === 0
-      ? "No scheduled runs recorded yet."
-      : body.truncated
-        ? `Showing ${body.runs.length} of ${body.total} runs.`
-        : `${body.total} ${body.total === 1 ? "run" : "runs"}.`;
+    showControls(body);
+    showPager(body);
     document.querySelector("#list").hidden = false;
   }
 
   function showDetail({ run, html }) {
     document.title = `${run.job_id} · ORIS Runs`;
+    document.querySelector(".back").href = `/runs${location.search}`;
     document.querySelector("#detail-title").textContent = run.job_id;
     const parts = [when(run.started_at), run.status];
     if (run.duration_seconds !== null) parts.push(`took ${took(run.duration_seconds)}`);
@@ -156,7 +244,7 @@
   }
 
   async function load() {
-    const address = wantedRun ? `/api/runs/${wantedRun}` : "/api/runs";
+    const address = wantedRun ? `/api/runs/${wantedRun}` : `/api/runs${location.search}`;
     try {
       const response = await fetch(address);
       const body = await response.json().catch(() => ({}));

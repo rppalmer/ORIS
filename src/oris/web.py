@@ -51,6 +51,8 @@ NAVIGATION = Path(__file__).with_name("web.js")
 LOOKUP_TOOLS = frozenset({"enrich", "lookup"})
 """The ThreatSyft tools the Tools page offers, and the only ones it can reach."""
 _RECORDED_RUNS = ScheduledRunHistory(DEFAULT_ROOT)
+PAGE_SIZES = (20, 50, 100)
+"""How many runs one page of the Runs list can show."""
 
 # Answers can carry text from the open web, and the page inserts this output as
 # HTML, so raw HTML stays off. Images stay off as well: a browser fetches one the
@@ -113,6 +115,15 @@ def _schedule(path: Path) -> dict[str, Any]:
             }
         )
     return {"jobs": jobs, "schedule_error": None}
+
+
+def _whole_number(value: str | None, default: int) -> int:
+    """Read a number from the address, which anyone can edit by hand."""
+    try:
+        number = int(value or "")
+    except ValueError:
+        return default
+    return number if number >= 1 else default
 
 
 def _run(run: ScheduledRun) -> dict[str, Any]:
@@ -201,14 +212,23 @@ def create_app(
             return _threatsyft_failed(error)
         return JSONResponse({"enrichment": enrichment, "knowledge": knowledge})
 
-    def run_list(_request: Request) -> JSONResponse:
-        listing = runs.recent()
+    def run_list(request: Request) -> JSONResponse:
+        size = _whole_number(request.query_params.get("size"), PAGE_SIZES[0])
+        if size not in PAGE_SIZES:
+            size = PAGE_SIZES[0]
+        page = _whole_number(request.query_params.get("page"), 1)
+        job = request.query_params.get("job") or None
+        listing = runs.recent(size, job_id=job, offset=(page - 1) * size)
         return JSONResponse(
             {
                 **_schedule(schedule_file),
                 "runs": [_run(run) for run in listing.runs],
                 "total": listing.total,
-                "truncated": listing.truncated,
+                "page": page,
+                "size": size,
+                "job": job,
+                "job_ids": list(runs.job_ids()),
+                "page_sizes": list(PAGE_SIZES),
             }
         )
 

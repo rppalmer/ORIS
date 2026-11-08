@@ -162,8 +162,13 @@ class ScheduledRunHistory:
         limit: int = DEFAULT_LIMIT,
         *,
         job_id: str | None = None,
+        offset: int = 0,
     ) -> ScheduledRunListing:
-        """Return runs newest first, saying how many there were in total."""
+        """Return one stretch of runs, newest first, and how many there are in all.
+
+        `offset` is how many of the newest runs to skip, which is what lets a
+        reader page back through a history longer than one listing.
+        """
         if limit < 1:
             raise ValueError("Scheduled run limit must be at least one")
         runs = [
@@ -176,10 +181,11 @@ class ScheduledRunHistory:
             key=lambda run: (run.started_at is not None, run.started_at),
             reverse=True,
         )
+        shown = tuple(runs[offset : offset + limit])
         return ScheduledRunListing(
-            runs=tuple(runs[:limit]),
+            runs=shown,
             total=len(runs),
-            truncated=len(runs) > limit,
+            truncated=len(shown) < len(runs),
             job_id=job_id,
         )
 

@@ -8,6 +8,26 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-11-08 — The Runs page can page through history and filter by job
+
+The Runs page stopped at the newest twenty runs, so anything older could not be
+reached. It now shows 20, 50 or 100 runs per page with Previous and Next, and a
+menu narrows the list to one job. The menu lists every job that has ever recorded
+a run, so a job since removed from the schedule can still be found.
+
+**The filter and page live in the address.** Opening a report and coming back
+returns to the same page of the same job, and the browser's Back button and reload
+both work without extra code. Keeping this state only in the page would have sent
+every return from a report back to the top.
+
+**Paging happens on the server,** using a new offset on the existing run history
+reader. The address can be edited by hand, so a size other than the three offered
+or a nonsense page number falls back to the first page instead of failing.
+
+Checked with five more tests over HTTP, and through the page's own JavaScript
+against the 24 real run records: paging, each size, both job filters, an unknown
+job, and returning from a report.
+
 ## 2026-11-08 — The web site shows scheduled jobs and past runs
 
 A new **Runs** page lists each scheduled job with when it next runs, then the

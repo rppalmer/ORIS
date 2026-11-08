@@ -567,6 +567,18 @@ that has never successfully run would be scheduling a guess.
 
 ### Interfaces
 
+- [ ] Stop a failed step from crashing the `oris` command line. If the model is
+  unreachable, `oris` exits with a Python traceback and the session ends. This
+  was reproduced on 2026-11-08 by pointing it at a dead address. The shared turn
+  runner streams with `subgraphs=True`, and with that option on LangGraph raises
+  the error to the caller even after the graph's own error handler has dealt with
+  it. The command line does not catch it. The terminal interface does, but shows
+  the raw error instead of the short message. The web chat does not use the turn
+  runner. The fix is to catch the error in the turn runner and return the same
+  failure result both interfaces already know how to show. Whether scheduled jobs
+  are affected has not been checked, and neither has whether this is a LangGraph
+  bug.
+
 - [x] Add schedule management to the terminal interface. Done
   2026-09-05: `/schedule` lists the jobs in `schedules.toml` with the date and
   time each next runs, and `/runs` lists recent scheduled runs and prints one

@@ -6,6 +6,7 @@ and an answer back out, so everything between those two points stays real.
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -15,8 +16,10 @@ import httpx
 from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from test_scheduled_run_history import write_record
 
 from oris.chat import create_oris_graph
+from oris.scheduled_run_history import ScheduledRunHistory
 from oris.web import create_app
 
 
@@ -40,13 +43,14 @@ def _visit(
     load_threatsyft: Callable[
         [], Awaitable[dict[str, BaseTool]]
     ] = _threatsyft_not_used,
+    **site: Any,
 ) -> Any:
     async def run() -> Any:
         database_path = tmp_path / "checkpoints.sqlite"
         async with AsyncSqliteSaver.from_conn_string(str(database_path)) as saver:
             graph = create_oris_graph(Mock(), Mock(), Mock(), model, checkpointer=saver)
             transport = httpx.ASGITransport(
-                app=create_app(graph, database_path, load_threatsyft)
+                app=create_app(graph, database_path, load_threatsyft, **site)
             )
             async with httpx.AsyncClient(
                 transport=transport, base_url="http://oris"
@@ -404,6 +408,8 @@ def test_the_pages_and_shared_files_are_served(tmp_path: Path) -> None:
     wanted = {
         "/tools": "text/html",
         "/status": "text/html",
+        "/runs": "text/html",
+        "/runs/any-run": "text/html",
         "/web.css": "text/css",
         "/web.js": "javascript",
     }
@@ -416,3 +422,166 @@ def test_the_pages_and_shared_files_are_served(tmp_path: Path) -> None:
     for path, content_type in wanted.items():
         assert responses[path].status_code == 200, path
         assert content_type in responses[path].headers["content-type"], path
+
+
+SCHEDULE = """
+timezone = "America/Detroit"
+
+[[jobs]]
+id = "good-job"
+enabled = true
+cron = "0 7 * * *"
+task = "web_research"
+prompt = "Research."
+date_window = "previous_day"
+search_category = "news"
+
+[[jobs]]
+id = "paused-job"
+enabled = false
+cron = "0 7 * * *"
+task = "web_research"
+prompt = "Research."
+date_window = "previous_day"
+search_category = "news"
+
+[[jobs]]
+id = "broken-job"
+enabled = true
+cron = "not a cron"
+task = "web_research"
+prompt = "Research."
+date_window = "previous_day"
+search_category = "news"
+"""
+
+
+def _runs_site(tmp_path: Path) -> dict[str, Any]:
+    schedule_file = tmp_path / "schedules.toml"
+    schedule_file.write_text(SCHEDULE, encoding="utf-8")
+    return {
+        "runs": ScheduledRunHistory(tmp_path / "scheduled"),
+        "schedule_file": schedule_file,
+    }
+
+
+def _get(tmp_path: Path, path: str, site: dict[str, Any]) -> httpx.Response:
+    async def visit(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.get(path)
+
+    return _visit(tmp_path, _model("unused"), visit, **site)
+
+
+def test_each_job_says_when_it_next_runs(tmp_path: Path) -> None:
+    """Disabled jobs have no next run, and a bad cron is named on its own row."""
+    jobs = _get(tmp_path, "/api/runs", _runs_site(tmp_path)).json()["jobs"]
+    by_id = {job["id"]: job for job in jobs}
+
+    next_run = datetime.fromisoformat(by_id["good-job"]["next_run"])
+    assert next_run > datetime.now(UTC)
+    assert by_id["paused-job"]["enabled"] is False
+    assert by_id["paused-job"]["next_run"] is None
+    assert by_id["broken-job"]["next_run"] is None
+    assert by_id["broken-job"]["problem"]
+
+
+def test_recent_runs_are_newest_first_and_failures_say_why(tmp_path: Path) -> None:
+    """A failed run keeps no report, so its row is the only trace of it."""
+    site = _runs_site(tmp_path)
+    root = tmp_path / "scheduled"
+    write_record(root, "news", "2026-08-30T07:00:00Z", "older")
+    write_record(
+        root,
+        "news",
+        "2026-08-31T07:00:00Z",
+        "newer",
+        status="failed",
+        error="model offline",
+        with_report=False,
+    )
+
+    runs = _get(tmp_path, "/api/runs", site).json()["runs"]
+
+    assert [run["run_id"] for run in runs] == ["newer", "older"]
+    assert runs[0]["status"] == "failed"
+    assert runs[0]["error"] == "model offline"
+    assert runs[0]["has_report"] is False
+    assert runs[1]["has_report"] is True
+
+
+def test_a_shortened_list_says_how_much_it_left_out(tmp_path: Path) -> None:
+    """A list that quietly stops at a limit reads as the complete history."""
+    site = _runs_site(tmp_path)
+    for day in range(1, 23):
+        write_record(
+            tmp_path / "scheduled",
+            "news",
+            f"2026-08-{day:02d}T07:00:00Z",
+            f"run-{day}",
+        )
+
+    body = _get(tmp_path, "/api/runs", site).json()
+
+    assert len(body["runs"]) == 20
+    assert body["total"] == 22
+    assert body["truncated"] is True
+
+
+def test_an_unreadable_schedule_does_not_hide_the_run_history(tmp_path: Path) -> None:
+    """Past runs are still true when the schedule file is missing or broken."""
+    write_record(tmp_path / "scheduled", "news", "2026-08-30T07:00:00Z", "only")
+    site = {
+        "runs": ScheduledRunHistory(tmp_path / "scheduled"),
+        "schedule_file": tmp_path / "missing.toml",
+    }
+
+    body = _get(tmp_path, "/api/runs", site).json()
+
+    assert "missing.toml" in body["schedule_error"]
+    assert body["jobs"] == []
+    assert [run["run_id"] for run in body["runs"]] == ["only"]
+
+
+def test_a_report_opens_formatted_and_safe(tmp_path: Path) -> None:
+    """Reports are built from web pages, so they get the same care as answers."""
+    site = _runs_site(tmp_path)
+    root = tmp_path / "scheduled"
+    write_record(root, "news", "2026-08-30T07:00:00Z", "with-report")
+    next(root.glob("news/*.md")).write_text(
+        "# Heading\n\n<script>alert(1)</script>\n\n![x](https://evil.example/a)\n",
+        encoding="utf-8",
+    )
+
+    body = _get(tmp_path, "/api/runs/with-report", site).json()
+
+    assert "<h1>Heading</h1>" in body["html"]
+    assert "<script" not in body["html"]
+    assert "<img" not in body["html"]
+    assert body["run"]["job_id"] == "news"
+
+
+def test_a_run_with_no_report_opens_with_its_reason(tmp_path: Path) -> None:
+    """Failures are worth opening, and there is simply no report to show."""
+    site = _runs_site(tmp_path)
+    write_record(
+        tmp_path / "scheduled",
+        "news",
+        "2026-08-30T07:00:00Z",
+        "failed-run",
+        status="failed",
+        error="model offline",
+        with_report=False,
+    )
+
+    body = _get(tmp_path, "/api/runs/failed-run", site).json()
+
+    assert body["html"] is None
+    assert body["run"]["error"] == "model offline"
+
+
+def test_a_run_must_be_named_exactly(tmp_path: Path) -> None:
+    """A partial ID could open the wrong run, so it opens nothing."""
+    site = _runs_site(tmp_path)
+    write_record(tmp_path / "scheduled", "news", "2026-08-30T07:00:00Z", "abcdef-123")
+
+    assert _get(tmp_path, "/api/runs/abcdef", site).status_code == 404

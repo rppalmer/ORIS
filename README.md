@@ -428,6 +428,13 @@ local catalog was downloaded along with the command that refreshes it. It only
 reads local configuration, so it contacts no provider and spends no credits. Key
 values never appear, only whether each key is set.
 
+**Runs** lists the scheduled jobs with when each next runs, then the most recent
+runs. A failed run shows its reason, and a shortened list says how many it left
+out. Opening a run shows its report. The page is read-only and cannot start a
+job. It shows the history of the machine serving the site, and it reads
+`schedules.toml` and `artifacts/scheduled` from the folder the site was started
+in, so start `oris-web` from the project folder.
+
 ## Terminal interface
 
 A tabbed terminal interface runs the same graph as `oris`, parses the same

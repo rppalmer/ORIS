@@ -125,6 +125,23 @@ def next_run_time(cron: str, timezone: str, *, after: datetime) -> datetime:
     return when
 
 
+def job_next_run(
+    job: ScheduledJob,
+    timezone: str,
+    *,
+    after: datetime,
+) -> datetime | None:
+    """When a job next fires, or None for a job that is switched off.
+
+    A disabled job gets no time at all. Computing one would be accurate about
+    the cron and wrong about what will happen. Raises `ValueError` for a cron
+    this cannot read, as `next_run_time` does.
+    """
+    if not job.enabled:
+        return None
+    return next_run_time(job.cron, timezone, after=after)
+
+
 def load_schedule_config(path: Path = DEFAULT_SCHEDULE_FILE) -> ScheduleConfig:
     """Load and validate a TOML schedule file."""
     with path.open("rb") as schedule_file:

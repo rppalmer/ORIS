@@ -4,10 +4,11 @@
     ["Chat", "/"],
     ["Tools", "/tools"],
     ["Status", "/status"],
+    ["Runs", "/runs"],
   ];
   const path = location.pathname;
   const inChat = path.startsWith("/chat/");
-  const current = inChat ? "/" : path;
+  const current = inChat ? "/" : `/${path.split("/")[1]}`;
 
   // Remembered per tab, because a conversation has no other way to be found
   // again once you have moved to another page.

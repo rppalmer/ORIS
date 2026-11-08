@@ -8,6 +8,44 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-11-08 — The web site shows scheduled jobs and past runs
+
+A new **Runs** page lists each scheduled job with when it next runs, then the
+most recent runs. Opening a run shows its report, formatted the same way as a
+chat answer. It uses the same data as `/runs` and `/schedule`, which until now
+could only be read one command at a time in a terminal.
+
+**Failures are rows like any other, with the reason on the row.** A failed run
+deletes its report, so its record is the only trace it leaves. The page's first
+load against real history showed ten of the latest twenty runs had failed with
+connection errors, which is the kind of thing this page exists to make obvious.
+
+**It says when it has shortened the list.** A list that quietly stops at twenty
+reads as the full history.
+
+**It is read-only.** There is no button to start a job, because a run takes
+minutes and calls live providers, and the site has no login.
+
+**A broken schedule file does not hide the history.** Past runs are still true
+when `schedules.toml` is missing or invalid, so the page reports the problem and
+shows them anyway. A job with an unreadable cron is named on its own row.
+
+**The rule for a disabled job moved into one place.** Both this page and
+`/schedule` need to say that a disabled job has no next run, so that rule now
+lives beside the schedule code rather than inside the terminal's rendering.
+
+**A run opens only by its full ID.** `/runs` accepts a short prefix because people
+type it. A link carries the whole ID, so a partial match here could only ever be
+the wrong run.
+
+Reports are built from web pages, so they get the same treatment as answers: raw
+HTML is shown as text and images become links. The formatting styles moved from
+the chat page into the shared stylesheet so both look alike.
+
+Checked with seven more tests over HTTP, using records in the format the
+scheduler writes, and through the page's own JavaScript against 24 real run
+records, opening both a successful report and a failed run.
+
 ## 2026-11-08 — The web site shows whether ThreatSyft is ready
 
 A new **Status** page lists each ThreatSyft provider with whether its API key is

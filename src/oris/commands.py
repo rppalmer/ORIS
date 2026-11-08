@@ -33,8 +33,8 @@ from oris.scheduled_run_history import (
 )
 from oris.schedules import (
     DEFAULT_SCHEDULE_FILE,
+    job_next_run,
     load_schedule_config,
-    next_run_time,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle: knowledge imports this
@@ -457,9 +457,6 @@ def render_schedule(
     Times are in the schedule's own timezone, because a schedule written for
     Detroit answered in UTC is a schedule read wrong.
 
-    A disabled job gets no next-run time. Computing one would be accurate about
-    the cron and wrong about what will happen.
-
     A cron this cannot read is named on its own row rather than taking the
     command down. `ScheduleConfig` only requires that `cron` is a non-empty
     string, so a malformed expression loads happily and fails much later when
@@ -483,15 +480,16 @@ def render_schedule(
     table.add_column("Cron", style="dim", no_wrap=True)
     table.add_column("Next run", no_wrap=True)
     for job in config.jobs:
-        if not job.enabled:
-            when = Text("disabled", style="dim")
+        try:
+            fires = job_next_run(job, config.timezone, after=after)
+        except ValueError as error:
+            when = Text(f"invalid cron: {error}", style="red")
         else:
-            try:
-                fires = next_run_time(job.cron, config.timezone, after=after)
-            except ValueError as error:
-                when = Text(f"invalid cron: {error}", style="red")
-            else:
-                when = Text(f"{fires:%b %d %H:%M}", style="green")
+            when = (
+                Text("disabled", style="dim")
+                if fires is None
+                else Text(f"{fires:%b %d %H:%M}", style="green")
+            )
         table.add_row(Text(job.id), Text(job.task), Text(job.cron), when)
 
     return Group(table, Text(f"Times are {config.timezone}.", style="dim"))

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ORIS Runs</title>
+<!-- Links inside a report open beside it rather than replacing it. -->
+<base target="_blank">
+<link rel="stylesheet" href="/web.css">
+<style>
+  main { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  h1 { margin: 0; font-size: 1.35rem; }
+  h2 { margin: 1.5rem 0 0.5rem; font-size: 1rem; }
+  .scroll { overflow-x: auto; }
+  .data-table { width: 100%; }
+  .muted { color: var(--muted); }
+  .note { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.9rem; }
+  .bad { color: var(--error); }
+  .data-table a, .back { color: var(--accent); }
+  .back { display: inline-block; margin-bottom: 0.75rem; font-size: 0.9rem; text-decoration: none; }
+  .status-succeeded { color: var(--accent); }
+  .status-failed, .status-unreadable { color: var(--error); }
+  /* Two lines at most, so one long failure cannot push the other rows away.
+     Opening the run shows all of it. */
+  .reason {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    max-width: 30rem;
+    color: var(--error);
+    font-size: 0.85rem;
+  }
+  #meta { margin: 0.15rem 0 1.5rem; color: var(--muted); }
+  #full-error { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--error); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">ORIS</div>
+  <nav></nav>
+</header>
+<script src="/web.js"></script>
+<main>
+  <p id="message" class="muted" role="status">Loading…</p>
+  <div id="list" hidden>
+    <h1>Scheduled runs</h1>
+    <h2>Jobs</h2>
+    <p id="schedule-error" class="bad" hidden></p>
+    <div class="scroll"><table class="data-table" id="jobs"></table></div>
+    <h2>Recent runs</h2>
+    <div class="scroll"><table class="data-table" id="runs"></table></div>
+    <p class="note" id="count"></p>
+  </div>
+  <div id="detail" hidden>
+    <a class="back" href="/runs" target="_self">← All runs</a>
+    <h1 id="detail-title"></h1>
+    <p id="meta"></p>
+    <p id="full-error" hidden></p>
+    <div id="report" class="oris"></div>
+  </div>
+</main>
+<script>
+  const message = document.querySelector("#message");
+  const wantedRun = location.pathname.split("/")[2];
+
+  function element(tag, text, className) {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    if (className) node.className = className;
+    return node;
+  }
+
+  function when(moment) {
+    if (!moment) return "unknown";
+    return new Date(moment).toLocaleString([], {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  }
+
+  function took(seconds) {
+    if (seconds === null) return "—";
+    return seconds < 90 ? `${Math.round(seconds)}s` : `${Math.round(seconds / 60)}m`;
+  }
+
+  const runLabel = (status) => status.replaceAll("_", " ");
+
+  function heading(table, labels) {
+    const row = table.createTHead().insertRow();
+    for (const label of labels) row.append(element("th", label));
+    return table.createTBody();
+  }
+
+  function nextRun(job) {
+    if (job.problem) return `invalid schedule: ${job.problem}`;
+    return job.enabled ? when(job.next_run) : "disabled";
+  }
+
+  function showJobs(jobs) {
+    const body = heading(document.querySelector("#jobs"), ["Job", "Task", "Schedule", "Next run"]);
+    for (const job of jobs) {
+      const row = body.insertRow();
+      if (job.problem) row.className = "bad";
+      for (const text of [job.id, runLabel(job.task), job.cron, nextRun(job)]) {
+        row.insertCell().textContent = text;
+      }
+    }
+  }
+
+  function showRuns(runs) {
+    const body = heading(document.querySelector("#runs"), ["Started", "Job", "Took", "Status"]);
+    for (const run of runs) {
+      const row = body.insertRow();
+      const link = element("a", when(run.started_at));
+      link.href = `/runs/${encodeURIComponent(run.run_id)}`;
+      link.target = "_self";
+      row.insertCell().append(link);
+      row.insertCell().textContent = run.job_id;
+      row.insertCell().textContent = took(run.duration_seconds);
+      const state = row.insertCell();
+      state.append(element("span", run.status, `status-${run.status}`));
+      if (run.error) state.append(element("div", run.error, "reason"));
+    }
+  }
+
+  function showList(body) {
+    const failure = document.querySelector("#schedule-error");
+    failure.textContent = body.schedule_error ?? "";
+    failure.hidden = !body.schedule_error;
+    if (body.jobs.length) showJobs(body.jobs);
+    if (body.runs.length) showRuns(body.runs);
+    document.querySelector("#count").textContent = body.total === 0
+      ? "No scheduled runs recorded yet."
+      : body.truncated
+        ? `Showing ${body.runs.length} of ${body.total} runs.`
+        : `${body.total} ${body.total === 1 ? "run" : "runs"}.`;
+    document.querySelector("#list").hidden = false;
+  }
+
+  function showDetail({ run, html }) {
+    document.title = `${run.job_id} · ORIS Runs`;
+    document.querySelector("#detail-title").textContent = run.job_id;
+    const parts = [when(run.started_at), run.status];
+    if (run.duration_seconds !== null) parts.push(`took ${took(run.duration_seconds)}`);
+    parts.push(`run ${run.short_id}`);
+    document.querySelector("#meta").textContent = parts.join(" · ");
+    const failure = document.querySelector("#full-error");
+    failure.textContent = run.error ?? "";
+    failure.hidden = !run.error;
+    const report = document.querySelector("#report");
+    // Already made safe on the server, the same way as a chat answer.
+    if (html !== null) report.innerHTML = html;
+    else if (!run.error) report.textContent = "This run kept no report.";
+    document.querySelector("#detail").hidden = false;
+  }
+
+  async function load() {
+    const address = wantedRun ? `/api/runs/${wantedRun}` : "/api/runs";
+    try {
+      const response = await fetch(address);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        message.textContent = body.error || `The page could not load (${response.status}).`;
+        message.className = "bad";
+        return;
+      }
+      message.hidden = true;
+      if (wantedRun) showDetail(body);
+      else showList(body);
+    } catch {
+      message.textContent = "Could not reach ORIS.";
+      message.className = "bad";
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>

@@ -31,46 +31,9 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  .oris { overflow-wrap: anywhere; }
   .thinking { color: var(--muted); animation: pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.45; } }
   @media (prefers-reduced-motion: reduce) { .thinking { animation: none; } }
-
-  .oris > :first-child { margin-top: 0; }
-  .oris > :last-child { margin-bottom: 0; }
-  .oris h1, .oris h2, .oris h3 { line-height: 1.3; margin: 1.3em 0 0.5em; }
-  .oris h1 { font-size: 1.35rem; }
-  .oris h2 { font-size: 1.2rem; }
-  .oris h3 { font-size: 1.05rem; }
-  .oris a { color: var(--accent); }
-  .oris code {
-    font-family: var(--mono);
-    font-size: 0.88em;
-    padding: 0.1em 0.3em;
-    border-radius: 0.3em;
-    background: var(--surface);
-  }
-  .oris pre {
-    padding: 0.8rem 1rem;
-    border-radius: 0.6rem;
-    background: var(--surface);
-    overflow-x: auto;
-  }
-  .oris pre code { padding: 0; background: none; }
-  .oris blockquote {
-    margin: 1em 0;
-    padding-left: 1em;
-    border-left: 3px solid var(--line);
-    color: var(--muted);
-  }
-  .oris table { display: block; overflow-x: auto; border-collapse: collapse; }
-  .oris th, .oris td {
-    padding: 0.35rem 0.8rem;
-    border: 1px solid var(--line);
-    text-align: left;
-    overflow-wrap: normal;
-  }
-  .oris th { background: var(--surface); }
 
   form {
     display: flex;

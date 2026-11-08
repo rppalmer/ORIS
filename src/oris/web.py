@@ -7,13 +7,17 @@ The site is being built one feature at a time. Chat is plain chat with the
 model, through the same graph the other interfaces use, so the system prompt,
 history limits, tracing and saved conversations all come from there. Tools looks
 up an indicator, CVE or threat actor with ThreatSyft and shows what came back,
-with no model involved. Status says whether ThreatSyft is ready to do that.
+with no model involved. Status says whether ThreatSyft is ready to do that. Runs
+shows the scheduled jobs, what they did, and the reports they wrote.
 """
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import uvicorn
 from langchain_core.messages import HumanMessage
@@ -27,6 +31,12 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 
 from oris.config import load_settings
+from oris.scheduled_run_history import DEFAULT_ROOT, ScheduledRun, ScheduledRunHistory
+from oris.schedules import (
+    DEFAULT_SCHEDULE_FILE,
+    job_next_run,
+    load_schedule_config,
+)
 from oris.sessions import session_transcript
 from oris.threat_intel import call_tool
 
@@ -35,10 +45,12 @@ PORT = 8420
 CHAT_PAGE = Path(__file__).with_name("web_chat.html")
 TOOLS_PAGE = Path(__file__).with_name("web_tools.html")
 STATUS_PAGE = Path(__file__).with_name("web_status.html")
+RUNS_PAGE = Path(__file__).with_name("web_runs.html")
 STYLES = Path(__file__).with_name("web.css")
 NAVIGATION = Path(__file__).with_name("web.js")
 LOOKUP_TOOLS = frozenset({"enrich", "lookup"})
 """The ThreatSyft tools the Tools page offers, and the only ones it can reach."""
+_RECORDED_RUNS = ScheduledRunHistory(DEFAULT_ROOT)
 
 # Answers can carry text from the open web, and the page inserts this output as
 # HTML, so raw HTML stays off. Images stay off as well: a browser fetches one the
@@ -70,10 +82,60 @@ def _threatsyft_failed(error: Exception) -> JSONResponse:
     )
 
 
+def _schedule(path: Path) -> dict[str, Any]:
+    """The configured jobs and when each next fires.
+
+    A file that cannot be read is reported rather than raised, because the
+    history of past runs is still worth showing without it.
+    """
+    try:
+        config = load_schedule_config(path)
+    except (OSError, ValueError) as error:
+        return {"jobs": [], "schedule_error": f"Could not read {path}: {error}"}
+
+    now = datetime.now(ZoneInfo(config.timezone))
+    jobs = []
+    for job in config.jobs:
+        next_run = problem = None
+        try:
+            fires = job_next_run(job, config.timezone, after=now)
+            next_run = fires.isoformat() if fires else None
+        except ValueError as error:
+            problem = str(error)
+        jobs.append(
+            {
+                "id": job.id,
+                "task": job.task,
+                "cron": job.cron,
+                "enabled": job.enabled,
+                "next_run": next_run,
+                "problem": problem,
+            }
+        )
+    return {"jobs": jobs, "schedule_error": None}
+
+
+def _run(run: ScheduledRun) -> dict[str, Any]:
+    """One recorded run, as the page shows it."""
+    return {
+        "run_id": run.run_id,
+        "short_id": run.short_id,
+        "job_id": run.job_id,
+        "task": run.task,
+        "status": run.status,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "duration_seconds": run.duration_seconds,
+        "error": run.error,
+        "has_report": run.has_report,
+    }
+
+
 def create_app(
     graph: CompiledStateGraph,
     checkpoint_database_path: Path,
     load_threatsyft: Callable[[], Awaitable[dict[str, BaseTool]]],
+    runs: ScheduledRunHistory = _RECORDED_RUNS,
+    schedule_file: Path = DEFAULT_SCHEDULE_FILE,
 ) -> Starlette:
     """Build the site around one compiled graph and its conversation store.
 
@@ -139,6 +201,32 @@ def create_app(
             return _threatsyft_failed(error)
         return JSONResponse({"enrichment": enrichment, "knowledge": knowledge})
 
+    def run_list(_request: Request) -> JSONResponse:
+        listing = runs.recent()
+        return JSONResponse(
+            {
+                **_schedule(schedule_file),
+                "runs": [_run(run) for run in listing.runs],
+                "total": listing.total,
+                "truncated": listing.truncated,
+            }
+        )
+
+    def run_detail(request: Request) -> JSONResponse:
+        wanted = request.path_params["run_id"]
+        # `find` matches on a prefix for people typing short IDs. A link always
+        # carries the whole ID, so anything less is not this run.
+        run = next((r for r in runs.find(wanted) if r.run_id == wanted), None)
+        if run is None:
+            return JSONResponse({"error": "No such run."}, status_code=404)
+        report = runs.read_report(run)
+        return JSONResponse(
+            {
+                "run": _run(run),
+                "html": None if report is None else _markdown.render(report),
+            }
+        )
+
     return Starlette(
         routes=[
             Route("/", new_conversation),
@@ -147,6 +235,10 @@ def create_app(
             Route("/tools", _file(TOOLS_PAGE, "text/html")),
             Route("/status", _file(STATUS_PAGE, "text/html")),
             Route("/api/status", status),
+            Route("/runs", _file(RUNS_PAGE, "text/html")),
+            Route("/runs/{run_id}", _file(RUNS_PAGE, "text/html")),
+            Route("/api/runs", run_list),
+            Route("/api/runs/{run_id}", run_detail),
             Route("/api/tools/{tool}", look_up, methods=["POST"]),
             Route("/chat/{conversation_id:uuid}", _file(CHAT_PAGE, "text/html")),
             Route("/api/chat/{conversation_id:uuid}", conversation),

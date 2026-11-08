@@ -3,17 +3,20 @@
 There is no login. The network it listens on is trusted, and authentication is
 a later feature, so anyone who can reach the port can use the chat.
 
-The site is being built one feature at a time. It starts as plain chat with the
+The site is being built one feature at a time. Chat is plain chat with the
 model, through the same graph the other interfaces use, so the system prompt,
-history limits, tracing and saved conversations all come from there.
+history limits, tracing and saved conversations all come from there. Tools looks
+up an indicator with ThreatSyft and shows what came back, with no model involved.
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from uuid import uuid4
 
 import uvicorn
 from langchain_core.messages import HumanMessage
+from langchain_core.tools import BaseTool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph.state import CompiledStateGraph
 from markdown_it import MarkdownIt
@@ -24,10 +27,13 @@ from starlette.routing import Route
 
 from oris.config import load_settings
 from oris.sessions import session_transcript
+from oris.threat_intel import call_tool
 
 HOST = "0.0.0.0"
 PORT = 8420
 CHAT_PAGE = Path(__file__).with_name("web_chat.html")
+TOOLS_PAGE = Path(__file__).with_name("web_tools.html")
+STYLES = Path(__file__).with_name("web.css")
 
 # Answers can carry text from the open web, and the page inserts this output as
 # HTML, so raw HTML stays off. Images stay off as well: a browser fetches one the
@@ -46,8 +52,14 @@ def _message(role: str, text: str) -> dict[str, str]:
 def create_app(
     graph: CompiledStateGraph,
     checkpoint_database_path: Path,
+    load_enrich_tool: Callable[[], Awaitable[BaseTool]],
 ) -> Starlette:
-    """Build the site around one compiled graph and its conversation store."""
+    """Build the site around one compiled graph and its conversation store.
+
+    ThreatSyft is loaded on the first lookup rather than here, so the site still
+    starts and chats on a machine where ThreatSyft is missing or broken.
+    """
+    enrich_tool: BaseTool | None = None
 
     def new_conversation(_request: Request) -> RedirectResponse:
         # The server picks the ID because browsers only offer random UUIDs on
@@ -82,9 +94,31 @@ def create_app(
             {"html": _markdown.render(str(result["messages"][-1].text))}
         )
 
+    def tools_page(_request: Request) -> FileResponse:
+        return FileResponse(TOOLS_PAGE, media_type="text/html")
+
+    def styles(_request: Request) -> FileResponse:
+        return FileResponse(STYLES, media_type="text/css")
+
+    async def enrich(request: Request) -> JSONResponse:
+        nonlocal enrich_tool
+        indicator = (await request.json())["indicator"]
+        try:
+            if enrich_tool is None:
+                enrich_tool = await load_enrich_tool()
+            return JSONResponse(await call_tool(enrich_tool, {"indicator": indicator}))
+        except Exception as error:  # noqa: BLE001 - a failed lookup is not a crash
+            return JSONResponse(
+                {"error": f"ThreatSyft could not run the lookup: {error}"},
+                status_code=502,
+            )
+
     return Starlette(
         routes=[
             Route("/", new_conversation),
+            Route("/web.css", styles),
+            Route("/tools", tools_page),
+            Route("/api/tools/enrich", enrich, methods=["POST"]),
             Route("/chat/{conversation_id:uuid}", chat_page),
             Route("/api/chat/{conversation_id:uuid}", conversation),
             Route(
@@ -104,12 +138,12 @@ async def _serve() -> None:
 
     # Imported here because importing it loads the settings and builds the
     # model, which should not happen merely by importing this module.
-    from oris.web_research_app import build_oris_graph
+    from oris.web_research_app import build_oris_graph, load_enrich_tool
 
     async with AsyncSqliteSaver.from_conn_string(str(database_path)) as checkpointer:
         graph = await build_oris_graph(checkpointer)
-        config = uvicorn.Config(create_app(graph, database_path), host=HOST, port=PORT)
-        await uvicorn.Server(config).serve()
+        app = create_app(graph, database_path, load_enrich_tool)
+        await uvicorn.Server(uvicorn.Config(app, host=HOST, port=PORT)).serve()
 
 
 def main() -> None:

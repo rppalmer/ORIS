@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
@@ -115,8 +116,8 @@ async def build_podcast_catch_up_graph() -> CompiledStateGraph:
     )
 
 
-async def build_threat_intel_graph() -> CompiledStateGraph:
-    """Load the approved ThreatSyft tools and compile Threat Intel."""
+async def _threatsyft_tools() -> tuple[BaseTool, ...]:
+    """Load the approved ThreatSyft tools, or say why they cannot be loaded."""
     python_executable = settings.threatsyft_python_executable
     project_root = settings.threatsyft_root
     if python_executable is None or project_root is None:
@@ -124,8 +125,19 @@ async def build_threat_intel_graph() -> CompiledStateGraph:
             "THREATSYFT_PYTHON_EXECUTABLE and THREATSYFT_ROOT are required "
             "for Threat Intel"
         )
-    tools = await load_threat_intel_tools(python_executable, project_root)
+    return await load_threat_intel_tools(python_executable, project_root)
+
+
+async def build_threat_intel_graph() -> CompiledStateGraph:
+    """Load the approved ThreatSyft tools and compile Threat Intel."""
+    tools = await _threatsyft_tools()
     return create_threat_intel_graph(*tools, model, report_store=threat_report_store)
+
+
+async def load_enrich_tool() -> BaseTool:
+    """The one ThreatSyft tool the web site's Tools page calls."""
+    _extract_tool, enrich_tool, _lookup_tool, _search_tool = await _threatsyft_tools()
+    return enrich_tool
 
 
 async def build_oris_graph(

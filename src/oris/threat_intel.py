@@ -144,6 +144,19 @@ def _structured_content(result: object, tool_name: str) -> dict[str, Any]:
     return content
 
 
+async def call_tool(tool: BaseTool, args: dict[str, Any]) -> dict[str, Any]:
+    """Run one ThreatSyft tool and return its response envelope."""
+    result = await tool.ainvoke(
+        {
+            "type": "tool_call",
+            "id": str(uuid4()),
+            "name": tool.name,
+            "args": args,
+        }
+    )
+    return _structured_content(result, tool.name)
+
+
 MINIMUM_CITATION_STEM = 3
 
 # Report shaping. Values are grouped by subject and then by field rather than by
@@ -367,17 +380,6 @@ def create_threat_intel_graph(
         ThreatIntelPlan,
         method="json_schema",
     )
-
-    async def call_tool(tool: BaseTool, args: dict[str, Any]) -> dict[str, Any]:
-        result = await tool.ainvoke(
-            {
-                "type": "tool_call",
-                "id": str(uuid4()),
-                "name": tool.name,
-                "args": args,
-            }
-        )
-        return _structured_content(result, tool.name)
 
     def validate_request(state: ThreatIntelState) -> dict[str, object]:
         """Accept the request and honour any explicit leading keywords.

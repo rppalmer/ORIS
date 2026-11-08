@@ -8,6 +8,49 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-11-08 — The web site gains a tools page for indicator lookups
+
+The site now has a **Tools** page. You enter an IP address, domain, URL, file
+hash or `company:<name>`, and it shows what each of ThreatSyft's sources
+returned. Until now the only way to look one up was `/threat`, where a model
+reads the evidence and writes about it. Here no model is involved, so the same
+data is always drawn the same way.
+
+**ThreatSyft decides what the indicator is.** The page sends whatever was typed
+and shows the reply, including a rejection. Classifying it here would be a second
+copy of a rule ThreatSyft owns. CVE and ATT&CK lookups are a separate tool with
+different results and were left for later.
+
+**One general layout draws every source.** Providers return fields under their
+own names, so a designed card for each would mean keeping a copy of about twenty
+formats in ORIS, which the project's rules on MCP servers forbid. The layout works
+only from the shape of the data: fields become labelled rows, short uniform lists
+become tables, and long nested lists fold away. Records with more than five
+columns or with nested fields are stacked instead of tabled, because a wide table
+in a card squeezed its text to one letter per line on a real company lookup. Nicer
+treatment for particular sources can be added later, once real use shows which
+ones deserve it.
+
+**A lookup only runs on an explicit press.** Each one sends the indicator to
+outside providers and spends API credits, and SecurityTrails allows only 50 free
+requests a month. The address does not carry the indicator, so reloading cannot
+repeat a lookup. Results are not saved yet.
+
+**Provider text is never treated as HTML or made clickable.** WHOIS records and
+similar fields can hold text written by whoever controls the address being
+investigated.
+
+**ThreatSyft connects on the first lookup**, so the site still starts and chats
+without it. A failure says why and costs only that lookup. The function that
+calls a ThreatSyft tool moved out of the Threat Intel graph so both can use it.
+
+Checked with four more tests over HTTP using a real LangChain tool in place of
+ThreatSyft. The page's own JavaScript was then run against two sources of data: a
+stored 8.8.8.8 report with hostile HTML planted in it, which appeared only as
+text, and a real `company:CrowdStrike` lookup through ThreatSyft, which took about
+three seconds and showed one source failing with its reason. Live IP and domain
+lookups were not run during development, to avoid spending provider credits.
+
 ## 2026-11-08 — A web site, starting with plain chat
 
 ORIS can now serve a web site to the local network with `uv run oris-web`. It

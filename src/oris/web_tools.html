@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ORIS Tools</title>
+<link rel="stylesheet" href="/web.css">
+<style>
+  main { max-width: 72rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+
+  form { display: flex; gap: 0.5rem; max-width: 46rem; margin: 0 auto; }
+  input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: 0.9rem;
+    background: var(--page);
+    color: var(--text);
+    font: inherit;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  #status { max-width: 46rem; margin: 0.75rem auto 0; color: var(--muted); }
+  #status.error { color: var(--error); }
+  #summary { margin: 1.75rem 0 1rem; }
+  #summary h1 {
+    margin: 0;
+    font-size: 1.35rem;
+    font-family: var(--mono);
+    overflow-wrap: anywhere;
+  }
+  #summary p { margin: 0.15rem 0 0; color: var(--muted); }
+  #warnings { margin: 0 0 1rem; padding-left: 1.2rem; color: var(--error); }
+
+  /* Columns rather than a grid, because cards differ a lot in height. Inline
+     blocks because a plain block's bottom margin can spill to the top of the
+     next column and push its first card down. */
+  #cards { columns: 26rem; column-gap: 1rem; }
+  .card {
+    display: inline-block;
+    width: 100%;
+    margin-bottom: 1rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 0.8rem;
+  }
+  .card h2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+  }
+  .state { font-size: 0.8rem; font-weight: 500; color: var(--accent); }
+  .card.failed .state { color: var(--error); }
+
+  /* Everything a provider returned is drawn with these few shapes. */
+  dl { display: grid; grid-template-columns: minmax(6rem, auto) 1fr; gap: 0.15rem 1rem; margin: 0; }
+  dt { color: var(--muted); font-size: 0.9rem; }
+  dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 0.92rem; }
+  ul { margin: 0; padding: 0; list-style: none; }
+  .records > li + li { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--line); }
+  .none { color: var(--muted); }
+  details summary { cursor: pointer; color: var(--accent); }
+  details > div { margin-top: 0.3rem; }
+  .table { overflow-x: auto; }
+  table { border-collapse: collapse; font-size: 0.88rem; }
+  th, td { padding: 0.2rem 0.6rem; border: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: normal; }
+  th { background: var(--surface); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">ORIS</div>
+  <nav><a id="chat" href="/">Chat</a><span aria-current="page">Tools</span></nav>
+</header>
+<main>
+  <form>
+    <input placeholder="IP, domain, URL, file hash, or company:name"
+           aria-label="Indicator to look up"
+           autocomplete="off" autocapitalize="off" spellcheck="false" autofocus>
+    <button>Look up</button>
+  </form>
+  <p id="status" role="status"></p>
+  <div id="results" hidden>
+    <div id="summary"><h1></h1><p></p></div>
+    <ul id="warnings" hidden></ul>
+    <div id="cards"></div>
+  </div>
+</main>
+<script>
+  // Provider responses can hold text written by whoever controls an address or
+  // domain, so everything here is written with textContent and never as HTML.
+  // Nothing is made clickable, for the same reason.
+  const form = document.querySelector("form");
+  const input = document.querySelector("input");
+  const button = document.querySelector("button");
+  const status = document.querySelector("#status");
+  const results = document.querySelector("#results");
+  const cards = document.querySelector("#cards");
+  const warnings = document.querySelector("#warnings");
+  const [title, subtitle] = document.querySelector("#summary").children;
+
+  // A list this long is folded away so one source cannot bury the others.
+  const FOLD_AFTER = 8;
+  // A card is only so wide, so more columns than this read better as a list.
+  const MOST_TABLE_COLUMNS = 5;
+
+  function element(tag, text, className) {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    if (className) node.className = className;
+    return node;
+  }
+
+  const size = (value) => Array.isArray(value) ? value.length : Object.keys(value).length;
+  const isBranch = (value) => typeof value === "object" && value !== null;
+  const isEmpty = (value) => value === null || value === "" || (isBranch(value) && size(value) === 0);
+  const isRecord = (value) => isBranch(value) && !Array.isArray(value);
+  const columnsOf = (rows) => [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const fitsInCell = (value) => !isBranch(value) || (Array.isArray(value) && !value.some(isBranch));
+  const fitsInTable = (rows) =>
+    columnsOf(rows).length <= MOST_TABLE_COLUMNS &&
+    rows.every((row) => Object.values(row).every(fitsInCell));
+
+  function drawTable(rows) {
+    const columns = columnsOf(rows);
+    const table = element("table");
+    const heading = table.createTHead().insertRow();
+    for (const column of columns) heading.append(element("th", column.replaceAll("_", " ")));
+    const body = table.createTBody();
+    for (const row of rows) {
+      const line = body.insertRow();
+      for (const column of columns) line.insertCell().append(draw(row[column] ?? null));
+    }
+    const wrapper = element("div", undefined, "table");
+    wrapper.append(table);
+    return wrapper;
+  }
+
+  function drawFields(record) {
+    const list = element("dl");
+    for (const [key, value] of Object.entries(record)) {
+      const content = element("dd");
+      content.append(draw(value));
+      list.append(element("dt", key.replaceAll("_", " ")), content);
+    }
+    return list;
+  }
+
+  function drawList(items) {
+    const records = items.every(isRecord);
+    if (records && fitsInTable(items)) return drawTable(items);
+    const list = element("ul", undefined, records ? "records" : "");
+    for (const item of items) {
+      const entry = element("li");
+      // Each record needs to be seen to tell it from the others beside it.
+      entry.append(draw(item, !records));
+      list.append(entry);
+    }
+    return list;
+  }
+
+  function draw(value, mayFold = true) {
+    if (isEmpty(value)) return element("span", "none", "none");
+    if (!isBranch(value)) {
+      const shown = typeof value === "boolean" ? (value ? "yes" : "no") : String(value);
+      return element("span", shown);
+    }
+    const drawn = Array.isArray(value) ? drawList(value) : drawFields(value);
+    if (!mayFold || size(value) <= FOLD_AFTER) return drawn;
+    const folded = element("details");
+    folded.append(element("summary", `${size(value)} entries`));
+    const inner = element("div");
+    inner.append(drawn);
+    folded.append(inner);
+    return folded;
+  }
+
+  function card(name, source) {
+    const section = element("section", undefined, source.ok ? "card" : "card failed");
+    const heading = element("h2", name);
+    heading.append(element("span", source.ok ? "answered" : "failed", "state"));
+    section.append(heading);
+    if (source.ok) {
+      // The card itself is what the reader came for, so only what is inside it folds.
+      section.append(draw(source.data, false));
+    } else {
+      section.append(element("p", source.message, "error"));
+      section.append(drawFields({ code: source.code, ...source.details }));
+    }
+    return section;
+  }
+
+  function show(data) {
+    const { ok, failed } = data.source_summary;
+    title.textContent = data.indicator;
+    subtitle.textContent = `${data.indicator_type} · ${ok} of ${ok + failed} sources answered`;
+    warnings.replaceChildren(...data.warnings.map((warning) =>
+      element("li", typeof warning === "string" ? warning : JSON.stringify(warning))));
+    warnings.hidden = data.warnings.length === 0;
+    cards.replaceChildren(...Object.entries(data.sources).map(([name, source]) => card(name, source)));
+    results.hidden = false;
+  }
+
+  function say(text, isError) {
+    status.textContent = text;
+    status.className = isError ? "error" : "";
+  }
+
+  // Only ever runs from pressing Enter or the button. Each lookup sends the
+  // indicator to outside providers and spends API credits, so loading or
+  // refreshing the page must never start one.
+  async function lookUp() {
+    const indicator = input.value.trim();
+    if (!indicator || button.disabled) return;
+    button.disabled = true;
+    results.hidden = true;
+    say(`Looking up ${indicator}…`);
+    try {
+      const response = await fetch("/api/tools/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ indicator }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (body.ok) {
+        say("");
+        show(body.data);
+      } else {
+        say(body.error?.message || body.error || `The lookup failed (${response.status}).`, true);
+      }
+    } catch {
+      say("Could not reach ORIS.", true);
+    }
+    button.disabled = false;
+    input.select();
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    lookUp();
+  });
+
+  // Back to the conversation this tab was in, which has no other way to be found.
+  const conversation = sessionStorage.getItem("oris-chat");
+  if (conversation) document.querySelector("#chat").href = conversation;
+</script>
+</body>
+</html>

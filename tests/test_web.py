@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import httpx
 from langchain_core.messages import AIMessage
+from langchain_core.tools import BaseTool, tool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from oris.chat import create_oris_graph
@@ -28,16 +29,23 @@ def _model(answer: str | Exception) -> Mock:
     return model
 
 
+async def _threatsyft_not_used() -> BaseTool:
+    raise AssertionError("this test should not reach ThreatSyft")
+
+
 def _visit(
     tmp_path: Path,
     model: Mock,
     visit: Callable[[httpx.AsyncClient], Awaitable[Any]],
+    load_enrich_tool: Callable[[], Awaitable[BaseTool]] = _threatsyft_not_used,
 ) -> Any:
     async def run() -> Any:
         database_path = tmp_path / "checkpoints.sqlite"
         async with AsyncSqliteSaver.from_conn_string(str(database_path)) as saver:
             graph = create_oris_graph(Mock(), Mock(), Mock(), model, checkpointer=saver)
-            transport = httpx.ASGITransport(app=create_app(graph, database_path))
+            transport = httpx.ASGITransport(
+                app=create_app(graph, database_path, load_enrich_tool)
+            )
             async with httpx.AsyncClient(
                 transport=transport, base_url="http://oris"
             ) as client:
@@ -138,3 +146,111 @@ def test_the_address_of_the_site_opens_a_new_conversation(tmp_path: Path) -> Non
     assert first != second
     assert page.status_code == 200
     assert "text/html" in page.headers["content-type"]
+
+
+ENRICHED = {
+    "ok": True,
+    "tool": "enrich",
+    "query": {"indicator": "8.8.8.8"},
+    "data": {
+        "indicator": "8.8.8.8",
+        "indicator_type": "ip",
+        "source_summary": {"ok": 1, "failed": 1},
+        "sources": {
+            "dns": {"ok": True, "data": {"names": ["dns.google"]}},
+            "shodan": {
+                "ok": False,
+                "code": "authentication_error",
+                "message": "Shodan rejected the configured API key.",
+                "details": {"status_code": 401},
+            },
+        },
+        "warnings": [],
+    },
+    "error": None,
+}
+
+
+def _threatsyft(calls: list[str]) -> Callable[[], Awaitable[BaseTool]]:
+    """A real LangChain tool answering the way the MCP adapter's tools do."""
+
+    @tool("enrich", response_format="content_and_artifact")
+    async def enrich(indicator: str) -> tuple[str, dict[str, Any]]:
+        """Stand in for ThreatSyft's enrich tool."""
+        calls.append(indicator)
+        return "", {"structured_content": ENRICHED}
+
+    async def load() -> BaseTool:
+        return enrich
+
+    return load
+
+
+def test_a_lookup_shows_exactly_what_threatsyft_returned(tmp_path: Path) -> None:
+    """Every source arrives unaltered and in order, including the failed ones."""
+    calls: list[str] = []
+
+    async def visit(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.post("/api/tools/enrich", json={"indicator": "8.8.8.8"})
+
+    response = _visit(tmp_path, _model("unused"), visit, _threatsyft(calls))
+
+    assert response.status_code == 200
+    assert response.json() == ENRICHED
+    assert list(response.json()["data"]["sources"]) == ["dns", "shodan"]
+    assert calls == ["8.8.8.8"]
+
+
+def test_threatsyft_connects_on_the_first_lookup_and_only_once(
+    tmp_path: Path,
+) -> None:
+    """The site starts without ThreatSyft, and lookups reuse one connection."""
+    loads: list[int] = []
+    load_tool = _threatsyft([])
+
+    async def counted_load() -> BaseTool:
+        loads.append(1)
+        return await load_tool()
+
+    async def visit(client: httpx.AsyncClient) -> tuple[int, int]:
+        await client.get("/tools")
+        before = len(loads)
+        for _ in range(2):
+            await client.post("/api/tools/enrich", json={"indicator": "8.8.8.8"})
+        return before, len(loads)
+
+    assert _visit(tmp_path, _model("unused"), visit, counted_load) == (0, 1)
+
+
+def test_threatsyft_being_unavailable_says_why_and_chat_still_works(
+    tmp_path: Path,
+) -> None:
+    """A missing lookup service costs the lookup, not the rest of the site."""
+
+    async def unavailable() -> BaseTool:
+        raise ValueError("THREATSYFT_ROOT is required")
+
+    async def visit(client: httpx.AsyncClient) -> tuple[httpx.Response, int]:
+        failed = await client.post("/api/tools/enrich", json={"indicator": "8.8.8.8"})
+        chat = await client.post(f"/api/chat/{uuid4()}", json={"text": "Hello"})
+        return failed, chat.status_code
+
+    failed, chat_status = _visit(tmp_path, _model("Hi."), visit, unavailable)
+
+    assert failed.status_code == 502
+    assert "THREATSYFT_ROOT is required" in failed.json()["error"]
+    assert chat_status == 200
+
+
+def test_the_tools_page_and_shared_styles_are_served(tmp_path: Path) -> None:
+    """Both pages depend on these files existing where the site says they are."""
+
+    async def visit(client: httpx.AsyncClient) -> tuple[httpx.Response, httpx.Response]:
+        return await client.get("/tools"), await client.get("/web.css")
+
+    page, styles = _visit(tmp_path, _model("unused"), visit)
+
+    assert page.status_code == 200
+    assert "text/html" in page.headers["content-type"]
+    assert styles.status_code == 200
+    assert "text/css" in styles.headers["content-type"]

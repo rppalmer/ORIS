@@ -394,8 +394,8 @@ Then open `http://<oris-machine>:8420` from that machine or any other device on
 the network. **There is no login**, so anyone who can reach that port can use it.
 Only run it on a network you trust.
 
-So far the site is plain chat with the model. It does not use the specialists
-or slash commands, and its answers are not added to the `/recall` archive. Each
+**Chat** is plain chat with the model. It does not use the specialists or slash
+commands, and its answers are not added to the `/recall` archive. Each
 conversation has its own address, so refreshing keeps your place, and **New
 chat** starts another. Conversations are saved with the ones from `oris` and
 `oris-tui`, and appear in the terminal interface's session list.
@@ -406,6 +406,17 @@ planted image address could send conversation text to someone else's server.
 
 The answer appears all at once when it is finished. If you close the tab during
 a turn, you may not see that answer until you reload the conversation.
+
+**Tools** looks up an IP address, domain, URL, file hash, or `company:<name>`
+through ThreatSyft and lists what every source returned. The model is not
+involved, so ORIS adds no score or verdict. Sources that failed are shown with
+the reason. ThreatSyft must be configured, as it is for `/threat`; if it is not,
+the page says so and chat still works.
+
+Each lookup sends the indicator to outside providers and can spend API credits,
+so one only runs when you press **Look up**. Reloading never repeats it. Results
+are not saved, and text from providers is shown as plain text with nothing
+clickable.
 
 ## Terminal interface
 

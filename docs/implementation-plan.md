@@ -69,11 +69,10 @@ once and used by both.
 
 The web site is the third, and the interface ORIS is moving towards. It is not a
 copy of the terminal interface. It is being built one feature at a time and
-serves the trusted local network with no login. So far it is plain chat with the
-model: no specialists, slash commands or `/recall` archiving. The next planned
-feature is a tools page that looks up an IP address, domain and similar
-indicators and displays the results without involving the model. The terminal
-interface stays until a decision is made to remove it.
+serves the trusted local network with no login. So far it has plain chat with the
+model, without specialists, slash commands or `/recall` archiving, and a tools
+page that looks up indicators through ThreatSyft without involving the model. The
+terminal interface stays until a decision is made to remove it.
 
 Local Phoenix tracing, the project-owned APScheduler runtime, and scheduled run
 history are working. The scheduler can run Web Research or Podcast

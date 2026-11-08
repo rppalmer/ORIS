@@ -1,0 +1,69 @@
+/* Shared by every page of the ORIS web site. */
+:root {
+  color-scheme: light dark;
+  --page: #fbfaf8;
+  --surface: #f0eee9;
+  --text: #1f1e1b;
+  --muted: #6f6c64;
+  --line: #dedbd3;
+  --accent: #2f6b5e;
+  --on-accent: #ffffff;
+  --error: #a33a2c;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #191a1b;
+    --surface: #27292b;
+    --text: #e9e7e2;
+    --muted: #9b988f;
+    --line: #393b3e;
+    --accent: #7cc4b2;
+    --on-accent: #12211d;
+    --error: #ef9a8c;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 700; letter-spacing: 0.08em; }
+nav { display: flex; gap: 1rem; flex: 1; font-size: 0.95rem; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--text); }
+nav span { box-shadow: 0 2px 0 var(--accent); }
+.new-chat {
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-decoration: none;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.new-chat:hover { color: var(--text); border-color: var(--muted); }
+
+.error { color: var(--error); }
+
+button {
+  padding: 0.6rem 1.1rem;
+  border: none;
+  border-radius: 0.9rem;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: default; }

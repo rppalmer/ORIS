@@ -8,7 +8,8 @@ model, through the same graph the other interfaces use, so the system prompt,
 history limits, tracing and saved conversations all come from there. Tools looks
 up an indicator, CVE or threat actor with ThreatSyft and shows what came back,
 with no model involved. Status says whether ThreatSyft is ready to do that. Runs
-shows the scheduled jobs, what they did, and the reports they wrote.
+shows the scheduled jobs, what they did, and the reports they wrote. Search looks
+through Hacker News, X, arXiv and GitHub with Net-Razor, also with no model.
 """
 
 import asyncio
@@ -31,6 +32,7 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 
 from oris.config import load_settings
+from oris.net_razor import call_net_razor_tool
 from oris.scheduled_run_history import DEFAULT_ROOT, ScheduledRun, ScheduledRunHistory
 from oris.schedules import (
     DEFAULT_SCHEDULE_FILE,
@@ -46,6 +48,7 @@ CHAT_PAGE = Path(__file__).with_name("web_chat.html")
 TOOLS_PAGE = Path(__file__).with_name("web_tools.html")
 STATUS_PAGE = Path(__file__).with_name("web_status.html")
 RUNS_PAGE = Path(__file__).with_name("web_runs.html")
+SEARCH_PAGE = Path(__file__).with_name("web_search.html")
 STYLES = Path(__file__).with_name("web.css")
 NAVIGATION = Path(__file__).with_name("web.js")
 LOOKUP_TOOLS = frozenset({"enrich", "lookup"})
@@ -53,6 +56,12 @@ LOOKUP_TOOLS = frozenset({"enrich", "lookup"})
 _RECORDED_RUNS = ScheduledRunHistory(DEFAULT_ROOT)
 PAGE_SIZES = (20, 50, 100)
 """How many runs one page of the Runs list can show."""
+SEARCH_DAYS = 7
+"""How far back a search looks.
+
+A week because arXiv is always searched over at least that long, as it only
+announces on weekdays, and a single day across GitHub usually finds nothing.
+"""
 
 # Answers can carry text from the open web, and the page inserts this output as
 # HTML, so raw HTML stays off. Images stay off as well: a browser fetches one the
@@ -145,15 +154,17 @@ def create_app(
     graph: CompiledStateGraph,
     checkpoint_database_path: Path,
     load_threatsyft: Callable[[], Awaitable[dict[str, BaseTool]]],
+    load_search: Callable[[], Awaitable[BaseTool]],
     runs: ScheduledRunHistory = _RECORDED_RUNS,
     schedule_file: Path = DEFAULT_SCHEDULE_FILE,
 ) -> Starlette:
     """Build the site around one compiled graph and its conversation store.
 
-    ThreatSyft is loaded on the first lookup rather than here, so the site still
-    starts and chats on a machine where ThreatSyft is missing or broken.
+    ThreatSyft and Net-Razor are loaded on first use rather than here, so the
+    site still starts and chats on a machine where either is missing or broken.
     """
     threatsyft: dict[str, BaseTool] | None = None
+    research: BaseTool | None = None
 
     def new_conversation(_request: Request) -> RedirectResponse:
         # The server picks the ID because browsers only offer random UUIDs on
@@ -232,6 +243,29 @@ def create_app(
             }
         )
 
+    async def search(request: Request) -> JSONResponse:
+        nonlocal research
+        try:
+            if research is None:
+                research = await load_search()
+            body = await request.json()
+            # Net-Razor checks the sources and reports each one's failure itself.
+            return JSONResponse(
+                await call_net_razor_tool(
+                    research,
+                    {
+                        "topic": body["query"],
+                        "sources": body["sources"],
+                        "days": SEARCH_DAYS,
+                    },
+                )
+            )
+        except Exception as error:  # noqa: BLE001 - a failed search is not a crash
+            return JSONResponse(
+                {"error": f"Net-Razor could not answer: {error}"},
+                status_code=502,
+            )
+
     def run_detail(request: Request) -> JSONResponse:
         wanted = request.path_params["run_id"]
         # `find` matches on a prefix for people typing short IDs. A link always
@@ -260,6 +294,8 @@ def create_app(
             Route("/api/runs", run_list),
             Route("/api/runs/{run_id}", run_detail),
             Route("/api/tools/{tool}", look_up, methods=["POST"]),
+            Route("/search", _file(SEARCH_PAGE, "text/html")),
+            Route("/api/search", search, methods=["POST"]),
             Route("/chat/{conversation_id:uuid}", _file(CHAT_PAGE, "text/html")),
             Route("/api/chat/{conversation_id:uuid}", conversation),
             Route(
@@ -279,11 +315,17 @@ async def _serve() -> None:
 
     # Imported here because importing it loads the settings and builds the
     # model, which should not happen merely by importing this module.
-    from oris.web_research_app import build_oris_graph, load_threatsyft_by_name
+    from oris.web_research_app import (
+        build_oris_graph,
+        load_research_tool,
+        load_threatsyft_by_name,
+    )
 
     async with AsyncSqliteSaver.from_conn_string(str(database_path)) as checkpointer:
         graph = await build_oris_graph(checkpointer)
-        app = create_app(graph, database_path, load_threatsyft_by_name)
+        app = create_app(
+            graph, database_path, load_threatsyft_by_name, load_research_tool
+        )
         await uvicorn.Server(uvicorn.Config(app, host=HOST, port=PORT)).serve()
 
 

@@ -36,6 +36,10 @@ async def _threatsyft_not_used() -> dict[str, BaseTool]:
     raise AssertionError("this test should not reach ThreatSyft")
 
 
+async def _search_not_used() -> BaseTool:
+    raise AssertionError("this test should not reach Net-Razor")
+
+
 def _visit(
     tmp_path: Path,
     model: Mock,
@@ -43,6 +47,7 @@ def _visit(
     load_threatsyft: Callable[
         [], Awaitable[dict[str, BaseTool]]
     ] = _threatsyft_not_used,
+    load_search: Callable[[], Awaitable[BaseTool]] = _search_not_used,
     **site: Any,
 ) -> Any:
     async def run() -> Any:
@@ -50,7 +55,9 @@ def _visit(
         async with AsyncSqliteSaver.from_conn_string(str(database_path)) as saver:
             graph = create_oris_graph(Mock(), Mock(), Mock(), model, checkpointer=saver)
             transport = httpx.ASGITransport(
-                app=create_app(graph, database_path, load_threatsyft, **site)
+                app=create_app(
+                    graph, database_path, load_threatsyft, load_search, **site
+                )
             )
             async with httpx.AsyncClient(
                 transport=transport, base_url="http://oris"
@@ -410,6 +417,7 @@ def test_the_pages_and_shared_files_are_served(tmp_path: Path) -> None:
         "/status": "text/html",
         "/runs": "text/html",
         "/runs/any-run": "text/html",
+        "/search": "text/html",
         "/web.css": "text/css",
         "/web.js": "javascript",
     }
@@ -670,3 +678,112 @@ def test_paging_applies_within_the_chosen_job(tmp_path: Path) -> None:
     assert body["total"] == 25
     assert [run["run_id"] for run in body["runs"]][0] == "run-4"
     assert {run["job_id"] for run in body["runs"]} == {"news"}
+
+
+SEARCH_ANSWER = {
+    "call_id": "call-1",
+    "topic": "langgraph",
+    "requested_days": 7,
+    "sources": {
+        "hn": {
+            "queried": True,
+            "items_found": 1,
+            "call_id": "call-2",
+            "window": {"since": "2026-11-01T00:00:00+00:00", "until": None},
+            "errors": [],
+        },
+        "x": {
+            "queried": True,
+            "items_found": 0,
+            "call_id": None,
+            "window": {"since": "2026-11-01T00:00:00+00:00", "until": None},
+            "errors": [{"type": "expired", "message": "Sign in again."}],
+        },
+    },
+    "results": {
+        "hn": [
+            {
+                "source": "hn",
+                "canonical_url": "https://news.ycombinator.com/item?id=1",
+                "title": "A story",
+                "text": "Some text",
+                "author": {"handle": "someone", "display_name": "Someone"},
+                "published_at": "2026-11-07T12:00:00+00:00",
+            }
+        ],
+        "x": [],
+    },
+    "caveats": ["X search returned one or more errors."],
+}
+
+
+def _search(calls: list[dict[str, Any]]) -> Callable[[], Awaitable[BaseTool]]:
+    """A real LangChain tool answering the way the MCP adapter's tools do."""
+
+    @tool("net_razor_research", response_format="content_and_artifact")
+    async def research(
+        topic: str, sources: list[str], days: int
+    ) -> tuple[str, dict[str, Any]]:
+        """Stand in for Net-Razor's research tool."""
+        calls.append({"topic": topic, "sources": sources, "days": days})
+        return "", {"structured_content": SEARCH_ANSWER}
+
+    async def load() -> BaseTool:
+        calls.append({"loaded": True})
+        return research
+
+    return load
+
+
+def test_a_search_asks_for_the_chosen_sources_and_shows_the_whole_answer(
+    tmp_path: Path,
+) -> None:
+    """Results and per-source failures both reach the page, unaltered."""
+    calls: list[dict[str, Any]] = []
+
+    async def visit(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.post(
+            "/api/search", json={"query": "langgraph", "sources": ["hn", "x"]}
+        )
+
+    response = _visit(tmp_path, _model("unused"), visit, load_search=_search(calls))
+
+    assert response.status_code == 200
+    assert response.json() == SEARCH_ANSWER
+    assert calls[-1] == {"topic": "langgraph", "sources": ["hn", "x"], "days": 7}
+
+
+def test_net_razor_connects_on_the_first_search_and_only_once(tmp_path: Path) -> None:
+    """Connecting is slow, so a second search reuses the first connection."""
+    calls: list[dict[str, Any]] = []
+
+    async def visit(client: httpx.AsyncClient) -> None:
+        for _ in range(2):
+            await client.post("/api/search", json={"query": "a", "sources": ["hn"]})
+
+    _visit(tmp_path, _model("unused"), visit, load_search=_search(calls))
+
+    assert calls.count({"loaded": True}) == 1
+    assert len(calls) == 3
+
+
+def test_net_razor_being_unavailable_says_why_and_chat_still_works(
+    tmp_path: Path,
+) -> None:
+    """A missing Net-Razor costs the search page and nothing else."""
+
+    async def broken() -> BaseTool:
+        raise FileNotFoundError("Net-Razor Python executable not found")
+
+    async def visit(client: httpx.AsyncClient) -> tuple[httpx.Response, httpx.Response]:
+        search = await client.post(
+            "/api/search", json={"query": "a", "sources": ["hn"]}
+        )
+        chat = await client.post(f"/api/chat/{uuid4()}", json={"text": "Hello"})
+        return search, chat
+
+    search, chat = _visit(tmp_path, _model("Hi."), visit, load_search=broken)
+
+    assert search.status_code == 502
+    assert "Net-Razor Python executable not found" in search.json()["error"]
+    assert chat.status_code == 200

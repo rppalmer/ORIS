@@ -3,6 +3,7 @@
   const PAGES = [
     ["Chat", "/"],
     ["Tools", "/tools"],
+    ["Search", "/search"],
     ["Status", "/status"],
     ["Runs", "/runs"],
   ];

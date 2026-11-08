@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ORIS Search</title>
+<link rel="stylesheet" href="/web.css">
+<style>
+  main { max-width: 52rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+
+  .source { margin-top: 2rem; }
+  .source h2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin: 0 0 0.5rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--line);
+    font-size: 1.1rem;
+  }
+  .source h2 span { font-size: 0.85rem; font-weight: 400; color: var(--muted); }
+  .problem { margin: 0.4rem 0; color: var(--error); }
+  .none { margin: 0.4rem 0; color: var(--muted); }
+
+  .items { margin: 0; padding: 0; list-style: none; }
+  .items li { padding: 0.7rem 0; }
+  .items li + li { border-top: 1px solid var(--line); }
+  .items h3 { margin: 0; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+  .items a { color: var(--accent); text-decoration: none; }
+  .items a:hover { text-decoration: underline; }
+  .byline { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+  .snippet {
+    display: -webkit-box;
+    margin: 0.25rem 0 0;
+    font-size: 0.94rem;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">ORIS</div>
+  <nav></nav>
+</header>
+<script src="/web.js"></script>
+<main class="lookup">
+  <div class="modes" role="radiogroup" aria-label="Where to search">
+    <label><input type="radio" name="source" value="all" checked><span>All</span></label>
+    <label><input type="radio" name="source" value="hn"><span>Hacker News</span></label>
+    <label><input type="radio" name="source" value="x"><span>X</span></label>
+    <label><input type="radio" name="source" value="arxiv"><span>arXiv</span></label>
+    <label><input type="radio" name="source" value="github"><span>GitHub</span></label>
+  </div>
+  <form>
+    <input id="query" aria-label="What to search for" autocomplete="off" autofocus>
+    <button>Search</button>
+  </form>
+  <p id="status" role="status"></p>
+  <div id="results"></div>
+</main>
+<script>
+  // Everything in a result was written by a stranger on the internet, so it is
+  // all set with textContent and never as HTML.
+  const form = document.querySelector("form");
+  const input = document.querySelector("#query");
+  const button = document.querySelector("button");
+  const status = document.querySelector("#status");
+  const results = document.querySelector("#results");
+
+  const SOURCES = { hn: "Hacker News", x: "X", arxiv: "arXiv", github: "GitHub" };
+
+  function element(tag, text, className) {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    if (className) node.className = className;
+    return node;
+  }
+
+  const day = (moment) => new Date(moment).toLocaleDateString([], { dateStyle: "medium" });
+  const count = (number, noun) => `${number.toLocaleString()} ${noun}${number === 1 ? "" : "s"}`;
+
+  // These addresses come from the sources too. A browser runs a "javascript:"
+  // address when it is clicked, so only ordinary web addresses become links.
+  function isWebAddress(address) {
+    try {
+      return ["http:", "https:"].includes(new URL(address).protocol);
+    } catch {
+      return false;
+    }
+  }
+
+  function headline(item) {
+    const words = item.title ?? `Post by ${item.author.handle}`;
+    if (!isWebAddress(item.canonical_url)) return element("h3", words);
+    const link = element("a", words);
+    link.href = item.canonical_url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    const heading = element("h3");
+    heading.append(link);
+    return heading;
+  }
+
+  function result(item) {
+    const entry = element("li");
+    entry.append(
+      headline(item),
+      element("p", `${item.author.display_name || item.author.handle} · ${day(item.published_at)}`, "byline"),
+    );
+    // Hacker News and GitHub start their text with the title, already shown above.
+    const snippet = item.title ? item.text.replace(item.title, "").trim() : item.text;
+    if (snippet) entry.append(element("p", snippet, "snippet"));
+    return entry;
+  }
+
+  function tally(summary) {
+    const found = summary.total_matching === undefined
+      ? count(summary.items_found, "result")
+      : `${summary.items_found.toLocaleString()} of ${count(summary.total_matching, "result")}`;
+    return `${found} since ${day(summary.window.since)}`;
+  }
+
+  function section(source, summary, items) {
+    const part = element("section", undefined, "source");
+    const heading = element("h2", SOURCES[source]);
+    heading.append(element("span", tally(summary)));
+    part.append(heading);
+    for (const problem of summary.errors) part.append(element("p", problem.message, "problem"));
+    if (summary.incomplete_results) {
+      part.append(element("p", "GitHub's search timed out, so this list is only part of the answer.", "problem"));
+    }
+    if (items.length) {
+      const list = element("ul", undefined, "items");
+      list.append(...items.map(result));
+      part.append(list);
+    } else if (!summary.errors.length) {
+      part.append(element("p", "Nothing found.", "none"));
+    }
+    return part;
+  }
+
+  function say(text, isError) {
+    status.textContent = text;
+    status.className = isError ? "error" : "";
+  }
+
+  // Only ever runs from pressing Enter or the button. X searches use your own
+  // account, so loading or refreshing the page must never start one.
+  async function search() {
+    const query = input.value.trim();
+    if (!query || button.disabled) return;
+    const choice = document.querySelector("[name=source]:checked").value;
+    const sources = choice === "all" ? Object.keys(SOURCES) : [choice];
+    button.disabled = true;
+    results.replaceChildren();
+    say(`Searching for ${query}…`);
+    try {
+      const response = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, sources }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok) {
+        say("");
+        results.replaceChildren(...sources.map((source) =>
+          section(source, body.sources[source], body.results[source])));
+      } else {
+        say(body.error || `The search failed (${response.status}).`, true);
+      }
+    } catch {
+      say("Could not reach ORIS.", true);
+    }
+    button.disabled = false;
+    input.select();
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    search();
+  });
+  for (const choice of document.querySelectorAll("[name=source]")) {
+    choice.addEventListener("change", () => input.focus());
+  }
+</script>
+</body>
+</html>

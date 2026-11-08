@@ -143,6 +143,12 @@ async def load_threatsyft_by_name() -> dict[str, BaseTool]:
     return {tool.name: tool for tool in await _threatsyft_tools(WEB_TOOL_NAMES)}
 
 
+async def load_research_tool() -> BaseTool:
+    """Net-Razor's research tool, which the web site's Search page uses."""
+    tools = await load_community_research_tools(_net_razor_executable())
+    return tools[0]
+
+
 async def build_oris_graph(
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph:

@@ -423,6 +423,16 @@ credits, so a lookup only runs when you press **Look up**. Reloading never repea
 are not saved, and text from providers is shown as plain text with nothing
 clickable.
 
+**Search** looks through Hacker News, X, arXiv and GitHub through Net-Razor, one
+at a time or all at once, over the last 7 days. It shows up to 10 results from
+each source, with links to the originals. The model is not involved, and results
+are not ranked or merged, so **All** lists each source under its own heading. A
+source that fails shows its reason and the others still appear. A search only runs
+when you press **Search**, because X searches use your own account. Net-Razor must
+be configured, as it is for `/community`; if it is not, the page says so and chat
+still works. GitHub search needs a version of Net-Razor that includes GitHub, and
+without one the GitHub and All choices report an error.
+
 **Status** shows which ThreatSyft providers have their API keys, and when each
 local catalog was downloaded along with the command that refreshes it. It only
 reads local configuration, so it contacts no provider and spends no credits. Key

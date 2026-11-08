@@ -8,6 +8,45 @@ reference to "next" work is historical and is not the active to-do list.
 See [implementation-plan.md](implementation-plan.md) for current work and open
 questions.
 
+## 2026-11-08 — The web site can search Hacker News, X, arXiv and GitHub
+
+The site gained a Search page. One box, and a choice of All, Hacker News, X, arXiv
+or GitHub. Results show the title, author, date and a short excerpt, and link to
+the original. No model is involved.
+
+All five choices call the same Net-Razor tool, `net_razor_research`, and differ
+only in the sources they name. Net-Razor also has one search tool per source,
+which were the obvious way to build the single-source choices. They were rejected
+because they would have meant two response shapes, two ways a failure is reported,
+and ORIS running four searches side by side for All. The research tool already
+runs them side by side, and reports each source's failure on its own, so a broken
+source costs only its own section. ORIS names `github` explicitly because the
+tool leaves it out by default.
+
+All is not merged into one list. Net-Razor returns results by source and does not
+rank them, and a combined order would have to be invented in ORIS. Each source
+gets its own heading.
+
+Every search looks back 7 days. The tool's default is 1, which was too short for a
+search page. Net-Razor always gives arXiv at least a week, because arXiv only
+announces on weekdays, and it warns that one day across GitHub usually finds
+nothing. The page shows the start date each source actually used, because they
+can differ.
+
+This is the first page to make outside text clickable. The Tools page deliberately
+links nothing. Search has to link, because the original is the point of a search
+result. A link only appears for an ordinary web address, since a browser runs a
+`javascript:` address when it is clicked. All other text is written as plain text.
+
+Hacker News and GitHub begin an item's text with its title, so the page removes
+the title from the excerpt. That only showed up on real results.
+
+A search runs only when asked, as a lookup on the Tools page does, because an X
+search uses the owner's own account. For the same reason, the check against live
+Net-Razor covered Hacker News, arXiv and GitHub, and X was left out. An injected X
+failure and a hostile X post were used to confirm that a failing source leaves the
+others alone and that its text cannot run.
+
 ## 2026-11-08 — The Runs page can page through history and filter by job
 
 The Runs page stopped at the newest twenty runs, so anything older could not be
